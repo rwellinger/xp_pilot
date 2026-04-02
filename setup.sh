@@ -25,10 +25,13 @@ else
          -o "$TMP/sdk.zip" \
       || { red "SDK download failed."; red "Download manually from https://developer.x-plane.com/sdk/plugin-sdk-downloads/"; red "and extract CHeaders/XPLM → sdk/XPLM and CHeaders/Widgets → sdk/XPWidgets"; exit 1; }
     unzip -q "$TMP/sdk.zip" -d "$TMP/sdk_extracted"
-    mkdir -p "$SDK_DIR/XPLM" "$SDK_DIR/XPWidgets" "$SDK_DIR/Libraries/Win"
-    find "$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h" -exec cp {} "$SDK_DIR/XPLM/" \;
+    mkdir -p "$SDK_DIR/XPLM" "$SDK_DIR/XPWidgets" "$SDK_DIR/Libraries/Win" "$SDK_DIR/Libraries/Mac"
+    find "$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h"   -exec cp {} "$SDK_DIR/XPLM/" \;
     find "$TMP/sdk_extracted" -path "*/CHeaders/Widgets/*.h" -exec cp {} "$SDK_DIR/XPWidgets/" \;
-    find "$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib" -exec cp {} "$SDK_DIR/Libraries/Win/" \;
+    find "$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib"  -exec cp {} "$SDK_DIR/Libraries/Win/" \;
+    # macOS stub frameworks (used for linking; X-Plane provides the real ones at runtime)
+    cp -R "$TMP/sdk_extracted"/*/Libraries/Mac/*.framework "$SDK_DIR/Libraries/Mac/" 2>/dev/null || \
+    find "$TMP/sdk_extracted" -name "*.framework" -exec cp -R {} "$SDK_DIR/Libraries/Mac/" \;
     rm -rf "$TMP"
     green "SDK headers installed."
 fi

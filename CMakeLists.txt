@@ -63,11 +63,11 @@ if(APPLE)
         -Wall -Wextra -Wno-unused-parameter
         -fvisibility=hidden
     )
-    # Link directly to the framework binaries to avoid -F flag quoting issues with spaces in path.
-    set(XPLANE_PLUGINS_DIR "/Users/robertw/X-Plane 12/Resources/plugins")
+    # Use SDK stub frameworks for linking (X-Plane provides the real ones at runtime).
+    set(SDK_MAC_LIBS "${CMAKE_SOURCE_DIR}/sdk/Libraries/Mac")
     target_link_libraries(xp_pilot PRIVATE
-        "${XPLANE_PLUGINS_DIR}/XPLM.framework/Versions/Current/XPLM"
-        "${XPLANE_PLUGINS_DIR}/XPWidgets.framework/Versions/Current/XPWidgets"
+        "${SDK_MAC_LIBS}/XPLM.framework/Versions/Current/XPLM"
+        "${SDK_MAC_LIBS}/XPWidgets.framework/Versions/Current/XPWidgets"
         "-framework OpenGL"
     )
 elseif(UNIX)
