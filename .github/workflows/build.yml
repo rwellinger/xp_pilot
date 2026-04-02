@@ -75,10 +75,10 @@ jobs:
           unzip -q "$TMP/imgui.zip" -d "$TMP/"
           SRC="$TMP/imgui-1.91.9"
           cp "$SRC"/imgui.{h,cpp} vendor/imgui/
-          cp "$SRC"/imgui_{draw,tables,widgets}.{h,cpp} vendor/imgui/
+          cp "$SRC"/imgui_{draw,tables,widgets}.cpp vendor/imgui/
           cp "$SRC"/imgui_internal.h vendor/imgui/
           cp "$SRC"/imconfig.h vendor/imgui/
-          cp "$SRC"/imstb_textedit.h "$SRC"/imstb_rectpack.h "$SRC"/imstb_truetype.h vendor/imgui/
+          cp "$SRC"/imstb_textedit.h "$SRC"/imstb_rectpack.h "$SRC"/imstb_truetype.h vendor/imgui/ 2>/dev/null || true
           cp "$SRC"/backends/imgui_impl_opengl2.{h,cpp} vendor/imgui/backends/
 
           # nlohmann/json v3.11.3
