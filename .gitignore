@@ -1,0 +1,24 @@
+# Build output
+build/
+
+# X-Plane SDK headers (downloaded by setup.sh)
+sdk/
+
+# Vendor dependencies (downloaded by setup.sh)
+vendor/
+
+# macOS
+.DS_Store
+.cache/
+
+# VS Code
+.vscode/
+
+# CLion / CMake
+.idea/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+
+# Claude Code
+.claude/

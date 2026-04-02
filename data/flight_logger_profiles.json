@@ -1,0 +1,57 @@
+{
+  "_comment": [
+    "profiles: landing quality thresholds [butter, great, acceptable, hard] in fpm (negative = descent)",
+    "aircraft: ICAO match string -> profile name + optional shutdown_trigger override",
+    "shutdown_trigger values: engine (all engines off) | beacon (beacon light off) | nav_light (nav lights off)",
+    "default_shutdown_trigger applies to all aircraft unless overridden per entry"
+  ],
+  "default_shutdown_trigger": "engine",
+  "profiles": {
+    "ultra_light": [  -75, -150, -250, -400 ],
+    "light_ga":    [ -100, -200, -300, -500 ],
+    "medium_ga":   [ -125, -250, -350, -600 ],
+    "turboprop":   [ -150, -275, -400, -650 ],
+    "vlj":         [ -200, -350, -500, -750 ],
+    "heavy_jet":   [ -250, -400, -600, -850 ]
+  },
+  "aircraft": [
+    { "match": "SHRK",  "profile": "ultra_light" },
+    { "match": "ASK2",  "profile": "ultra_light" },
+    { "match": "L5",    "profile": "ultra_light" },
+
+    { "match": "C172",  "profile": "light_ga" },
+    { "match": "PA28",  "profile": "light_ga" },
+    { "match": "PA18",  "profile": "light_ga" },
+    { "match": "M7",    "profile": "light_ga" },
+    { "match": "RV10",  "profile": "light_ga" },
+
+    { "match": "SR22",  "profile": "medium_ga" },
+    { "match": "DA50",  "profile": "medium_ga" },
+    { "match": "DA42",  "profile": "medium_ga" },
+    { "match": "DA62",  "profile": "medium_ga" },
+    { "match": "BE58",  "profile": "medium_ga" },
+    { "match": "EVOL",  "profile": "medium_ga" },
+    { "match": "ALIA",  "profile": "medium_ga" },
+
+    { "match": "KODK",  "profile": "turboprop" },
+    { "match": "BE35",  "profile": "turboprop" },
+    { "match": "PC12",  "profile": "turboprop", "shutdown_trigger": "beacon" },
+    { "match": "BE9L",  "profile": "turboprop" },
+    { "match": "S76",   "profile": "turboprop" },
+
+    { "match": "C510",  "profile": "vlj" },
+    { "match": "E55P",  "profile": "vlj" },
+    { "match": "EVIC",  "profile": "vlj" },
+    { "match": "SF50",  "profile": "vlj" },
+    { "match": "C750",  "profile": "vlj" },
+
+    { "match": "GLF",   "profile": "heavy_jet" },
+    { "match": "A333",  "profile": "heavy_jet" },
+    { "match": "B738",  "profile": "heavy_jet" },
+    { "match": "MD82",  "profile": "heavy_jet" },
+    { "match": "F14",   "profile": "heavy_jet" },
+    { "match": "F4",    "profile": "heavy_jet" },
+
+    { "match": "R22",   "profile": "light_ga" }
+  ]
+}
