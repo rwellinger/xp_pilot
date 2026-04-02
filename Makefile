@@ -142,6 +142,11 @@ release:
 	@git push origin "v$(VERSION)"
 	@echo "Released v$(VERSION) and pushed tag to origin."
 
+# ── Cleanup Tags ──────────────────────────────────────────────────────────────
+cleanup-tags:
+	git fetch --prune --prune-tags origin
+	@echo "Local tags synced with remote."
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	rm -rf build build-lint

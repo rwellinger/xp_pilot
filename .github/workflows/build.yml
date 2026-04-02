@@ -10,7 +10,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install tools
         run: |
@@ -35,7 +35,7 @@ jobs:
     needs: [lint]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup dependencies
         run: make setup
@@ -44,7 +44,7 @@ jobs:
         run: make build
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xp_pilot-macos
           path: build/xp_pilot.xpl
@@ -53,7 +53,7 @@ jobs:
     needs: [lint]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install make
         run: choco install make --no-progress -y
@@ -67,7 +67,7 @@ jobs:
         run: make build-windows
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xp_pilot-windows
           path: build/Release/xp_pilot.xpl
@@ -79,16 +79,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download macOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: xp_pilot-macos
           path: dist/macos
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: xp_pilot-windows
           path: dist/windows
