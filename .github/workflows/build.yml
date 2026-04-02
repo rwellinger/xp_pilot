@@ -60,7 +60,7 @@ jobs:
           TMP=$(mktemp -d)
 
           # X-Plane SDK (headers + Windows stub libs)
-          curl -fsSL "https://developer.x-plane.com/sdk/downloads/XSDK401.zip" \
+          curl -fsSL "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK430.zip" \
                -o "$TMP/sdk.zip"
           unzip -q "$TMP/sdk.zip" -d "$TMP/sdk_extracted"
           mkdir -p sdk/XPLM sdk/XPWidgets sdk/Libraries/Win

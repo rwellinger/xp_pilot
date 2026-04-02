@@ -21,7 +21,7 @@ else
     bold "Downloading X-Plane SDK headers..."
     TMP=$(mktemp -d)
     # SDK 4.0 (X-Plane 12 compatible)
-    curl -fsSL "https://developer.x-plane.com/sdk/downloads/XSDK401.zip" \
+    curl -fsSL "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK430.zip" \
          -o "$TMP/sdk.zip" \
       || { red "SDK download failed."; red "Download manually from https://developer.x-plane.com/sdk/plugin-sdk-downloads/"; red "and extract CHeaders/XPLM → sdk/XPLM and CHeaders/Widgets → sdk/XPWidgets"; exit 1; }
     unzip -q "$TMP/sdk.zip" -d "$TMP/sdk_extracted"
