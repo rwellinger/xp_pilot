@@ -357,8 +357,8 @@ FlightData parse_flight_json(const std::string& content, const std::string& file
                 fd.landings.push_back(ld);
             }
         }
-    } catch (...) {
-        // Return partially-filled fd on parse error
+    } catch (...) { // NOLINT(bugprone-empty-catch)
+        // Return partially-filled fd on parse error — malformed JSON must not crash the logbook scan
     }
 
     return fd;

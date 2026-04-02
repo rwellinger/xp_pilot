@@ -8,7 +8,7 @@
 #include <XPLM/XPLMPlugin.h>
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
-#ifdef APL
+#if defined(__APPLE__)
 #  include <OpenGL/gl.h>
 #else
 #  include <GL/gl.h>
@@ -294,9 +294,9 @@ static void draw_logbook()
         // Open report button
         if (s_report_exists) {
             if (ImGui::Button("Open Report")) {
-#ifdef APL
+#if defined(__APPLE__)
                 system(("open \"" + s_report_html + "\"").c_str());
-#else
+#elif defined(_WIN32)
                 system(("start \"\" \"" + s_report_html + "\"").c_str());
 #endif
             }

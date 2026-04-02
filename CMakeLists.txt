@@ -91,6 +91,7 @@ elseif(WIN32)
         XPLM400=1
         WIN32_LEAN_AND_MEAN NOMINMAX
         _CRT_SECURE_NO_WARNINGS
+        _USE_MATH_DEFINES
     )
     target_compile_options(xp_pilot PRIVATE /W3)
     set_target_properties(xp_pilot PROPERTIES

@@ -32,6 +32,7 @@ jobs:
         run: clang-tidy -p build src/*.cpp
 
   build-macos:
+    needs: [lint]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +50,7 @@ jobs:
           path: build/xp_pilot.xpl
 
   build-windows:
+    needs: [lint]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

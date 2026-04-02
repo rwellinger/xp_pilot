@@ -246,7 +246,7 @@ void FlightLogger::draw_overlay()
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     float c[4] = {s_overlay_r, s_overlay_g, s_overlay_b, 1.0f};
     int x = sw / 2 - 150;
-    int y = (int)(sh * 0.12f);
+    int y = (int)((float)sh * 0.12f);
     XPLMDrawString(c, x, y, const_cast<char*>(s_overlay_text.c_str()),
                    nullptr, xplmFont_Proportional);
 }
@@ -269,7 +269,7 @@ void FlightLogger::draw_popup()
 
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     int x = sw / 2 - 200;
-    int y = (int)(sh * 0.30f) + (int)s_popup_lines.size() * 20;
+    int y = (int)((float)sh * 0.30f) + (int)s_popup_lines.size() * 20;
 
     for (auto& ln : s_popup_lines) {
         float c[4] = {ln.r, ln.g, ln.b, 1.0f};
@@ -285,9 +285,9 @@ static void show_popup(const LandingData& ld)
     auto hex = [](const std::string& h, float& r, float& g, float& b) {
         if (h.size() < 7) { r=g=b=1.f; return; }
         auto hx = [](char c) { return (c>='0'&&c<='9') ? c-'0' : (c>='a'&&c<='f') ? c-'a'+10 : c-'A'+10; };
-        r = (hx(h[1])*16+hx(h[2])) / 255.f;
-        g = (hx(h[3])*16+hx(h[4])) / 255.f;
-        b = (hx(h[5])*16+hx(h[6])) / 255.f;
+        r = (float)(hx(h[1])*16+hx(h[2])) / 255.f;
+        g = (float)(hx(h[3])*16+hx(h[4])) / 255.f;
+        b = (float)(hx(h[5])*16+hx(h[6])) / 255.f;
     };
 
     float rr,rg,rb;
@@ -564,11 +564,11 @@ static float triggers_cb(float, float, int, void*)
             s_ld_captured.agl_ft         = agl * 3.28084f;
             s_ld_captured.float_time     = s_float_final;
             s_ld_captured.flare          = eval_flare(Q, Qrad);
-            s_ld_captured.wind_speed_kts = (int)(wind_spd + 0.5f);
-            s_ld_captured.wind_dir_mag   = (int)(wind_dir  + 0.5f);
+            s_ld_captured.wind_speed_kts = (int)std::lround(wind_spd);
+            s_ld_captured.wind_dir_mag   = (int)std::lround(wind_dir);
             s_ld_captured.wind_status    = wstat;
-            s_ld_captured.headwind_kts   = (int)(hw  + 0.5f);
-            s_ld_captured.crosswind_kts  = (int)(xw  + 0.5f);
+            s_ld_captured.headwind_kts   = (int)std::lround(hw);
+            s_ld_captured.crosswind_kts  = (int)std::lround(xw);
             s_ld_captured.crosswind_side = (xw >= 0.f) ? "R" : "L";
             s_ld_captured_valid = true;
         }
@@ -797,7 +797,7 @@ void FlightLogger::init()
     char pluginPathRaw[2048] = {};
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPathRaw, nullptr, nullptr);
     std::string p(pluginPathRaw);
-#ifdef APL
+#if defined(__APPLE__)
     // macOS may return an HFS path (colon-separated, no slashes) — convert to POSIX
     if (p.find(':') != std::string::npos && p.find('/') == std::string::npos) {
         auto colon = p.find(':');
