@@ -268,8 +268,8 @@ void FlightLogger::draw_popup()
     XPLMGetScreenSize(&sw, &sh);
 
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-    int x = sw / 2 - 200;
-    int y = (int)((float)sh * 0.30f) + (int)s_popup_lines.size() * 20;
+    int x = 20;
+    int y = sh - 40;
 
     for (auto& ln : s_popup_lines) {
         float c[4] = {ln.r, ln.g, ln.b, 1.0f};
