@@ -1,10 +1,10 @@
 # xp_pilot
 
-An X-Plane 12 plugin for macOS that combines three quality-of-life features for general aviation and jet simulation:
+A native X-Plane 12 plugin for **macOS (ARM + Intel)** and **Windows** that combines three quality-of-life features for general aviation and jet simulation:
 
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
 - **Auto QNH** — automatically keeps the altimeter in sync with actual sea-level pressure
-- **Star Wars Mode** — suppresses X-Plane's 3D rain particle effect at high speed (>120 kts)
+- **Rain Blocker** — suppresses X-Plane's 3D rain particle effect at high speed (>120 kts)
 
 ---
 
@@ -34,7 +34,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 | `xp_pilot/qnh/set_qnh` | One-shot: set both baros to current QNH |
 | `xp_pilot/qnh/set_flightlevel` | One-shot: set both baros to 29.92 inHg |
 
-### Star Wars Mode (Rain Blocker)
+### Rain Blocker
 
 Suppresses X-Plane's 3D rain particles above 120 kts groundspeed. Hysteresis: rain returns below 80 kts. Toggle via the plugin menu or the command `xp_pilot/rain_blocker/toggle`.
 
@@ -42,30 +42,36 @@ Suppresses X-Plane's 3D rain particles above 120 kts groundspeed. Hysteresis: ra
 
 ## Installation
 
-**Prerequisites:** Xcode Command Line Tools, CMake 3.21+, X-Plane 12
+Download the ZIP from the [releases page](../../releases) and copy the `xp_pilot` folder into your X-Plane 12 plugins directory:
+
+```
+X-Plane 12/Resources/plugins/xp_pilot/
+├── mac_x64/xp_pilot.xpl   ← macOS (ARM + Intel universal binary)
+├── win_x64/xp_pilot.xpl   ← Windows
+└── data/
+    └── flight_logger_profiles.json
+```
+
+Flight records and HTML reports are stored next to the plugin at runtime:
+```
+data/
+├── flights/        ← JSON flight records
+└── reports/        ← HTML reports + index.html
+```
+
+No FlyWithLua required. No license needed for OpenStreetMap usage in reports.
+
+---
+
+## Building from Source
+
+**Prerequisites:** CMake 3.21+, Xcode Command Line Tools (macOS) or MSVC (Windows)
 
 ```bash
-# 1. Download dependencies (X-Plane SDK, Dear ImGui, nlohmann/json)
-./setup.sh
-
-# 2. Build
-./build.sh
-
-# 3. Install to X-Plane (ad-hoc code-signed for macOS 12+)
-./install.sh
+make setup    # Download X-Plane SDK, Dear ImGui, nlohmann/json
+make build    # Build the plugin (universal binary on macOS)
+make install  # Install + code-sign to X-Plane (macOS only)
 ```
-
-The plugin is installed to:
-```
-~/X-Plane 12/Resources/available plugins/xp_pilot/
-├── mac_x64/xp_pilot.xpl
-└── data/
-    ├── flight_logger_profiles.json
-    ├── flights/        ← JSON flight records
-    └── reports/        ← HTML reports + index.html
-```
-
-Activate it via [XLauncher](https://forums.x-plane.org/index.php?/files/file/82454-xlauncher/) or copy/symlink into `Resources/plugins/`.
 
 ---
 
@@ -77,7 +83,7 @@ Under **Plugins → xp_pilot**:
 |---|---|
 | Auto QNH | Toggle automatic QNH sync (checkbox) |
 | Open / Close Logbook | Open the in-sim flight logbook window |
-| Star Wars Mode | Toggle rain suppression at high speed (checkbox) |
+| Rain Blocker | Toggle rain suppression at high speed (checkbox) |
 
 ---
 
@@ -110,10 +116,10 @@ src/
 └── rain_blocker.*      Rain suppression at high speed
 ```
 
-`sdk/` and `vendor/` are populated by `./setup.sh` and are not committed to the repository.
+`sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.
 
 ---
 
 ## Platform
 
-macOS 12+ · Universal binary (arm64 + x86_64) · X-Plane 12
+macOS 12+ (arm64 + x86_64 universal binary) · Windows · X-Plane 12
