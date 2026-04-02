@@ -1,5 +1,6 @@
 # Build output
 build/
+build-lint/
 
 # X-Plane SDK headers (downloaded by setup.sh)
 sdk/
