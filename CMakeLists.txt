@@ -4,9 +4,11 @@ project(xp_pilot CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Universal Binary: native arm64 + x86_64 via Rosetta
-set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
-set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
+if(APPLE)
+    # Universal Binary: native arm64 + x86_64 via Rosetta
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
+endif()
 
 # ── X-Plane SDK headers ────────────────────────────────────────────────────────
 # Download once with: ./setup.sh
@@ -49,23 +51,54 @@ set_target_properties(xp_pilot PROPERTIES
     PREFIX      ""
 )
 
-target_compile_definitions(xp_pilot PRIVATE
-    APL=1 IBM=0 LIN=0    # macOS platform
-    XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
-    XPLM400=1
-    GL_SILENCE_DEPRECATION   # suppress macOS OpenGL deprecation warnings
-)
-
-target_compile_options(xp_pilot PRIVATE
-    -Wall -Wextra -Wno-unused-parameter
-    -fvisibility=hidden
-)
-
-# ── Link against X-Plane frameworks (already in X-Plane installation) ──────────
-# Link directly to the framework binaries to avoid -F flag quoting issues with spaces in path.
-set(XPLANE_PLUGINS_DIR "/Users/robertw/X-Plane 12/Resources/plugins")
-target_link_libraries(xp_pilot PRIVATE
-    "${XPLANE_PLUGINS_DIR}/XPLM.framework/Versions/Current/XPLM"
-    "${XPLANE_PLUGINS_DIR}/XPWidgets.framework/Versions/Current/XPWidgets"
-    "-framework OpenGL"
-)
+# ── Platform-specific compile definitions, flags, and libraries ────────────────
+if(APPLE)
+    target_compile_definitions(xp_pilot PRIVATE
+        APL=1 IBM=0 LIN=0
+        XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
+        XPLM400=1
+        GL_SILENCE_DEPRECATION   # suppress macOS OpenGL deprecation warnings
+    )
+    target_compile_options(xp_pilot PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+        -fvisibility=hidden
+    )
+    # Link directly to the framework binaries to avoid -F flag quoting issues with spaces in path.
+    set(XPLANE_PLUGINS_DIR "/Users/robertw/X-Plane 12/Resources/plugins")
+    target_link_libraries(xp_pilot PRIVATE
+        "${XPLANE_PLUGINS_DIR}/XPLM.framework/Versions/Current/XPLM"
+        "${XPLANE_PLUGINS_DIR}/XPWidgets.framework/Versions/Current/XPWidgets"
+        "-framework OpenGL"
+    )
+elseif(UNIX)
+    target_compile_definitions(xp_pilot PRIVATE
+        APL=0 IBM=0 LIN=1
+        XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
+        XPLM400=1
+    )
+    target_compile_options(xp_pilot PRIVATE
+        -Wall -Wextra -Wno-unused-parameter
+        -fvisibility=hidden
+    )
+    # On Linux, XPLM/XPWidgets are loaded at runtime by X-Plane — no import libs needed.
+    # Link OpenGL for compile-time resolution.
+    find_package(OpenGL REQUIRED)
+    target_link_libraries(xp_pilot PRIVATE OpenGL::GL)
+elseif(WIN32)
+    target_compile_definitions(xp_pilot PRIVATE
+        APL=0 IBM=1 LIN=0
+        XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
+        XPLM400=1
+        WIN32_LEAN_AND_MEAN NOMINMAX
+        _CRT_SECURE_NO_WARNINGS
+    )
+    target_compile_options(xp_pilot PRIVATE /W3)
+    set_target_properties(xp_pilot PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+    target_link_libraries(xp_pilot PRIVATE
+        "${CMAKE_SOURCE_DIR}/sdk/Libraries/Win/XPLM_64.lib"
+        "${CMAKE_SOURCE_DIR}/sdk/Libraries/Win/XPWidgets_64.lib"
+        opengl32
+    )
+endif()

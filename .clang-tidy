@@ -1,0 +1,16 @@
+Checks: >-
+  clang-diagnostic-*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  performance-*,
+  -performance-avoid-endl
+
+# Only report issues in our own source files, not in SDK/vendor headers
+HeaderFilterRegex: 'src/.*\.(h|hpp)$'
+
+# Treat matched checks as errors in CI
+WarningsAsErrors: 'bugprone-*'
+
+CheckOptions:
+  - key: bugprone-suspicious-string-compare.WarnOnLogicalNotComparison
+    value: 'true'

@@ -16,7 +16,7 @@
 #include <cstring>
 #include <algorithm>
 #include <deque>
-#include <dirent.h>
+#include <filesystem>
 
 using json = nlohmann::json;
 
@@ -753,20 +753,21 @@ bool&              FlightLogger::lb_needs_refresh()  { return s_lb_needs_refresh
 void FlightLogger::regen_all_reports()
 {
     std::string fdir = s_data_dir + "flights/";
-    DIR* d = opendir(fdir.c_str());
-    if (!d) {
+    // Collect .json filenames, sort for deterministic order
+    std::vector<std::string> fnames;
+    std::error_code ec;
+    auto dit = std::filesystem::directory_iterator(fdir, ec);
+    if (ec) {
         XPLMDebugString(("[xp_pilot] regen: cannot open " + fdir + "\n").c_str());
         return;
     }
-    // Collect .json filenames, sort for deterministic order
-    std::vector<std::string> fnames;
-    struct dirent* ent;
-    while ((ent = readdir(d)) != nullptr) {
-        std::string n(ent->d_name);
-        if (n.size() > 5 && n.substr(n.size()-5) == ".json")
-            fnames.push_back(n);
+    for (auto& entry : dit) {
+        if (entry.is_regular_file()) {
+            std::string n = entry.path().filename().string();
+            if (n.size() > 5 && n.substr(n.size()-5) == ".json")
+                fnames.push_back(n);
+        }
     }
-    closedir(d);
     std::sort(fnames.begin(), fnames.end());
 
     int count = 0;
@@ -796,20 +797,21 @@ void FlightLogger::init()
     char pluginPathRaw[2048] = {};
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPathRaw, nullptr, nullptr);
     std::string p(pluginPathRaw);
+#ifdef APL
+    // macOS may return an HFS path (colon-separated, no slashes) — convert to POSIX
     if (p.find(':') != std::string::npos && p.find('/') == std::string::npos) {
-        // HFS path: strip volume (everything up to and including first colon), replace rest with slashes
         auto colon = p.find(':');
         std::string posix = p.substr(colon + 1);
         for (char& c : posix) if (c == ':') c = '/';
         p = "/" + posix;
     }
-    auto s1 = p.rfind('/'); // strip xp_pilot.xpl
-    if (s1 != std::string::npos) p = p.substr(0, s1);
-    auto s2 = p.rfind('/'); // strip mac_x64
-    if (s2 != std::string::npos) p = p.substr(0, s2);
-    s_data_dir = p + "/data/";
-    system(("mkdir -p \"" + s_data_dir + "flights\"").c_str());
-    system(("mkdir -p \"" + s_data_dir + "reports\"").c_str());
+#endif
+    // Strip filename (xp_pilot.xpl) then platform directory (mac_x64 / win_x64)
+    std::filesystem::path dataPath =
+        std::filesystem::path(p).parent_path().parent_path() / "data";
+    s_data_dir = dataPath.generic_string() + "/";
+    std::filesystem::create_directories(dataPath / "flights");
+    std::filesystem::create_directories(dataPath / "reports");
 
     find_datarefs();
     load_profiles();

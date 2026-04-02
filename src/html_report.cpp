@@ -6,7 +6,7 @@
 #include <ctime>
 #include <array>
 #include <algorithm>
-#include <dirent.h>
+#include <filesystem>
 
 using json = nlohmann::json;
 
@@ -233,17 +233,17 @@ void HtmlReport::generate_index(const std::string& data_dir)
 {
     std::string fdir = data_dir + "flights/";
 
-    // List JSON files via opendir (no shell glob needed)
-    DIR* d = opendir(fdir.c_str());
-    if (!d) return;
     std::vector<std::string> fnames;
-    struct dirent* ent;
-    while ((ent = readdir(d)) != nullptr) {
-        std::string n(ent->d_name);
-        if (n.size() > 5 && n.substr(n.size()-5) == ".json")
-            fnames.push_back(n);
+    std::error_code ec;
+    auto it = std::filesystem::directory_iterator(fdir, ec);
+    if (ec) return;
+    for (auto& entry : it) {
+        if (entry.is_regular_file()) {
+            std::string n = entry.path().filename().string();
+            if (n.size() > 5 && n.substr(n.size()-5) == ".json")
+                fnames.push_back(n);
+        }
     }
-    closedir(d);
     std::sort(fnames.begin(), fnames.end());
 
     struct Row { std::string date, start_utc, dep, arr, ac, tail, link, rating;

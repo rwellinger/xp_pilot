@@ -8,7 +8,11 @@
 #include <XPLM/XPLMPlugin.h>
 #include <imgui.h>
 #include <backends/imgui_impl_opengl2.h>
-#include <OpenGL/gl.h>
+#ifdef APL
+#  include <OpenGL/gl.h>
+#else
+#  include <GL/gl.h>
+#endif
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -18,7 +22,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <dirent.h>
+#include <filesystem>
 
 // ════════════════════════════════════════════════════════════════
 // State
@@ -61,17 +65,17 @@ static void load_entries()
     s_detail_loaded = false;
 
     const std::string fdir = FlightLogger::data_dir() + "flights/";
-    DIR* d = opendir(fdir.c_str());
-    if (!d) return;
-
     std::vector<std::string> fnames;
-    struct dirent* ent;
-    while ((ent = readdir(d)) != nullptr) {
-        std::string n(ent->d_name);
-        if (n.size() > 5 && n.substr(n.size()-5) == ".json")
-            fnames.push_back(n);
+    std::error_code ec;
+    auto dit = std::filesystem::directory_iterator(fdir, ec);
+    if (ec) return;
+    for (auto& entry : dit) {
+        if (entry.is_regular_file()) {
+            std::string n = entry.path().filename().string();
+            if (n.size() > 5 && n.substr(n.size()-5) == ".json")
+                fnames.push_back(n);
+        }
     }
-    closedir(d);
     // Sort descending (newest first) — filenames start with date
     std::sort(fnames.begin(), fnames.end(), std::greater<std::string>());
 
@@ -289,8 +293,13 @@ static void draw_logbook()
 
         // Open report button
         if (s_report_exists) {
-            if (ImGui::Button("Open Report"))
+            if (ImGui::Button("Open Report")) {
+#ifdef APL
                 system(("open \"" + s_report_html + "\"").c_str());
+#else
+                system(("start \"\" \"" + s_report_html + "\"").c_str());
+#endif
+            }
             ImGui::SameLine();
         }
 

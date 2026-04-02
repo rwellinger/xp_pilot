@@ -11,6 +11,22 @@ vendor/
 .DS_Store
 .cache/
 
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Visual Studio / MSVC
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+.vs/
+*.pdb
+*.ilk
+*.exp
+*.lib
+# (but not sdk/Libraries/Win/*.lib — those are excluded via sdk/ already)
+
 # VS Code
 .vscode/
 

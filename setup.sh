@@ -25,9 +25,10 @@ else
          -o "$TMP/sdk.zip" \
       || { red "SDK download failed."; red "Download manually from https://developer.x-plane.com/sdk/plugin-sdk-downloads/"; red "and extract CHeaders/XPLM → sdk/XPLM and CHeaders/Widgets → sdk/XPWidgets"; exit 1; }
     unzip -q "$TMP/sdk.zip" -d "$TMP/sdk_extracted"
-    mkdir -p "$SDK_DIR/XPLM" "$SDK_DIR/XPWidgets"
+    mkdir -p "$SDK_DIR/XPLM" "$SDK_DIR/XPWidgets" "$SDK_DIR/Libraries/Win"
     find "$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h" -exec cp {} "$SDK_DIR/XPLM/" \;
     find "$TMP/sdk_extracted" -path "*/CHeaders/Widgets/*.h" -exec cp {} "$SDK_DIR/XPWidgets/" \;
+    find "$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib" -exec cp {} "$SDK_DIR/Libraries/Win/" \;
     rm -rf "$TMP"
     green "SDK headers installed."
 fi
