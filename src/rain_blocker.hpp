@@ -4,9 +4,10 @@
 // Port of no_starwars_rain.lua.
 // Hysteresis: rain off >120 kts GS, rain back on <80 kts GS.
 
-namespace RainBlocker {
-    void init();
-    void stop();
-    void toggle();
-    bool enabled();
-}
+namespace RainBlocker
+{
+void init();
+void stop();
+void toggle();
+bool enabled();
+} // namespace RainBlocker

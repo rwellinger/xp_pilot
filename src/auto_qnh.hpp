@@ -11,10 +11,11 @@
 //   Warning:   "CHECK ALTIMETER - QNH not set" drawn on screen when drift > threshold.
 //   Copilot mismatch warning: drawn when PF/PM disagree by >0.01 inHg.
 
-namespace AutoQNH {
-    void init();
-    void stop();
-    void draw();         // called from draw callback — renders warning text if needed
-    void toggle_auto();  // toggle auto-QNH mode
-    bool auto_enabled(); // current auto-QNH state
-}
+namespace AutoQNH
+{
+void init();
+void stop();
+void draw();         // called from draw callback — renders warning text if needed
+void toggle_auto();  // toggle auto-QNH mode
+bool auto_enabled(); // current auto-QNH state
+} // namespace AutoQNH

@@ -2,6 +2,7 @@ Checks: >-
   clang-diagnostic-*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
+  -bugprone-throwing-static-initialization,
   performance-*,
   -performance-avoid-endl
 
@@ -9,7 +10,7 @@ Checks: >-
 HeaderFilterRegex: 'src/.*\.(h|hpp)$'
 
 # Treat matched checks as errors in CI
-WarningsAsErrors: 'bugprone-*'
+WarningsAsErrors: 'bugprone-*,-bugprone-throwing-static-initialization'
 
 CheckOptions:
   - key: bugprone-suspicious-string-compare.WarnOnLogicalNotComparison

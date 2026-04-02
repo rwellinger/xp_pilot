@@ -103,6 +103,27 @@ install:
 	@echo ""
 	@echo "Plugin installed. Activate via XLauncher, then restart X-Plane."
 
+# ── Lint ──────────────────────────────────────────────────────────────────────
+format:
+	@command -v clang-format >/dev/null 2>&1 || { \
+	    echo "clang-format not found. Install with: brew install llvm"; \
+	    echo "Then add to PATH: export PATH=\"\$$(brew --prefix llvm)/bin:\$$PATH\""; \
+	    exit 1; }
+	clang-format -i src/*.cpp src/*.hpp
+
+lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+	@command -v clang-tidy >/dev/null 2>&1 || { \
+	    echo "clang-tidy not found. Install with: brew install llvm"; \
+	    echo "Then add to PATH: export PATH=\"\$$(brew --prefix llvm)/bin:\$$PATH\""; \
+	    exit 1; }
+	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
+	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp
+
+# ── Build (Windows CI) ────────────────────────────────────────────────────────
+build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+	cmake -B build -A x64
+	cmake --build build --config Release
+
 # ── Release ───────────────────────────────────────────────────────────────────
 release:
 	@if [ -z "$(VERSION)" ]; then \
@@ -123,4 +144,4 @@ release:
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf build
+	rm -rf build build-lint

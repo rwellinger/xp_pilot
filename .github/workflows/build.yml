@@ -18,7 +18,7 @@ jobs:
           sudo apt-get install -y clang clang-tidy libgl-dev unzip curl
 
       - name: Setup dependencies
-        run: ./setup.sh
+        run: make setup
 
       - name: Configure (generate compile_commands.json)
         run: |
@@ -55,46 +55,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install make
+        run: choco install make --no-progress -y
+
       - name: Setup dependencies
         shell: bash
-        run: |
-          set -euo pipefail
-          TMP=$(mktemp -d)
-
-          # X-Plane SDK (headers + Windows stub libs)
-          curl -fsSL "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK430.zip" \
-               -o "$TMP/sdk.zip"
-          unzip -q "$TMP/sdk.zip" -d "$TMP/sdk_extracted"
-          mkdir -p sdk/XPLM sdk/XPWidgets sdk/Libraries/Win
-          find "$TMP/sdk_extracted" -path "*/CHeaders/XPLM/*.h"   -exec cp {} sdk/XPLM/ \;
-          find "$TMP/sdk_extracted" -path "*/CHeaders/Widgets/*.h" -exec cp {} sdk/XPWidgets/ \;
-          find "$TMP/sdk_extracted" -path "*/Libraries/Win/*.lib"  -exec cp {} sdk/Libraries/Win/ \;
-
-          # Dear ImGui v1.91.9
-          mkdir -p vendor/imgui/backends
-          curl -fsSL "https://github.com/ocornut/imgui/archive/refs/tags/v1.91.9.zip" \
-               -o "$TMP/imgui.zip"
-          unzip -q "$TMP/imgui.zip" -d "$TMP/"
-          SRC="$TMP/imgui-1.91.9"
-          cp "$SRC"/imgui.{h,cpp} vendor/imgui/
-          cp "$SRC"/imgui_{draw,tables,widgets}.cpp vendor/imgui/
-          cp "$SRC"/imgui_internal.h vendor/imgui/
-          cp "$SRC"/imconfig.h vendor/imgui/
-          cp "$SRC"/imstb_textedit.h "$SRC"/imstb_rectpack.h "$SRC"/imstb_truetype.h vendor/imgui/ 2>/dev/null || true
-          cp "$SRC"/backends/imgui_impl_opengl2.{h,cpp} vendor/imgui/backends/
-
-          # nlohmann/json v3.11.3
-          curl -fsSL \
-               "https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp" \
-               -o vendor/json.hpp
-
-          rm -rf "$TMP"
-
-      - name: Configure
-        run: cmake -B build -A x64
+        run: make setup
 
       - name: Build
-        run: cmake --build build --config Release
+        shell: bash
+        run: make build-windows
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

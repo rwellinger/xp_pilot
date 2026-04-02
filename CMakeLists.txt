@@ -5,8 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(APPLE)
-    # Universal Binary: native arm64 + x86_64 via Rosetta
-    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
+    # Universal Binary: native arm64 + x86_64 via Rosetta.
+    # Allow override from command line (e.g. make lint passes arm64 only).
+    if(NOT CMAKE_OSX_ARCHITECTURES)
+        set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
+    endif()
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
 endif()
 
