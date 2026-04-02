@@ -103,6 +103,24 @@ install:
 	@echo ""
 	@echo "Plugin installed. Activate via XLauncher, then restart X-Plane."
 
+# ── Release ───────────────────────────────────────────────────────────────────
+release:
+	@if [ -z "$(VERSION)" ]; then \
+	    echo "Usage: make release VERSION=1.2.1"; exit 1; \
+	fi
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+	    echo "Uncommitted changes present. Commit or stash first."; exit 1; \
+	fi
+	@if [ -n "$$(git ls-files --others --exclude-standard)" ]; then \
+	    echo "Untracked files present. Commit or clean up first."; exit 1; \
+	fi
+	@echo "$(VERSION)" > VERSION.txt
+	@git add VERSION.txt
+	@git commit -m "release $(VERSION)"
+	@git tag -a "v$(VERSION)" -m "Release $(VERSION)"
+	@git push origin "v$(VERSION)"
+	@echo "Released v$(VERSION) and pushed tag to origin."
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	rm -rf build
