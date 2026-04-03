@@ -24,6 +24,8 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - HTML reports include a mini route map and charts; an `index.html` lists all flights
 - Reports are stored next to the plugin: `data/flights/` and `data/reports/`
 
+![Logbook Window](logbook.jpg)
+
 ### Auto QNH
 
 - Monitors the difference between actual QNH and the pilot's altimeter setting
