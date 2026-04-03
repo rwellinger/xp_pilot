@@ -15,6 +15,7 @@ void stop();
 // ── Draw callbacks (call from registered XPLM draw callback) ─────────────────
 void draw_overlay();
 void draw_popup();
+bool popup_active();
 
 // ── Logbook access ────────────────────────────────────────────────────────────
 const std::string &data_dir();

@@ -507,7 +507,7 @@ void LogbookUI::init()
 void LogbookUI::draw()
 {
     // Called every frame from main draw callback (xplm_Phase_Window)
-    if (!s_logbook_open && !FlightLogger::lb_needs_refresh())
+    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !FlightLogger::popup_active())
         return;
 
     if (FlightLogger::lb_needs_refresh())
@@ -516,7 +516,7 @@ void LogbookUI::draw()
         load_entries();
     }
 
-    if (!s_logbook_open)
+    if (!s_logbook_open && !FlightLogger::popup_active())
         return;
 
     int gl, gt, gr, gb;
@@ -526,8 +526,8 @@ void LogbookUI::draw()
     if (sw <= 0 || sh <= 0)
         return;
 
-    // Keep the invisible capture window sized to the current screen
-    if (s_wnd)
+    // Keep the invisible capture window sized to the current screen (only when logbook is open)
+    if (s_logbook_open && s_wnd)
     {
         int wl, wt, wr, wb;
         XPLMGetWindowGeometry(s_wnd, &wl, &wt, &wr, &wb);
@@ -566,21 +566,26 @@ void LogbookUI::draw()
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
 
-    float win_w = 1020.f, win_h = 700.f;
-    ImGui::SetNextWindowPos(ImVec2(((float)sw - win_w) * 0.5f, ((float)sh - win_h) * 0.5f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
+    FlightLogger::draw_popup();
 
-    bool open = s_logbook_open;
-    if (ImGui::Begin("Logbook##xp_pilot", &open, ImGuiWindowFlags_NoCollapse))
+    if (s_logbook_open)
     {
-        draw_logbook();
-    }
-    ImGui::End();
-    s_logbook_open = open;
+        float win_w = 1020.f, win_h = 700.f;
+        ImGui::SetNextWindowPos(ImVec2(((float)sw - win_w) * 0.5f, ((float)sh - win_h) * 0.5f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
 
-    if (!s_logbook_open && s_wnd)
-        XPLMSetWindowIsVisible(s_wnd, 0);
+        bool open = true;
+        if (ImGui::Begin("Logbook##xp_pilot", &open, ImGuiWindowFlags_NoCollapse))
+        {
+            draw_logbook();
+        }
+        ImGui::End();
+        s_logbook_open = open;
+
+        if (!s_logbook_open && s_wnd)
+            XPLMSetWindowIsVisible(s_wnd, 0);
+    }
 
     ImGui::Render();
     ImGui_ImplOpenGL2_RenderDrawData(ImGui::GetDrawData());

@@ -17,7 +17,6 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
 {
     AutoQNH::draw();
     FlightLogger::draw_overlay();
-    FlightLogger::draw_popup();
     LogbookUI::draw();
     return 1;
 }

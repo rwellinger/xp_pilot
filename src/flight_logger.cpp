@@ -1,6 +1,7 @@
 #include "flight_logger.hpp"
 #include "html_report.hpp"
 #include <XPLM/XPLMDataAccess.h>
+#include <imgui.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
 #include <XPLM/XPLMNavigation.h>
@@ -280,120 +281,91 @@ void FlightLogger::draw_overlay()
 // LANDING POPUP
 // ════════════════════════════════════════════════════════════════
 
-struct PopupLine
+static LandingData s_popup_ld;
+static bool        s_popup_active = false;
+static double      s_popup_until  = 0;
+
+bool FlightLogger::popup_active()
 {
-    std::string text;
-    float       r, g, b;
-};
-static std::vector<PopupLine> s_popup_lines;
-static double                 s_popup_until = 0;
+    if (s_popup_active && monotonic_clock() > s_popup_until)
+        s_popup_active = false;
+    return s_popup_active;
+}
 
 void FlightLogger::draw_popup()
 {
-    if (s_popup_lines.empty())
+    if (!popup_active())
         return;
-    if (monotonic_clock() > s_popup_until)
-    {
-        s_popup_lines.clear();
-        return;
-    }
 
     int sw = 0, sh = 0;
     XPLMGetScreenSize(&sw, &sh);
 
-    XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-    int x = 20;
-    int y = sh - 40;
-
-    for (auto &ln : s_popup_lines)
+    static auto rating_col = [](const std::string &r) -> ImVec4
     {
-        float c[4] = {ln.r, ln.g, ln.b, 1.0f};
-        XPLMDrawString(c, x, y, const_cast<char *>(ln.text.c_str()), nullptr, xplmFont_Proportional);
-        y -= 20;
-    }
+        if (r == "BUTTER!")        return {1.00f, 1.00f, 0.00f, 1.0f};
+        if (r == "GREAT LANDING!") return {0.25f, 1.00f, 0.25f, 1.0f};
+        if (r == "ACCEPTABLE")     return {0.00f, 0.80f, 0.00f, 1.0f};
+        if (r == "HARD LANDING!")  return {1.00f, 0.50f, 0.00f, 1.0f};
+        if (r == "WASTED!")        return {1.00f, 0.13f, 0.13f, 1.0f};
+        return {1.0f, 1.0f, 1.0f, 1.0f};
+    };
+
+    const float popup_w = 430.f;
+    ImGui::SetNextWindowPos(ImVec2(((float)sw - popup_w) * 0.5f, (float)sh * 0.12f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.38f, 0.42f, 0.48f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_Border,   ImVec4(0.70f, 0.80f, 0.90f, 1.00f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,  8.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,   ImVec2(20.f, 14.f));
+
+    ImGui::Begin("##landing_popup", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
+
+    const float content_w = ImGui::GetContentRegionAvail().x;
+    char        buf[128];
+
+    auto center_text = [&](const char *txt)
+    {
+        float tw = ImGui::CalcTextSize(txt).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (content_w - tw) * 0.5f);
+        ImGui::TextUnformatted(txt);
+    };
+
+    // Line 1: Vertical Speed + G-force
+    snprintf(buf, sizeof(buf), "Vertical Speed: %.2fFPM / %.2fG", s_popup_ld.fpm, s_popup_ld.g_force);
+    center_text(buf);
+
+    // Line 2: Flare quality
+    center_text(s_popup_ld.flare.c_str());
+
+    // Line 3: Nose pitch rate + float time
+    snprintf(buf, sizeof(buf), "Nose: %.2f deg/sec | Float: %.2f secs", s_popup_ld.pitch_rate, s_popup_ld.float_time);
+    center_text(buf);
+
+    ImGui::Spacing();
+
+    // Line 4: Rating (colored, slightly larger)
+    ImGui::PushStyleColor(ImGuiCol_Text, rating_col(s_popup_ld.rating));
+    ImGui::SetWindowFontScale(1.2f);
+    float tw = ImGui::CalcTextSize(s_popup_ld.rating.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (content_w - tw) * 0.5f);
+    ImGui::TextUnformatted(s_popup_ld.rating.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    ImGui::End();
+    ImGui::PopStyleVar(3);
+    ImGui::PopStyleColor(2);
 }
 
 static void show_popup(const LandingData &ld)
 {
-    // Convert hex color "#rrggbb" to floats
-    auto hex = [](const std::string &h, float &r, float &g, float &b)
-    {
-        if (h.size() < 7)
-        {
-            r = g = b = 1.f;
-            return;
-        }
-        auto hx = [](char c)
-        {
-            return (c >= '0' && c <= '9') ? c - '0' : (c >= 'a' && c <= 'f') ? c - 'a' + 10 : c - 'A' + 10;
-        };
-        r = (float)(hx(h[1]) * 16 + hx(h[2])) / 255.f;
-        g = (float)(hx(h[3]) * 16 + hx(h[4])) / 255.f;
-        b = (float)(hx(h[5]) * 16 + hx(h[6])) / 255.f;
-    };
-
-    float rr, rg, rb;
-    hex((
-            [&]() -> std::string
-            {
-                if (ld.rating == "BUTTER!")
-                    return "#ffff00";
-                if (ld.rating == "GREAT LANDING!")
-                    return "#40ff40";
-                if (ld.rating == "ACCEPTABLE")
-                    return "#00cc00";
-                if (ld.rating == "HARD LANDING!")
-                    return "#ff8000";
-                if (ld.rating == "WASTED!")
-                    return "#ff2020";
-                return "#ffffff";
-            }()),
-        rr, rg, rb);
-
-    s_popup_lines.clear();
-    s_popup_lines.push_back({ld.rating, rr, rg, rb});
-
-    char buf[128];
-    snprintf(buf, sizeof(buf), "%.0f fpm   %.2f G   Float %.1f s", ld.fpm, ld.g_force, ld.float_time);
-    s_popup_lines.push_back({buf, 1.f, 1.f, 1.f});
-    s_popup_lines.push_back({ld.flare, 0.7f, 0.7f, 0.7f});
-
-    // Wind line
-    std::string wind_text;
-    float       wr = 1.f, wg = 1.f, wb = 1.f;
-    int         xw = std::abs(ld.crosswind_kts);
-    int         hw = ld.headwind_kts;
-    if (ld.wind_status == "CALM")
-    {
-        wind_text = "Wind: CALM";
-        wr = wg = wb = 0.6f;
-    }
-    else if (ld.wind_status == "LIGHT")
-    {
-        snprintf(buf, sizeof(buf), "Wind: LIGHT  XW %d kts %s", xw, ld.crosswind_side.c_str());
-        wind_text = buf;
-        wr = wg = wb = 0.8f;
-    }
-    else if (hw < -5)
-    {
-        snprintf(buf, sizeof(buf), "TAILWIND +%d kts  -  WRONG RWY?", std::abs(hw));
-        wind_text = buf;
-        wr        = 1.f;
-        wg        = 0.4f;
-        wb        = 0.f;
-    }
-    else if (xw > 0)
-    {
-        snprintf(buf, sizeof(buf), "XW %d kts %s  HW %d kts", xw, ld.crosswind_side.c_str(), hw);
-        wind_text = buf;
-    }
-    else
-    {
-        snprintf(buf, sizeof(buf), "HW %d kts", hw);
-        wind_text = buf;
-    }
-    s_popup_lines.push_back({wind_text, wr, wg, wb});
-    s_popup_until = monotonic_clock() + 15.0;
+    s_popup_ld     = ld;
+    s_popup_active = true;
+    s_popup_until  = monotonic_clock() + 15.0;
 }
 
 // ════════════════════════════════════════════════════════════════
