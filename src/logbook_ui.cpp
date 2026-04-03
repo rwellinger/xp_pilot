@@ -400,13 +400,29 @@ static void DrawCallback(XPLMWindowID, void *)
     }
 }
 
+static int s_mouse_dbg_count = 0; // DEBUG: remove after Linux input is confirmed working
+
 static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
 {
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
     ImGuiIO &io = ImGui::GetIO();
-    // XPLM: y increases upward from bottom. ImGui: y increases downward from top.
-    io.AddMousePosEvent((float)(x - left), (float)(top - y));
+
+    float mx = (float)(x - left);
+    float my = (float)(top - y);
+
+    // DEBUG: log first few mouse events so we can verify delivery on Linux
+    if (s_mouse_dbg_count < 20)
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "[xp_pilot] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) imgui(%.0f,%.0f) status=%d\n",
+                 x, y, left, top, right, bottom, mx, my, status);
+        XPLMDebugString(buf);
+        ++s_mouse_dbg_count;
+    }
+
+    io.AddMousePosEvent(mx, my);
     if (status == xplm_MouseDown)
         io.AddMouseButtonEvent(0, true);
     if (status == xplm_MouseUp)
@@ -508,6 +524,15 @@ void LogbookUI::draw()
     if (sw <= 0 || sh <= 0)
         return;
 
+    // Keep the invisible capture window sized to the current screen
+    if (s_wnd)
+    {
+        int wl, wt, wr, wb;
+        XPLMGetWindowGeometry(s_wnd, &wl, &wt, &wr, &wb);
+        if (wl != 0 || wb != 0 || wr != sw || wt != sh)
+            XPLMSetWindowGeometry(s_wnd, 0, sh, sw, 0);
+    }
+
     // Save GL state
     GLint prev_viewport[4];
     glGetIntegerv(GL_VIEWPORT, prev_viewport);
@@ -544,7 +569,7 @@ void LogbookUI::draw()
     ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
 
     bool open = s_logbook_open;
-    if (ImGui::Begin("Logbook##xp_pilot", &open))
+    if (ImGui::Begin("Logbook##xp_pilot", &open, ImGuiWindowFlags_NoCollapse))
     {
         draw_logbook();
     }
