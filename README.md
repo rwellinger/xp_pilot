@@ -49,6 +49,7 @@ Download the ZIP from the [releases page](../../releases) and copy the `xp_pilot
 ```
 X-Plane 12/Resources/plugins/xp_pilot/
 ├── mac_x64/xp_pilot.xpl   ← macOS (ARM + Intel universal binary)
+├── lin_x64/xp_pilot.xpl   ← Linux (x86_64)
 ├── win_x64/xp_pilot.xpl   ← Windows
 └── data/
     └── flight_logger_profiles.json
@@ -124,4 +125,4 @@ src/
 
 ## Platform
 
-macOS 12+ (arm64 + x86_64 universal binary) · Windows · X-Plane 12
+macOS 12+ (arm64 + x86_64 universal binary) · Linux (x86_64) · Windows · X-Plane 12

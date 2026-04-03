@@ -49,6 +49,27 @@ jobs:
           name: xp_pilot-macos
           path: build/xp_pilot.xpl
 
+  build-linux:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y libgl-dev
+
+      - name: Setup dependencies
+        run: make setup
+
+      - name: Build
+        run: make build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: xp_pilot-linux
+          path: build/xp_pilot.xpl
+
   build-windows:
     needs: [lint]
     runs-on: windows-latest
@@ -74,7 +95,7 @@ jobs:
 
   release:
     if: github.event_name == 'release'
-    needs: [lint, build-macos, build-windows]
+    needs: [lint, build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -87,6 +108,12 @@ jobs:
           name: xp_pilot-macos
           path: dist/macos
 
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: xp_pilot-linux
+          path: dist/linux
+
       - name: Download Windows artifact
         uses: actions/download-artifact@v8
         with:
@@ -96,9 +123,11 @@ jobs:
       - name: Build ZIP
         run: |
           mkdir -p dist/xp_pilot/mac_x64
+          mkdir -p dist/xp_pilot/lin_x64
           mkdir -p dist/xp_pilot/win_x64
           mkdir -p dist/xp_pilot/data
           cp dist/macos/xp_pilot.xpl   dist/xp_pilot/mac_x64/xp_pilot.xpl
+          cp dist/linux/xp_pilot.xpl   dist/xp_pilot/lin_x64/xp_pilot.xpl
           cp dist/windows/xp_pilot.xpl dist/xp_pilot/win_x64/xp_pilot.xpl
           cp data/flight_logger_profiles.json dist/xp_pilot/data/
           cd dist && zip -r xp_pilot.zip xp_pilot/
