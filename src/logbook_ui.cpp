@@ -519,8 +519,10 @@ void LogbookUI::draw()
     if (!s_logbook_open)
         return;
 
-    int sw = 0, sh = 0;
-    XPLMGetScreenSize(&sw, &sh);
+    int gl, gt, gr, gb;
+    XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
+    int sw = gr - gl;
+    int sh = gt - gb;
     if (sw <= 0 || sh <= 0)
         return;
 
@@ -529,8 +531,8 @@ void LogbookUI::draw()
     {
         int wl, wt, wr, wb;
         XPLMGetWindowGeometry(s_wnd, &wl, &wt, &wr, &wb);
-        if (wl != 0 || wb != 0 || wr != sw || wt != sh)
-            XPLMSetWindowGeometry(s_wnd, 0, sh, sw, 0);
+        if (wl != gl || wb != gb || wr != gr || wt != gt)
+            XPLMSetWindowGeometry(s_wnd, gl, gt, gr, gb);
     }
 
     // Save GL state
@@ -564,8 +566,9 @@ void LogbookUI::draw()
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::SetNextWindowPos(ImVec2(50, 50), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(1020, 700), ImGuiCond_FirstUseEver);
+    float win_w = 1020.f, win_h = 700.f;
+    ImGui::SetNextWindowPos(ImVec2(((float)sw - win_w) * 0.5f, ((float)sh - win_h) * 0.5f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
 
     bool open = s_logbook_open;
@@ -613,14 +616,18 @@ void LogbookUI::open()
     if (!s_wnd)
     {
         // Full-screen invisible capture window — mouse/keyboard only
-        int sw = 0, sh = 0;
-        XPLMGetScreenSize(&sw, &sh);
+        int gl, gt, gr, gb;
+        XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
+        char dbg[128];
+        snprintf(dbg, sizeof(dbg), "[xp_pilot] Screen bounds: global(%d,%d,%d,%d) size(%dx%d)\n",
+                 gl, gt, gr, gb, gr - gl, gt - gb);
+        XPLMDebugString(dbg);
         XPLMCreateWindow_t p       = {};
         p.structSize               = sizeof(p);
-        p.left                     = 0;
-        p.bottom                   = 0;
-        p.right                    = sw;
-        p.top                      = sh;
+        p.left                     = gl;
+        p.bottom                   = gb;
+        p.right                    = gr;
+        p.top                      = gt;
         p.visible                  = 1;
         p.drawWindowFunc           = DrawCallback;
         p.handleMouseClickFunc     = MouseCallback;
