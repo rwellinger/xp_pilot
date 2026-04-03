@@ -406,11 +406,11 @@ static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
     ImGuiIO &io = ImGui::GetIO();
     // XPLM: y increases upward from bottom. ImGui: y increases downward from top.
-    io.MousePos = ImVec2((float)(x - left), (float)(top - y));
+    io.AddMousePosEvent((float)(x - left), (float)(top - y));
     if (status == xplm_MouseDown)
-        io.MouseDown[0] = true;
+        io.AddMouseButtonEvent(0, true);
     if (status == xplm_MouseUp)
-        io.MouseDown[0] = false;
+        io.AddMouseButtonEvent(0, false);
     return 1; // consume event
 }
 
@@ -418,8 +418,21 @@ static int ScrollCallback(XPLMWindowID wnd, int x, int y, int, int clicks, void 
 {
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGui::GetIO().MousePos = ImVec2((float)(x - left), (float)(top - y));
-    ImGui::GetIO().MouseWheel += (float)clicks;
+    ImGui::GetIO().AddMousePosEvent((float)(x - left), (float)(top - y));
+    ImGui::GetIO().AddMouseWheelEvent(0.f, (float)clicks);
+    return 1;
+}
+
+static int RightClickCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
+{
+    int left, top, right, bottom;
+    XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
+    ImGuiIO &io = ImGui::GetIO();
+    io.AddMousePosEvent((float)(x - left), (float)(top - y));
+    if (status == xplm_MouseDown)
+        io.AddMouseButtonEvent(1, true);
+    if (status == xplm_MouseUp)
+        io.AddMouseButtonEvent(1, false);
     return 1;
 }
 
@@ -592,7 +605,7 @@ void LogbookUI::open()
         p.refcon                   = nullptr;
         p.decorateAsFloatingWindow = xplm_WindowDecorationNone; // no chrome
         p.layer                    = xplm_WindowLayerFloatingWindows;
-        p.handleRightClickFunc     = nullptr;
+        p.handleRightClickFunc     = RightClickCallback;
         s_wnd                      = XPLMCreateWindowEx(&p);
     }
 

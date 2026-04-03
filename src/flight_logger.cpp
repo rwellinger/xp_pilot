@@ -157,7 +157,7 @@ static void find_datarefs()
     dr_in_replay    = XPLMFindDataRef("sim/time/is_in_replay");
     dr_wind_spd     = XPLMFindDataRef("sim/cockpit2/gauges/indicators/wind_speed_kts");
     dr_wind_dir     = XPLMFindDataRef("sim/cockpit2/gauges/indicators/wind_heading_deg_mag");
-    dr_magpsi       = XPLMFindDataRef("sim/flightmodel/position/magpsi");
+    dr_magpsi       = XPLMFindDataRef("sim/flightmodel/position/mag_psi");
     dr_lat          = XPLMFindDataRef("sim/flightmodel/position/latitude");
     dr_lon          = XPLMFindDataRef("sim/flightmodel/position/longitude");
     dr_elevation    = XPLMFindDataRef("sim/flightmodel/position/elevation");
