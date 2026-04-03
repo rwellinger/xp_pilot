@@ -2,7 +2,7 @@
 
 ![Build](https://github.com/rwellinger/xp_pilot/actions/workflows/build.yml/badge.svg)
 
-A native X-Plane 12 plugin for **macOS (ARM + Intel)** and **Windows** that combines three quality-of-life features for general aviation and jet simulation:
+A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows** that combines three quality-of-life features for general aviation and jet simulation:
 
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
 - **Auto QNH** — automatically keeps the altimeter in sync with actual sea-level pressure
@@ -68,7 +68,7 @@ No FlyWithLua required. No license needed for OpenStreetMap usage in reports.
 
 ## Building from Source
 
-**Prerequisites:** CMake 3.21+, Xcode Command Line Tools (macOS) or MSVC (Windows)
+**Prerequisites:** CMake 3.21+, Xcode Command Line Tools (macOS), GCC/Clang + libGL-dev (Linux) or MSVC (Windows)
 
 ```bash
 make setup    # Download X-Plane SDK, Dear ImGui, nlohmann/json
