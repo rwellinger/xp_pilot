@@ -1,5 +1,7 @@
 # xp_pilot
 
+![Build](https://github.com/rwellinger/xp_pilot/actions/workflows/build.yml/badge.svg)
+
 A native X-Plane 12 plugin for **macOS (ARM + Intel)** and **Windows** that combines three quality-of-life features for general aviation and jet simulation:
 
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
