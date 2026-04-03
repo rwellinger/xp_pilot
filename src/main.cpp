@@ -8,6 +8,7 @@
 #include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMUtilities.h>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 // ── Draw callback: overlay + popup (registered once) ─────────────────────────
@@ -73,9 +74,9 @@ static int CmdRain(XPLMCommandRef, XPLMCommandPhase phase, void *)
 
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
-    strncpy(outName, "xp_pilot", 255);
-    strncpy(outSig, "robertw.xp_pilot", 255);
-    strncpy(outDesc, "Flight Logger + Auto QNH + Rain Blocker", 255);
+    snprintf(outName, 255, "xp_pilot v%s", XP_PILOT_VERSION);
+    strncpy(outSig, "thWelly.xp_pilot", 255);
+    snprintf(outDesc, 255, "Flight Logger + Auto QNH + Rain Blocker v%s", XP_PILOT_VERSION);
 
     // Initialise all modules
     FlightLogger::init();
@@ -102,7 +103,9 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item, xplm_Menu_Unchecked);
     XPLMCheckMenuItem(s_plugin_menu, s_rain_item, xplm_Menu_Checked);
 
-    XPLMDebugString("[xp_pilot] Plugin loaded.\n");
+    char banner[128];
+    snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
+    XPLMDebugString(banner);
     return 1;
 }
 

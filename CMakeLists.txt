@@ -48,6 +48,9 @@ target_include_directories(xp_pilot PRIVATE
     ${IMGUI_DIR}/backends
 )
 
+file(READ "${CMAKE_SOURCE_DIR}/VERSION.txt" XP_PILOT_VERSION)
+string(STRIP "${XP_PILOT_VERSION}" XP_PILOT_VERSION)
+
 set_target_properties(xp_pilot PROPERTIES
     OUTPUT_NAME "xp_pilot"
     SUFFIX      ".xpl"
@@ -61,6 +64,7 @@ if(APPLE)
         XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
         XPLM400=1
         GL_SILENCE_DEPRECATION   # suppress macOS OpenGL deprecation warnings
+        XP_PILOT_VERSION="${XP_PILOT_VERSION}"
     )
     target_compile_options(xp_pilot PRIVATE
         -Wall -Wextra -Wno-unused-parameter
@@ -78,6 +82,7 @@ elseif(UNIX)
         APL=0 IBM=0 LIN=1
         XPLM200=1 XPLM210=1 XPLM300=1 XPLM301=1 XPLM302=1 XPLM303=1
         XPLM400=1
+        XP_PILOT_VERSION="${XP_PILOT_VERSION}"
     )
     target_compile_options(xp_pilot PRIVATE
         -Wall -Wextra -Wno-unused-parameter
@@ -95,6 +100,7 @@ elseif(WIN32)
         WIN32_LEAN_AND_MEAN NOMINMAX
         _CRT_SECURE_NO_WARNINGS
         _USE_MATH_DEFINES
+        XP_PILOT_VERSION="${XP_PILOT_VERSION}"
     )
     target_compile_options(xp_pilot PRIVATE /W3)
     set_target_properties(xp_pilot PROPERTIES
