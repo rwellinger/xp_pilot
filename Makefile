@@ -138,6 +138,7 @@ release:
 	@echo "$(VERSION)" > VERSION.txt
 	@git add VERSION.txt
 	@git commit -m "release $(VERSION)"
+	@git push origin main
 	@git tag -a "v$(VERSION)" -m "Release $(VERSION)"
 	@git push origin "v$(VERSION)"
 	@echo "Released v$(VERSION) and pushed tag to origin."
