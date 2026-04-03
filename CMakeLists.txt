@@ -51,6 +51,10 @@ target_include_directories(xp_pilot PRIVATE
 file(READ "${CMAKE_SOURCE_DIR}/VERSION.txt" XP_PILOT_VERSION)
 string(STRIP "${XP_PILOT_VERSION}" XP_PILOT_VERSION)
 
+if(NOT RELEASE)
+    set(XP_PILOT_VERSION "SNAPSHOT")
+endif()
+
 set_target_properties(xp_pilot PROPERTIES
     OUTPUT_NAME "xp_pilot"
     SUFFIX      ".xpl"

@@ -142,6 +142,14 @@ release:
 	@git push origin "v$(VERSION)"
 	@echo "Released v$(VERSION) and pushed tag to origin."
 
+release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+	@echo "=== Building xp_pilot (release) ==="
+	cmake -B build -DCMAKE_BUILD_TYPE=Release -DRELEASE=ON -Wno-dev
+	cmake --build build --parallel
+	@echo ""
+	@file build/xp_pilot.xpl
+	@echo "Done. Release build with version from VERSION.txt."
+
 # ── Cleanup Tags ──────────────────────────────────────────────────────────────
 cleanup-tags:
 	git fetch --prune --prune-tags origin
