@@ -22,6 +22,7 @@ static XPLMDataRef s_sealevel_pas = nullptr;
 
 // State
 static bool s_auto_on        = false;
+static bool s_warnings_on    = true;
 static bool s_warning_active = false;
 
 // Commands
@@ -95,12 +96,20 @@ static float FlightLoopCB(float, float, int, void *)
 
 void AutoQNH::draw()
 {
+    if (!s_warnings_on)
+        return;
+
     float qnh   = actual_qnh_inhg();
     float pqnh  = pilot_qnh();
+    bool  on_fl = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
     float drift = std::fabs(pqnh - qnh);
 
-    // Hysteresis
-    if (s_warning_active)
+    // Hysteresis (skip when intentionally on flight level)
+    if (on_fl)
+    {
+        s_warning_active = false;
+    }
+    else if (s_warning_active)
     {
         if (drift < THRESHOLD_OFF)
             s_warning_active = false;
@@ -161,3 +170,5 @@ void AutoQNH::stop()
 
 void AutoQNH::toggle_auto() { s_auto_on = !s_auto_on; }
 bool AutoQNH::auto_enabled() { return s_auto_on; }
+void AutoQNH::toggle_warnings() { s_warnings_on = !s_warnings_on; }
+bool AutoQNH::warnings_enabled() { return s_warnings_on; }

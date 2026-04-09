@@ -349,6 +349,8 @@ static void draw_logbook()
                 system(("open \"" + s_report_html + "\"").c_str()); // NOLINT(bugprone-command-processor)
 #elif defined(_WIN32)
                 system(("start \"\" \"" + s_report_html + "\"").c_str());
+#else
+                system(("xdg-open \"" + s_report_html + "\"").c_str()); // NOLINT(bugprone-command-processor)
 #endif
             }
             ImGui::SameLine();
@@ -400,7 +402,8 @@ static void DrawCallback(XPLMWindowID, void *)
     }
 }
 
-static int s_mouse_dbg_count = 0; // DEBUG: remove after Linux input is confirmed working
+static int  s_mouse_dbg_count = 0; // DEBUG: remove after Linux input is confirmed working
+static bool s_fb_logged       = false;
 
 static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
 {
@@ -550,10 +553,25 @@ void LogbookUI::draw()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glViewport(0, 0, sw, sh);
+    // Use X-Plane's actual viewport (framebuffer) dimensions — these may differ
+    // from logical screen dimensions on Linux (Vulkan-to-OpenGL compat layer)
+    int fb_w = prev_viewport[2];
+    int fb_h = prev_viewport[3];
+
+    if (!s_fb_logged)
+    {
+        char dbg[192];
+        snprintf(dbg, sizeof(dbg),
+                 "[xp_pilot] Framebuffer: viewport(%d,%d) logical(%d,%d) scale(%.2f,%.2f)\n",
+                 fb_w, fb_h, sw, sh, (float)fb_w / (float)sw, (float)fb_h / (float)sh);
+        XPLMDebugString(dbg);
+        s_fb_logged = true;
+    }
+
+    glViewport(0, 0, fb_w, fb_h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(0, sw, sh, 0, -1, 1); // top-left origin for ImGui
+    glOrtho(0, sw, sh, 0, -1, 1); // top-left origin for ImGui (logical coords)
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
@@ -561,7 +579,8 @@ void LogbookUI::draw()
     double   now      = get_xp_time();
     io.DeltaTime      = (float)std::max(now - s_last_frame_time, 0.001);
     s_last_frame_time = now;
-    io.DisplaySize    = ImVec2((float)sw, (float)sh);
+    io.DisplaySize             = ImVec2((float)sw, (float)sh);
+    io.DisplayFramebufferScale = ImVec2((float)fb_w / (float)sw, (float)fb_h / (float)sh);
 
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
@@ -648,6 +667,8 @@ void LogbookUI::open()
 
     XPLMSetWindowIsVisible(s_wnd, 1);
     XPLMBringWindowToFront(s_wnd);
+    s_fb_logged       = false;
+    s_mouse_dbg_count = 0;
     load_entries();
 }
 

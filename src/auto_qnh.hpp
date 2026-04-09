@@ -15,7 +15,9 @@ namespace AutoQNH
 {
 void init();
 void stop();
-void draw();         // called from draw callback — renders warning text if needed
-void toggle_auto();  // toggle auto-QNH mode
-bool auto_enabled(); // current auto-QNH state
+void draw();             // called from draw callback — renders warning text if needed
+void toggle_auto();      // toggle auto-QNH mode
+bool auto_enabled();     // current auto-QNH state
+void toggle_warnings();  // toggle on-screen QNH warnings
+bool warnings_enabled(); // current warnings state
 } // namespace AutoQNH

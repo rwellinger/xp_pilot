@@ -27,9 +27,10 @@ static XPLMCommandRef s_cmd_logbook = nullptr;
 static XPLMCommandRef s_cmd_rain    = nullptr;
 
 static XPLMMenuID s_plugin_menu   = 0;
-static int        s_auto_qnh_item = -1;
-static int        s_logbook_item  = -1;
-static int        s_rain_item     = -1;
+static int        s_auto_qnh_item  = -1;
+static int        s_qnh_warn_item  = -1;
+static int        s_logbook_item   = -1;
+static int        s_rain_item      = -1;
 
 static void PluginMenuHandler(void *, void *item_ref)
 {
@@ -38,6 +39,12 @@ static void PluginMenuHandler(void *, void *item_ref)
         AutoQNH::toggle_auto();
         XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item,
                           AutoQNH::auto_enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    }
+    else if ((intptr_t)item_ref == 3)
+    {
+        AutoQNH::toggle_warnings();
+        XPLMCheckMenuItem(s_plugin_menu, s_qnh_warn_item,
+                          AutoQNH::warnings_enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
     }
     else if ((intptr_t)item_ref == 1)
     {
@@ -97,9 +104,11 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
     s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
     s_auto_qnh_item         = XPLMAppendMenuItem(s_plugin_menu, "Auto QNH", (void *)0, 0);
+    s_qnh_warn_item         = XPLMAppendMenuItem(s_plugin_menu, "QNH Warnings", (void *)3, 0);
     s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
     s_rain_item             = XPLMAppendMenuItem(s_plugin_menu, "Star Wars Mode", (void *)2, 0);
     XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item, xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(s_plugin_menu, s_qnh_warn_item, xplm_Menu_Checked);
     XPLMCheckMenuItem(s_plugin_menu, s_rain_item, xplm_Menu_Checked);
 
     char banner[128];
