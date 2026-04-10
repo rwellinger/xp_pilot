@@ -62,6 +62,18 @@ void RainBlocker::toggle()
 
 bool RainBlocker::enabled() { return s_enabled; }
 
+void RainBlocker::set_enabled(bool on)
+{
+    if (s_enabled == on)
+        return;
+    s_enabled = on;
+    if (!s_enabled && s_rain_suppressed)
+    {
+        XPLMSetDatai(s_rain_dr, 0);
+        s_rain_suppressed = false;
+    }
+}
+
 void RainBlocker::stop()
 {
     XPLMUnregisterFlightLoopCallback(FlightLoopCB, nullptr);

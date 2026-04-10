@@ -21,8 +21,7 @@ static XPLMDataRef s_baro_copilot = nullptr;
 static XPLMDataRef s_sealevel_pas = nullptr;
 
 // State
-static bool s_auto_on        = false;
-static bool s_warnings_on    = true;
+static bool s_enabled        = false;
 static bool s_warning_active = false;
 
 // Commands
@@ -75,7 +74,7 @@ static int CmdSetFL(XPLMCommandRef, XPLMCommandPhase phase, void *)
 
 static float FlightLoopCB(float, float, int, void *)
 {
-    if (!s_auto_on)
+    if (!s_enabled)
         return 2.0f;
 
     float qnh  = actual_qnh_inhg();
@@ -96,7 +95,7 @@ static float FlightLoopCB(float, float, int, void *)
 
 void AutoQNH::draw()
 {
-    if (!s_warnings_on)
+    if (!s_enabled)
         return;
 
     float qnh   = actual_qnh_inhg();
@@ -168,7 +167,6 @@ void AutoQNH::stop()
         XPLMUnregisterCommandHandler(s_cmd_fl, CmdSetFL, 1, nullptr);
 }
 
-void AutoQNH::toggle_auto() { s_auto_on = !s_auto_on; }
-bool AutoQNH::auto_enabled() { return s_auto_on; }
-void AutoQNH::toggle_warnings() { s_warnings_on = !s_warnings_on; }
-bool AutoQNH::warnings_enabled() { return s_warnings_on; }
+void AutoQNH::toggle() { s_enabled = !s_enabled; }
+bool AutoQNH::enabled() { return s_enabled; }
+void AutoQNH::set_enabled(bool on) { s_enabled = on; }

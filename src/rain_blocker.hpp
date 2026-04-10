@@ -10,4 +10,5 @@ void init();
 void stop();
 void toggle();
 bool enabled();
+void set_enabled(bool on);
 } // namespace RainBlocker

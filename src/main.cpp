@@ -10,6 +10,45 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <json.hpp>
+
+using json = nlohmann::json;
+
+// ── Settings persistence ─────────────────────────────────────────────────────
+
+static std::string settings_path()
+{
+    return FlightLogger::data_dir() + "settings.json";
+}
+
+static void load_settings()
+{
+    std::ifstream f(settings_path());
+    if (!f.is_open())
+        return;
+    try
+    {
+        json j;
+        f >> j;
+        AutoQNH::set_enabled(j.value("auto_qnh", false));
+        RainBlocker::set_enabled(j.value("rain_blocker", true));
+    }
+    catch (...)
+    {
+        XPLMDebugString("[xp_pilot] Failed to parse settings.json\n");
+    }
+}
+
+static void save_settings()
+{
+    json j;
+    j["auto_qnh"]     = AutoQNH::enabled();
+    j["rain_blocker"]  = RainBlocker::enabled();
+    std::ofstream f(settings_path());
+    if (f.is_open())
+        f << j.dump(2);
+}
 
 // ── Draw callback: overlay + popup (registered once) ─────────────────────────
 
@@ -21,30 +60,31 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
     return 1;
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
+// ── Menu + Commands ──────────────────────────────────────────────────────────
 
 static XPLMCommandRef s_cmd_logbook = nullptr;
 static XPLMCommandRef s_cmd_rain    = nullptr;
 
-static XPLMMenuID s_plugin_menu   = 0;
+static XPLMMenuID s_plugin_menu    = 0;
 static int        s_auto_qnh_item  = -1;
-static int        s_qnh_warn_item  = -1;
 static int        s_logbook_item   = -1;
 static int        s_rain_item      = -1;
+
+static void update_menu_checks()
+{
+    XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item,
+                      AutoQNH::enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+    XPLMCheckMenuItem(s_plugin_menu, s_rain_item,
+                      RainBlocker::enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+}
 
 static void PluginMenuHandler(void *, void *item_ref)
 {
     if ((intptr_t)item_ref == 0)
     {
-        AutoQNH::toggle_auto();
-        XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item,
-                          AutoQNH::auto_enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
-    }
-    else if ((intptr_t)item_ref == 3)
-    {
-        AutoQNH::toggle_warnings();
-        XPLMCheckMenuItem(s_plugin_menu, s_qnh_warn_item,
-                          AutoQNH::warnings_enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        AutoQNH::toggle();
+        save_settings();
+        update_menu_checks();
     }
     else if ((intptr_t)item_ref == 1)
     {
@@ -53,7 +93,8 @@ static void PluginMenuHandler(void *, void *item_ref)
     else if ((intptr_t)item_ref == 2)
     {
         RainBlocker::toggle();
-        XPLMCheckMenuItem(s_plugin_menu, s_rain_item, RainBlocker::enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        save_settings();
+        update_menu_checks();
     }
 }
 
@@ -69,7 +110,8 @@ static int CmdRain(XPLMCommandRef, XPLMCommandPhase phase, void *)
     if (phase == xplm_CommandBegin)
     {
         RainBlocker::toggle();
-        XPLMCheckMenuItem(s_plugin_menu, s_rain_item, RainBlocker::enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
+        save_settings();
+        update_menu_checks();
     }
     return 1;
 }
@@ -90,6 +132,9 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     AutoQNH::init();
     LogbookUI::init();
 
+    // Restore saved feature states
+    load_settings();
+
     // Draw callback for overlays (after windows, no blend)
     XPLMRegisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
 
@@ -104,12 +149,9 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
     s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
     s_auto_qnh_item         = XPLMAppendMenuItem(s_plugin_menu, "Auto QNH", (void *)0, 0);
-    s_qnh_warn_item         = XPLMAppendMenuItem(s_plugin_menu, "QNH Warnings", (void *)3, 0);
     s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
     s_rain_item             = XPLMAppendMenuItem(s_plugin_menu, "Star Wars Mode", (void *)2, 0);
-    XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item, xplm_Menu_Unchecked);
-    XPLMCheckMenuItem(s_plugin_menu, s_qnh_warn_item, xplm_Menu_Checked);
-    XPLMCheckMenuItem(s_plugin_menu, s_rain_item, xplm_Menu_Checked);
+    update_menu_checks();
 
     char banner[128];
     snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
