@@ -32,6 +32,7 @@
     { "match": "BE58",  "profile": "medium_ga" },
     { "match": "EVOL",  "profile": "medium_ga" },
     { "match": "ALIA",  "profile": "medium_ga" },
+    { "match": "DV20",  "profile": "medium_ga" },
 
     { "match": "KODK",  "profile": "turboprop" },
     { "match": "BE35",  "profile": "turboprop" },
