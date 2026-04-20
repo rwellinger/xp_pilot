@@ -7,7 +7,34 @@ SDK_SENTINEL   := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL := vendor/imgui/imgui.h
 JSON_SENTINEL  := vendor/json.hpp
 
-.PHONY: all setup build install clean
+.PHONY: help all setup build install format lint build-windows release release-build cleanup-tags clean
+
+.DEFAULT_GOAL := help
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+help:
+	@echo "xp_pilot — X-Plane 12 plugin (macOS)"
+	@echo ""
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Common:"
+	@echo "  help            Show this message (default)"
+	@echo "  setup           Download SDK, Dear ImGui and nlohmann/json into sdk/ + vendor/"
+	@echo "  build           Configure + compile → build/xp_pilot.xpl"
+	@echo "  install         Code-sign and copy the plugin into X-Plane (mac_x64)"
+	@echo "  clean           Remove build/ and build-lint/"
+	@echo ""
+	@echo "Code quality:"
+	@echo "  format          Run clang-format on src/*.{cpp,hpp}"
+	@echo "  lint            Run clang-tidy (uses build-lint/ for compile_commands.json)"
+	@echo ""
+	@echo "CI / cross-platform:"
+	@echo "  build-windows   Windows x64 build (used by CI)"
+	@echo ""
+	@echo "Release:"
+	@echo "  release VERSION=x.y.z   Tag + push release (commits VERSION.txt)"
+	@echo "  release-build           Local release build (-DRELEASE=ON)"
+	@echo "  cleanup-tags            Prune local tags removed on origin"
 
 all: build
 

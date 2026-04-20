@@ -595,7 +595,13 @@ void LogbookUI::draw()
         ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
 
         bool open = true;
-        if (ImGui::Begin("Logbook##xp_pilot", &open, ImGuiWindowFlags_NoCollapse))
+#ifdef XP_PILOT_VERSION
+        static const std::string window_title =
+            std::string("Logbook v") + XP_PILOT_VERSION + "##xp_pilot";
+#else
+        static const std::string window_title = "Logbook##xp_pilot";
+#endif
+        if (ImGui::Begin(window_title.c_str(), &open, ImGuiWindowFlags_NoCollapse))
         {
             draw_logbook();
         }

@@ -35,7 +35,6 @@ set(IMGUI_SOURCES
 # ── Plugin target ──────────────────────────────────────────────────────────────
 add_library(xp_pilot MODULE
     src/main.cpp
-    src/rain_blocker.cpp
     src/auto_qnh.cpp
     src/flight_logger.cpp
     src/html_report.cpp

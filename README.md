@@ -2,11 +2,10 @@
 
 ![Build](https://github.com/rwellinger/xp_pilot/actions/workflows/build.yml/badge.svg)
 
-A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows** that combines three quality-of-life features for general aviation and jet simulation:
+A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows** that combines two quality-of-life features for general aviation and jet simulation:
 
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
 - **Auto QNH** — automatically keeps the altimeter in sync with actual sea-level pressure
-- **Rain Blocker** — suppresses X-Plane's 3D rain particle effect at high speed (>120 kts)
 
 ---
 
@@ -38,9 +37,13 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 | `xp_pilot/qnh/set_qnh` | One-shot: set both baros to current QNH |
 | `xp_pilot/qnh/set_flightlevel` | One-shot: set both baros to 29.92 inHg |
 
-### Rain Blocker
+### A note on the "Star Wars" rain effect
 
-Suppresses X-Plane's 3D rain particles above 120 kts groundspeed. Hysteresis: rain returns below 80 kts. Toggle via the plugin menu or the command `xp_pilot/rain_blocker/toggle`.
+Earlier versions of xp_pilot tried to hide X-Plane's 3D rain particles at high speed — the so-called "Star Wars" streaks. We've now removed this feature, because **it never actually worked reliably from a plugin, on any operating system.**
+
+The reason is that X-Plane's rain system is an internal setting that Laminar Research does not expose to regular plugins. The popular Lua script that many pilots use for this effect only works because **FlyWithLua (Complete Edition)** has special permission to reach into those internal settings. A normal X-Plane plugin like xp_pilot does not — our attempts to switch the rain off were silently ignored by the sim.
+
+If you want the effect, install [FlyWithLua NG (Complete Edition)](https://forums.x-plane.org/index.php?/files/file/38445-flywithlua-ng-next-generation-edition-for-x-plane-11-win-lin-mac/) and drop a copy of `no_starwars_rain.lua` into its scripts folder. We'd rather ship something that works than ship a placebo.
 
 ---
 
@@ -88,7 +91,6 @@ Under **Plugins → xp_pilot**:
 |---|---|
 | Auto QNH | Toggle automatic QNH sync (checkbox) |
 | Open / Close Logbook | Open the in-sim flight logbook window |
-| Rain Blocker | Toggle rain suppression at high speed (checkbox) |
 
 ---
 
@@ -148,8 +150,7 @@ src/
 ├── flight_logger.*     State machine, data acquisition, JSON save
 ├── html_report.*       HTML/index generation, JSON parsing
 ├── logbook_ui.*        Dear ImGui logbook window
-├── auto_qnh.*          Altimeter monitoring and auto-sync
-└── rain_blocker.*      Rain suppression at high speed
+└── auto_qnh.*          Altimeter monitoring and auto-sync
 ```
 
 `sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.

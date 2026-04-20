@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**xp_pilot** is a C++17 X-Plane 12 flight simulator plugin for macOS. It provides three features: Flight Logger (records flight data and generates HTML logbook reports), Auto QNH (automatic barometric altimeter management), and Rain Blocker (suppresses 3D rain effects at high speed).
+**xp_pilot** is a C++17 X-Plane 12 flight simulator plugin for macOS. It provides two features: Flight Logger (records flight data and generates HTML logbook reports) and Auto QNH (automatic barometric altimeter management).
 
 ## Commands
 
@@ -23,12 +23,11 @@ There are no automated tests — the plugin must be tested by loading it in X-Pl
 
 ## Architecture
 
-Five modules coordinate through X-Plane's XPLM API:
+Modules coordinate through X-Plane's XPLM API:
 
 - **`main.cpp`** — Plugin entry points (`XPluginStart`, `XPluginStop`, `XPluginEnable`, `XPluginDisable`). Registers the draw callback that drives the UI.
 - **`flight_logger`** — Core data acquisition. Runs every frame sampling aircraft state via X-Plane datarefs. Saves flight data to `~/X-Plane 12/Output/FlightLogger/flights/` as JSON. Handles aircraft profiles for landing quality thresholds.
 - **`auto_qnh`** — Monitors altimeter settings, syncs to actual QNH, issues warnings for mismatches, and registers X-Plane commands.
-- **`rain_blocker`** — Suppresses rain above 120 kts groundspeed (re-enables below 80 kts hysteresis).
 - **`logbook_ui`** — Dear ImGui window displaying flight history from JSON files, with delete/view/regenerate actions.
 - **`html_report`** — Parses flight JSON and generates HTML reports in `~/X-Plane 12/Output/FlightLogger/reports/`.
 
