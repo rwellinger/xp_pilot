@@ -37,7 +37,7 @@ help:
 	@echo "  cleanup-tags            Prune local tags removed on origin"
 	@echo "  cleanup-runs            Delete all GitHub Actions runs except the newest per workflow"
 
-all: build
+all: format build lint
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
