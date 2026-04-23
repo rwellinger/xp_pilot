@@ -45,6 +45,7 @@
     { "match": "EVIC",  "profile": "vlj" },
     { "match": "SF50",  "profile": "vlj" },
     { "match": "C750",  "profile": "vlj" },
+    { "match": "CL60",  "profile": "vlj" },
 
     { "match": "GLF",   "profile": "heavy_jet" },
     { "match": "A333",  "profile": "heavy_jet" },

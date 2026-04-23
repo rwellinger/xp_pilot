@@ -1,6 +1,7 @@
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "logbook_ui.hpp"
+#include "settings.hpp"
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
 #include <XPLM/XPLMMenus.h>
@@ -31,6 +32,10 @@ static void load_settings()
         json j;
         f >> j;
         AutoQNH::set_enabled(j.value("auto_qnh", false));
+        AutoQNH::set_messages_enabled(j.value("qnh_messages", true));
+        FlightLogger::set_write_enabled(j.value("write_logs", true));
+        FlightLogger::set_messages_enabled(j.value("log_messages", true));
+        FlightLogger::set_landing_popup_enabled(j.value("landing_popup", true));
     }
     catch (...)
     {
@@ -38,10 +43,14 @@ static void load_settings()
     }
 }
 
-static void save_settings()
+void Settings::save()
 {
     json j;
-    j["auto_qnh"] = AutoQNH::enabled();
+    j["auto_qnh"]      = AutoQNH::enabled();
+    j["qnh_messages"]  = AutoQNH::messages_enabled();
+    j["write_logs"]    = FlightLogger::write_enabled();
+    j["log_messages"]  = FlightLogger::messages_enabled();
+    j["landing_popup"] = FlightLogger::landing_popup_enabled();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);
@@ -61,25 +70,12 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
 
 static XPLMCommandRef s_cmd_logbook = nullptr;
 
-static XPLMMenuID s_plugin_menu   = 0;
-static int        s_auto_qnh_item = -1;
-static int        s_logbook_item  = -1;
-
-static void update_menu_checks()
-{
-    XPLMCheckMenuItem(s_plugin_menu, s_auto_qnh_item,
-                      AutoQNH::enabled() ? xplm_Menu_Checked : xplm_Menu_Unchecked);
-}
+static XPLMMenuID s_plugin_menu  = 0;
+static int        s_logbook_item = -1;
 
 static void PluginMenuHandler(void *, void *item_ref)
 {
-    if ((intptr_t)item_ref == 0)
-    {
-        AutoQNH::toggle();
-        save_settings();
-        update_menu_checks();
-    }
-    else if ((intptr_t)item_ref == 1)
+    if ((intptr_t)item_ref == 1)
     {
         LogbookUI::toggle();
     }
@@ -121,9 +117,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
     int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
     s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
-    s_auto_qnh_item         = XPLMAppendMenuItem(s_plugin_menu, "Auto QNH", (void *)0, 0);
     s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
-    update_menu_checks();
 
     char banner[128];
     snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);

@@ -22,6 +22,14 @@ const std::string &data_dir();
 bool              &lb_needs_refresh();
 void               regen_all_reports();
 
+// ── Settings ──────────────────────────────────────────────────────────────────
+void set_write_enabled(bool on);
+bool write_enabled();
+void set_messages_enabled(bool on);
+bool messages_enabled();
+void set_landing_popup_enabled(bool on);
+bool landing_popup_enabled();
+
 // ── Profile access (for HTML report generation) ───────────────────────────────
 std::string        get_profile_name(const std::string &plane_icao);
 std::array<int, 4> get_profile_thresholds(const std::string &profile_name);

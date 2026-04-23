@@ -242,6 +242,11 @@ static std::string s_overlay_text;
 static double      s_overlay_until = 0;
 static float       s_overlay_r = 1, s_overlay_g = 1, s_overlay_b = 1;
 
+// ── Feature toggles (persisted via settings.json) ─────────────────────────────
+static bool s_write_enabled          = true;
+static bool s_messages_enabled       = true;
+static bool s_landing_popup_enabled  = true;
+
 static double monotonic_clock()
 {
     static XPLMDataRef dr = XPLMFindDataRef("sim/time/total_running_time_sec");
@@ -250,12 +255,21 @@ static double monotonic_clock()
 
 static void show_overlay(const std::string &text, float sec, float r = 1.f, float g = 1.f, float b = 1.f)
 {
+    if (!s_messages_enabled)
+        return;
     s_overlay_text  = text;
     s_overlay_until = monotonic_clock() + sec;
     s_overlay_r     = r;
     s_overlay_g     = g;
     s_overlay_b     = b;
 }
+
+void FlightLogger::set_write_enabled(bool on) { s_write_enabled = on; }
+bool FlightLogger::write_enabled() { return s_write_enabled; }
+void FlightLogger::set_messages_enabled(bool on) { s_messages_enabled = on; }
+bool FlightLogger::messages_enabled() { return s_messages_enabled; }
+void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled = on; }
+bool FlightLogger::landing_popup_enabled() { return s_landing_popup_enabled; }
 
 void FlightLogger::draw_overlay()
 {
@@ -295,6 +309,8 @@ bool FlightLogger::popup_active()
 void FlightLogger::draw_popup()
 {
     if (!popup_active())
+        return;
+    if (!s_landing_popup_enabled)
         return;
 
     int sw = 0, sh = 0;
@@ -810,6 +826,12 @@ static void finalize_flight()
     if (dr_i(dr_in_replay))
     {
         XPLMDebugString("[xp_pilot] Replay – skipping save\n");
+        session_reset();
+        return;
+    }
+    if (!s_write_enabled)
+    {
+        XPLMDebugString("[xp_pilot] Log writing disabled – skipping save\n");
         session_reset();
         return;
     }

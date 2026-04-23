@@ -1,6 +1,8 @@
 #include "logbook_ui.hpp"
+#include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "html_report.hpp"
+#include "settings.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -139,6 +141,50 @@ static ImVec4 rating_color(const std::string &r)
 // ════════════════════════════════════════════════════════════════
 // Logbook window content
 // ════════════════════════════════════════════════════════════════
+
+static void draw_settings()
+{
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Feature toggles (saved to settings.json):");
+    ImGui::Spacing();
+
+    bool v;
+
+    v = FlightLogger::write_enabled();
+    if (ImGui::Checkbox("Write flight logs to disk (JSON + HTML report)", &v))
+    {
+        FlightLogger::set_write_enabled(v);
+        Settings::save();
+    }
+
+    v = AutoQNH::enabled();
+    if (ImGui::Checkbox("Auto QNH (sync pilot/copilot altimeter to actual QNH)", &v))
+    {
+        AutoQNH::set_enabled(v);
+        Settings::save();
+    }
+
+    v = AutoQNH::messages_enabled();
+    if (ImGui::Checkbox("Show QNH warning messages on screen", &v))
+    {
+        AutoQNH::set_messages_enabled(v);
+        Settings::save();
+    }
+
+    v = FlightLogger::messages_enabled();
+    if (ImGui::Checkbox("Show flight logger status messages on screen", &v))
+    {
+        FlightLogger::set_messages_enabled(v);
+        Settings::save();
+    }
+
+    v = FlightLogger::landing_popup_enabled();
+    if (ImGui::Checkbox("Show landing rating popup after touchdown", &v))
+    {
+        FlightLogger::set_landing_popup_enabled(v);
+        Settings::save();
+    }
+}
 
 static void draw_logbook()
 {
@@ -603,7 +649,20 @@ void LogbookUI::draw()
 #endif
         if (ImGui::Begin(window_title.c_str(), &open, ImGuiWindowFlags_NoCollapse))
         {
-            draw_logbook();
+            if (ImGui::BeginTabBar("lb_tabs"))
+            {
+                if (ImGui::BeginTabItem("Logbook"))
+                {
+                    draw_logbook();
+                    ImGui::EndTabItem();
+                }
+                if (ImGui::BeginTabItem("Settings"))
+                {
+                    draw_settings();
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
+            }
         }
         ImGui::End();
         s_logbook_open = open;

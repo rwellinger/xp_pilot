@@ -21,8 +21,9 @@ static XPLMDataRef s_baro_copilot = nullptr;
 static XPLMDataRef s_sealevel_pas = nullptr;
 
 // State
-static bool s_enabled        = false;
-static bool s_warning_active = false;
+static bool s_enabled          = false;
+static bool s_warning_active   = false;
+static bool s_messages_enabled = true;
 
 // Commands
 static XPLMCommandRef s_cmd_qnh = nullptr;
@@ -122,6 +123,9 @@ void AutoQNH::draw()
     if (!s_warning_active && !s_baro_copilot)
         return;
 
+    if (!s_messages_enabled)
+        return;
+
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
 
     if (s_warning_active)
@@ -170,3 +174,5 @@ void AutoQNH::stop()
 void AutoQNH::toggle() { s_enabled = !s_enabled; }
 bool AutoQNH::enabled() { return s_enabled; }
 void AutoQNH::set_enabled(bool on) { s_enabled = on; }
+void AutoQNH::set_messages_enabled(bool on) { s_messages_enabled = on; }
+bool AutoQNH::messages_enabled() { return s_messages_enabled; }
