@@ -1,7 +1,21 @@
 #pragma once
+#include <array>
+#include <cstdint>
 #include <ctime>
 #include <string>
 #include <vector>
+
+// ── Wind classification ──────────────────────────────────────────────────────
+
+enum class WindCondition : std::uint8_t
+{
+    Calm,
+    Light,
+    Steady
+};
+
+WindCondition wind_condition_from_string(const std::string &s);
+const char   *wind_condition_to_string(WindCondition c);
 
 // ── Data structures shared between flight_logger and logbook_ui ───────────────
 

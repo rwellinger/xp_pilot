@@ -460,8 +460,20 @@ static std::string eval_flare(float Q, float Qrad)
 static std::string eval_rating(float fpm, float crosswind_kts, const std::string &wind_status,
                                const std::array<int, 4> &p)
 {
-    float xw_abs    = std::min(std::abs(crosswind_kts), 30.f);
-    float scale     = (wind_status == "CALM") ? 0.f : (wind_status == "LIGHT") ? 0.5f : 1.f;
+    float xw_abs = std::min(std::abs(crosswind_kts), 30.f);
+    float scale  = 1.f;
+    switch (wind_condition_from_string(wind_status))
+    {
+    case WindCondition::Calm:
+        scale = 0.f;
+        break;
+    case WindCondition::Light:
+        scale = 0.5f;
+        break;
+    case WindCondition::Steady:
+        scale = 1.f;
+        break;
+    }
     float xw_factor = 1.f + (xw_abs / 30.f) * 0.4f * scale;
     float eff_fpm   = fpm / xw_factor;
     if (eff_fpm >= (float)p[0] && eff_fpm <= 0.f)
@@ -542,6 +554,238 @@ static void session_reset()
 
 static void finalize_flight();
 
+// ── Per-frame data shared across state handlers ──────────────────────────────
+
+struct Frame
+{
+    float gs        = 0;
+    float agl       = 0;
+    float localtime = 0;
+    float gforce    = 0;
+    bool  on_gnd    = false;
+    int   paused    = 0;
+};
+
+static Frame read_frame()
+{
+    Frame f;
+    f.gs        = dr_f(dr_gs);
+    f.on_gnd    = dr_i(dr_onground) != 0;
+    f.agl       = dr_f(dr_agl);
+    f.localtime = dr_f(dr_localtime);
+    f.gforce    = dr_f(dr_gforce);
+    f.paused    = dr_i(dr_paused);
+    return f;
+}
+
+// ── Airport caching ──────────────────────────────────────────────────────────
+
+static void cache_airport_when_stationary(const Frame &f)
+{
+    if (!f.on_gnd || f.gs >= GS_TAXI_STOP_MPS)
+        return;
+    auto apt = get_airport_id();
+    if (!apt.empty())
+        s_last_gnd_apt = apt;
+}
+
+static void handle_engine_edge_detection(bool on_gnd)
+{
+    int cur_eng = any_engine_running() ? 1 : 0;
+    if (s_prev_any_eng == -1 || !on_gnd)
+    {
+        s_prev_any_eng = cur_eng;
+        return;
+    }
+
+    const bool started_up = (s_prev_any_eng == 0 && cur_eng == 1);
+    const bool shut_down  = (s_prev_any_eng == 1 && cur_eng == 0);
+    s_prev_any_eng        = cur_eng;
+    if (!started_up && !shut_down)
+        return;
+
+    auto apt = get_airport_id();
+    if (!apt.empty())
+        s_last_gnd_apt = apt;
+    if (s_write_enabled)
+    {
+        const char *label = started_up ? "DEP cached: " : "ARR cached: ";
+        show_overlay(std::string(label) + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
+    }
+}
+
+// ── State handlers ───────────────────────────────────────────────────────────
+
+static void handle_idle_state(const Frame &f)
+{
+    if (f.gs <= GS_ROLLING_MPS || !f.on_gnd)
+        return;
+
+    s_aircraft_icao  = dr_str(dr_acf_icao);
+    s_aircraft_tail  = dr_str(dr_acf_tail);
+    s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
+    s_start_time     = std::time(nullptr);
+    s_state          = State::Rolling;
+    XPLMDebugString("[xp_pilot] State: Idle -> Rolling\n");
+}
+
+static void handle_rolling_state(const Frame &f)
+{
+    if (f.agl <= AGL_AIRBORNE_M)
+        return;
+
+    s_last_sample_t = std::time(nullptr);
+    if (s_departure_icao.empty())
+        s_departure_icao = get_airport_id();
+    s_state = State::Airborne;
+    landing_arm();
+    if (s_write_enabled)
+        show_overlay("REC  Flight recording started", 5.f);
+    XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
+}
+
+// Sample track/max-stats every 10 seconds while airborne (writer only).
+static void update_track_sample()
+{
+    if (!s_write_enabled)
+        return;
+    time_t now = std::time(nullptr);
+    if (now - s_last_sample_t < 10)
+        return;
+
+    s_last_sample_t    = now;
+    int        alt_ft  = (int)(dr_d(dr_elevation) * 3.28084);
+    int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
+    int        vs      = (int)dr_f(dr_vertfpm);
+    TrackPoint tp;
+    tp.t       = now;
+    tp.lat     = dr_d(dr_lat);
+    tp.lon     = dr_d(dr_lon);
+    tp.alt_ft  = alt_ft;
+    tp.spd_kts = spd_kts;
+    tp.vs_fpm  = vs;
+    s_track.push_back(tp);
+    if (alt_ft > s_max_altitude_ft)
+        s_max_altitude_ft = alt_ft;
+    if (spd_kts > s_max_speed_kts)
+        s_max_speed_kts = spd_kts;
+}
+
+// Record landing metrics when main gear first touches the ground.
+static void capture_main_gear_touchdown(const Frame &f, bool on_any)
+{
+    if (!s_ld_armed || s_prev_on_any || !on_any)
+        return;
+
+    const float vertfpm  = dr_f(dr_vertfpm);
+    const float wind_spd = dr_f(dr_wind_spd);
+    const float wind_dir = dr_f(dr_wind_dir);
+    const float magpsi   = dr_f(dr_magpsi);
+    const float Q        = dr_f(dr_Q);
+    const float Qrad     = dr_f(dr_Qrad);
+
+    const float tspan = s_agl_buf.tspan();
+    float       gVS   = vertfpm;
+    if (tspan > 0.f)
+        gVS = ((f.agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
+    if (s_float_timer > 0.f && s_float_final == 0.f)
+        s_float_final = (float)monotonic_clock() - s_float_timer;
+
+    float hw = 0.f, xw = 0.f;
+    calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
+    WindCondition wcond = (wind_spd < 3.f)   ? WindCondition::Calm
+                          : (wind_spd < 6.f) ? WindCondition::Light
+                                             : WindCondition::Steady;
+
+    s_ld_captured.fpm            = gVS;
+    s_ld_captured.g_force        = s_g_buf.avg();
+    s_ld_captured.pitch_deg      = Q;
+    s_ld_captured.pitch_rate     = Qrad;
+    s_ld_captured.agl_ft         = f.agl * 3.28084f;
+    s_ld_captured.float_time     = s_float_final;
+    s_ld_captured.flare          = eval_flare(Q, Qrad);
+    s_ld_captured.wind_speed_kts = (int)std::lround(wind_spd);
+    s_ld_captured.wind_dir_mag   = (int)std::lround(wind_dir);
+    s_ld_captured.wind_status    = wind_condition_to_string(wcond);
+    s_ld_captured.headwind_kts   = (int)std::lround(hw);
+    s_ld_captured.crosswind_kts  = (int)std::lround(xw);
+    s_ld_captured.crosswind_side = (xw >= 0.f) ? "R" : "L";
+    s_ld_captured_valid          = true;
+}
+
+// Finalize landing once the nose gear touches down after the mains.
+static void finalize_landing_on_nose_gear(bool on_all)
+{
+    if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
+        return;
+
+    auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
+    auto pthresh = FlightLogger::get_profile_thresholds(pname);
+    s_ld_captured.rating =
+        eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts, s_ld_captured.wind_status, pthresh);
+    s_ld_captured.time = std::time(nullptr);
+    s_landings.push_back(s_ld_captured);
+    s_arrival_icao = get_airport_id();
+    s_state        = State::Landed;
+    show_popup(s_ld_captured);
+    landing_arm();
+    XPLMDebugString("[xp_pilot] State: Airborne -> Landed\n");
+}
+
+static void handle_airborne_state(const Frame &f)
+{
+    update_track_sample();
+
+    const bool on_any = dr_i(dr_onground) != 0;
+    const bool on_all = dr_i(dr_onground_all) != 0;
+
+    if (f.paused == 0)
+    {
+        s_agl_buf.push(f.agl, f.localtime);
+        s_g_buf.push(f.gforce, f.localtime);
+    }
+
+    if (s_ld_armed && f.agl <= 15.f && s_float_timer == 0.f)
+        s_float_timer = (float)monotonic_clock();
+
+    capture_main_gear_touchdown(f, on_any);
+    finalize_landing_on_nose_gear(on_all);
+
+    s_prev_on_any = on_any;
+    s_prev_on_all = on_all;
+}
+
+static void handle_landed_state(const Frame &f)
+{
+    if (f.agl > AGL_AIRBORNE_M)
+    {
+        s_state = State::Airborne;
+        landing_arm();
+        if (s_write_enabled)
+            show_overlay("REC  Touch-and-Go", 4.f);
+        XPLMDebugString("[xp_pilot] State: Landed -> Airborne (T&G)\n");
+        return;
+    }
+
+    auto apt = get_airport_id();
+    if (!apt.empty())
+        s_arrival_icao = apt;
+
+    if (f.gs < GS_TAXI_STOP_MPS && shutdown_triggered(s_aircraft_icao))
+    {
+        s_end_time = std::time(nullptr);
+        s_state    = State::Shutdown;
+        XPLMDebugString("[xp_pilot] State: Landed -> Shutdown\n");
+        finalize_flight();
+    }
+}
+
+static void handle_shutdown_state()
+{
+    session_reset();
+    XPLMDebugString("[xp_pilot] State: Shutdown -> Idle\n");
+}
+
 static float triggers_cb(float, float, int, void *)
 {
     // Both logger features off → no state machine work this frame.
@@ -554,211 +798,28 @@ static float triggers_cb(float, float, int, void *)
         return -1.f;
     }
 
-    float gs        = dr_f(dr_gs);
-    bool  on_gnd    = dr_i(dr_onground) != 0;
-    float agl       = dr_f(dr_agl);
-    float localtime = dr_f(dr_localtime);
-    float gforce    = dr_f(dr_gforce);
-    int   paused    = dr_i(dr_paused);
+    const Frame f = read_frame();
+    cache_airport_when_stationary(f);
+    handle_engine_edge_detection(f.on_gnd);
 
-    // Cache airport while slow on ground
-    if (on_gnd && gs < GS_TAXI_STOP_MPS)
+    switch (s_state)
     {
-        auto apt = get_airport_id();
-        if (!apt.empty())
-            s_last_gnd_apt = apt;
+    case State::Idle:
+        handle_idle_state(f);
+        break;
+    case State::Rolling:
+        handle_rolling_state(f);
+        break;
+    case State::Airborne:
+        handle_airborne_state(f);
+        break;
+    case State::Landed:
+        handle_landed_state(f);
+        break;
+    case State::Shutdown:
+        handle_shutdown_state();
+        break;
     }
-
-    // Engine edge detection (DEP/ARR overlay is writer-specific context info)
-    int cur_eng = any_engine_running() ? 1 : 0;
-    if (s_prev_any_eng != -1 && on_gnd)
-    {
-        if (s_prev_any_eng == 0 && cur_eng == 1)
-        {
-            auto apt = get_airport_id();
-            if (!apt.empty())
-            {
-                s_last_gnd_apt = apt;
-            }
-            if (s_write_enabled)
-                show_overlay("DEP cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
-        }
-        else if (s_prev_any_eng == 1 && cur_eng == 0)
-        {
-            auto apt = get_airport_id();
-            if (!apt.empty())
-            {
-                s_last_gnd_apt = apt;
-            }
-            if (s_write_enabled)
-                show_overlay("ARR cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
-        }
-    }
-    s_prev_any_eng = cur_eng;
-
-    // ── Idle ──────────────────────────────────────────────────────────────────
-    if (s_state == State::Idle)
-    {
-        if (gs > GS_ROLLING_MPS && on_gnd)
-        {
-            s_aircraft_icao  = dr_str(dr_acf_icao);
-            s_aircraft_tail  = dr_str(dr_acf_tail);
-            s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
-            s_start_time     = std::time(nullptr);
-            s_state          = State::Rolling;
-            XPLMDebugString("[xp_pilot] State: Idle -> Rolling\n");
-        }
-        return -1.f;
-    }
-
-    // ── Rolling ───────────────────────────────────────────────────────────────
-    if (s_state == State::Rolling)
-    {
-        if (agl > AGL_AIRBORNE_M)
-        {
-            s_last_sample_t = std::time(nullptr);
-            if (s_departure_icao.empty())
-                s_departure_icao = get_airport_id();
-            s_state = State::Airborne;
-            landing_arm();
-            if (s_write_enabled)
-                show_overlay("REC  Flight recording started", 5.f);
-            XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
-        }
-        return -1.f;
-    }
-
-    // ── Airborne ─────────────────────────────────────────────────────────────
-    if (s_state == State::Airborne)
-    {
-        // Track sampling + max-stats are only needed for the JSON log.
-        // Landing Rating uses the touchdown metrics below, not the track.
-        if (s_write_enabled)
-        {
-            time_t now = std::time(nullptr);
-            if (now - s_last_sample_t >= 10)
-            {
-                s_last_sample_t    = now;
-                int        alt_ft  = (int)(dr_d(dr_elevation) * 3.28084);
-                int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
-                int        vs      = (int)dr_f(dr_vertfpm);
-                TrackPoint tp;
-                tp.t       = now;
-                tp.lat     = dr_d(dr_lat);
-                tp.lon     = dr_d(dr_lon);
-                tp.alt_ft  = alt_ft;
-                tp.spd_kts = spd_kts;
-                tp.vs_fpm  = vs;
-                s_track.push_back(tp);
-                if (alt_ft > s_max_altitude_ft)
-                    s_max_altitude_ft = alt_ft;
-                if (spd_kts > s_max_speed_kts)
-                    s_max_speed_kts = spd_kts;
-            }
-        }
-
-        // Landing detection
-        bool  on_any   = dr_i(dr_onground) != 0;
-        bool  on_all   = dr_i(dr_onground_all) != 0;
-        float Q        = dr_f(dr_Q);
-        float Qrad     = dr_f(dr_Qrad);
-        float vertfpm  = dr_f(dr_vertfpm);
-        float wind_spd = dr_f(dr_wind_spd);
-        float wind_dir = dr_f(dr_wind_dir);
-        float magpsi   = dr_f(dr_magpsi);
-
-        if (paused == 0)
-        {
-            s_agl_buf.push(agl, localtime);
-            s_g_buf.push(gforce, localtime);
-        }
-
-        if (s_ld_armed && agl <= 15.f && s_float_timer == 0.f)
-            s_float_timer = (float)monotonic_clock();
-
-        // Main gear touchdown
-        if (s_ld_armed && !s_prev_on_any && on_any)
-        {
-            float tspan = s_agl_buf.tspan();
-            float gVS   = vertfpm;
-            if (tspan > 0.f)
-                gVS = ((agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
-            if (s_float_timer > 0.f && s_float_final == 0.f)
-                s_float_final = (float)monotonic_clock() - s_float_timer;
-
-            float hw = 0.f, xw = 0.f;
-            calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
-            std::string wstat = (wind_spd < 3.f) ? "CALM" : (wind_spd < 6.f) ? "LIGHT" : "STEADY";
-
-            s_ld_captured.fpm            = gVS;
-            s_ld_captured.g_force        = s_g_buf.avg();
-            s_ld_captured.pitch_deg      = Q;
-            s_ld_captured.pitch_rate     = Qrad;
-            s_ld_captured.agl_ft         = agl * 3.28084f;
-            s_ld_captured.float_time     = s_float_final;
-            s_ld_captured.flare          = eval_flare(Q, Qrad);
-            s_ld_captured.wind_speed_kts = (int)std::lround(wind_spd);
-            s_ld_captured.wind_dir_mag   = (int)std::lround(wind_dir);
-            s_ld_captured.wind_status    = wstat;
-            s_ld_captured.headwind_kts   = (int)std::lround(hw);
-            s_ld_captured.crosswind_kts  = (int)std::lround(xw);
-            s_ld_captured.crosswind_side = (xw >= 0.f) ? "R" : "L";
-            s_ld_captured_valid          = true;
-        }
-
-        // Nose gear down → finalize landing
-        if (s_ld_armed && s_ld_captured_valid && !s_prev_on_all && on_all)
-        {
-            auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
-            auto pthresh = FlightLogger::get_profile_thresholds(pname);
-            s_ld_captured.rating =
-                eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts, s_ld_captured.wind_status, pthresh);
-            s_ld_captured.time = std::time(nullptr);
-            s_landings.push_back(s_ld_captured);
-            s_arrival_icao = get_airport_id();
-            s_state        = State::Landed;
-            show_popup(s_ld_captured);
-            landing_arm();
-            XPLMDebugString("[xp_pilot] State: Airborne -> Landed\n");
-        }
-
-        s_prev_on_any = on_any;
-        s_prev_on_all = on_all;
-        return -1.f;
-    }
-
-    // ── Landed ────────────────────────────────────────────────────────────────
-    if (s_state == State::Landed)
-    {
-        if (agl > AGL_AIRBORNE_M)
-        {
-            s_state = State::Airborne;
-            landing_arm();
-            if (s_write_enabled)
-                show_overlay("REC  Touch-and-Go", 4.f);
-            XPLMDebugString("[xp_pilot] State: Landed -> Airborne (T&G)\n");
-            return -1.f;
-        }
-        auto apt = get_airport_id();
-        if (!apt.empty())
-            s_arrival_icao = apt;
-        if (gs < GS_TAXI_STOP_MPS && shutdown_triggered(s_aircraft_icao))
-        {
-            s_end_time = std::time(nullptr);
-            s_state    = State::Shutdown;
-            XPLMDebugString("[xp_pilot] State: Landed -> Shutdown\n");
-            finalize_flight();
-        }
-        return -1.f;
-    }
-
-    // ── Shutdown ──────────────────────────────────────────────────────────────
-    if (s_state == State::Shutdown)
-    {
-        session_reset();
-        XPLMDebugString("[xp_pilot] State: Shutdown -> Idle\n");
-    }
-
     return -1.f;
 }
 

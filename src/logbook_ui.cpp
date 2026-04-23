@@ -138,6 +138,40 @@ static ImVec4 rating_color(const std::string &r)
     return {1.0f, 1.0f, 1.0f, 1.0f};
 }
 
+static void draw_wind_status_line(const LandingData &ld)
+{
+    const int xw = std::abs(ld.crosswind_kts);
+    char      line[128];
+
+    switch (wind_condition_from_string(ld.wind_status))
+    {
+    case WindCondition::Calm:
+        ImGui::TextUnformatted("  Wind: CALM");
+        return;
+
+    case WindCondition::Light:
+        snprintf(line, sizeof(line), "  Wind: LIGHT  XW %d kts %s", xw, ld.crosswind_side.c_str());
+        ImGui::TextUnformatted(line);
+        return;
+
+    case WindCondition::Steady:
+        if (ld.headwind_kts < -5)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.5f, 0, 1));
+            snprintf(line, sizeof(line), "  TAILWIND +%d kts  --  WRONG RWY?", std::abs(ld.headwind_kts));
+            ImGui::TextUnformatted(line);
+            ImGui::PopStyleColor();
+        }
+        else
+        {
+            snprintf(line, sizeof(line), "  Wind: %d kts | HW %d kts | XW %d kts %s", ld.wind_speed_kts,
+                     ld.headwind_kts, xw, ld.crosswind_side.c_str());
+            ImGui::TextUnformatted(line);
+        }
+        return;
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // Logbook window content
 // ════════════════════════════════════════════════════════════════
@@ -373,30 +407,7 @@ static void draw_logbook()
                 ImGui::TextUnformatted(stats);
                 ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
 
-                int  xw = std::abs(ld.crosswind_kts);
-                char wind[128];
-                if (ld.wind_status == "CALM")
-                {
-                    ImGui::TextUnformatted("  Wind: CALM");
-                }
-                else if (ld.wind_status == "LIGHT")
-                {
-                    snprintf(wind, sizeof(wind), "  Wind: LIGHT  XW %d kts %s", xw, ld.crosswind_side.c_str());
-                    ImGui::TextUnformatted(wind);
-                }
-                else if (ld.headwind_kts < -5)
-                {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.5f, 0, 1));
-                    snprintf(wind, sizeof(wind), "  TAILWIND +%d kts  --  WRONG RWY?", std::abs(ld.headwind_kts));
-                    ImGui::TextUnformatted(wind);
-                    ImGui::PopStyleColor();
-                }
-                else
-                {
-                    snprintf(wind, sizeof(wind), "  Wind: %d kts | HW %d kts | XW %d kts %s", ld.wind_speed_kts,
-                             ld.headwind_kts, xw, ld.crosswind_side.c_str());
-                    ImGui::TextUnformatted(wind);
-                }
+                draw_wind_status_line(ld);
                 if (i + 1 < fd.landings.size())
                     ImGui::Separator();
             }

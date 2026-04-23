@@ -94,35 +94,45 @@ static float FlightLoopCB(float, float, int, void *)
 
 // ── Draw: warning text ────────────────────────────────────────────────────────
 
+// Three-way hysteresis for the QNH drift warning.
+// On standard pressure the warning is silenced entirely (the pilot is
+// intentionally on flight level); otherwise it latches above THRESHOLD_ON
+// and releases below THRESHOLD_OFF.
+static bool next_qnh_warning_state(bool on_fl, float drift, bool was_active)
+{
+    if (on_fl)
+        return false;
+    if (was_active)
+        return drift >= THRESHOLD_OFF;
+    return drift > THRESHOLD_ON;
+}
+
+static void draw_copilot_disagree_warning(float pqnh)
+{
+    if (!s_baro_copilot)
+        return;
+    float cpqnh = XPLMGetDataf(s_baro_copilot);
+    if (std::fabs(pqnh - cpqnh) <= FL_EPSILON)
+        return;
+    float c[4] = {1.0f, 0.3f, 0.3f, 1.0f};
+    XPLMDrawString(c, 40, 40, const_cast<char *>("ALTIMETER DISAGREE - PF/PM mismatch"), nullptr,
+                   xplmFont_Proportional);
+}
+
 void AutoQNH::draw()
 {
     if (!s_enabled)
         return;
 
-    float qnh   = actual_qnh_inhg();
-    float pqnh  = pilot_qnh();
-    bool  on_fl = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
-    float drift = std::fabs(pqnh - qnh);
+    const float qnh   = actual_qnh_inhg();
+    const float pqnh  = pilot_qnh();
+    const bool  on_fl = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
+    const float drift = std::fabs(pqnh - qnh);
 
-    // Hysteresis (skip when intentionally on flight level)
-    if (on_fl)
-    {
-        s_warning_active = false;
-    }
-    else if (s_warning_active)
-    {
-        if (drift < THRESHOLD_OFF)
-            s_warning_active = false;
-    }
-    else
-    {
-        if (drift > THRESHOLD_ON)
-            s_warning_active = true;
-    }
+    s_warning_active = next_qnh_warning_state(on_fl, drift, s_warning_active);
 
     if (!s_warning_active && !s_baro_copilot)
         return;
-
     if (!s_messages_enabled)
         return;
 
@@ -134,16 +144,7 @@ void AutoQNH::draw()
         XPLMDrawString(c, 40, 60, const_cast<char *>("CHECK ALTIMETER - QNH not set"), nullptr, xplmFont_Proportional);
     }
 
-    if (s_baro_copilot)
-    {
-        float cpqnh = XPLMGetDataf(s_baro_copilot);
-        if (std::fabs(pqnh - cpqnh) > FL_EPSILON)
-        {
-            float c[4] = {1.0f, 0.3f, 0.3f, 1.0f};
-            XPLMDrawString(c, 40, 40, const_cast<char *>("ALTIMETER DISAGREE - PF/PM mismatch"), nullptr,
-                           xplmFont_Proportional);
-        }
-    }
+    draw_copilot_disagree_warning(pqnh);
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────

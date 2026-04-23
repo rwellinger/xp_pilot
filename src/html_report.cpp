@@ -10,6 +10,31 @@
 
 using json = nlohmann::json;
 
+// ── Wind condition converters (single source of truth for JSON strings) ──────
+
+WindCondition wind_condition_from_string(const std::string &s)
+{
+    if (s == "CALM")
+        return WindCondition::Calm;
+    if (s == "LIGHT")
+        return WindCondition::Light;
+    return WindCondition::Steady;
+}
+
+const char *wind_condition_to_string(WindCondition c)
+{
+    switch (c)
+    {
+    case WindCondition::Calm:
+        return "CALM";
+    case WindCondition::Light:
+        return "LIGHT";
+    case WindCondition::Steady:
+        return "STEADY";
+    }
+    return "STEADY";
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 static std::string esc(const std::string &s)
@@ -76,61 +101,69 @@ thead tr{color:#888;border-bottom:1px solid #333}
 
 // ── Landing card HTML ─────────────────────────────────────────────────────────
 
+namespace
+{
+std::string pitch_label_for(float pitch_deg)
+{
+    float qa = std::abs(pitch_deg);
+    if (qa <= 1.0f)
+        return "good timing";
+    if (qa <= 2.0f)
+        return (pitch_deg < 0) ? "late" : "early";
+    return (pitch_deg < 0) ? "too late" : "too early";
+}
+
+struct WindDisplay
+{
+    std::string src;
+    std::string hw;
+    std::string xw;
+};
+
+WindDisplay format_wind_display(const LandingData &ld)
+{
+    int         xw_abs  = std::abs(ld.crosswind_kts);
+    int         hw      = ld.headwind_kts;
+    const char *xw_side = ld.crosswind_side.c_str();
+    char        b[256];
+
+    switch (wind_condition_from_string(ld.wind_status))
+    {
+    case WindCondition::Calm:
+        return {"calm", "calm", "&mdash;"};
+
+    case WindCondition::Light:
+    {
+        snprintf(b, sizeof(b), "%d kts (light/variable)", ld.wind_speed_kts);
+        std::string src_hw = b;
+        snprintf(b, sizeof(b), "%d kts %s", xw_abs, xw_side);
+        return {src_hw, src_hw, b};
+    }
+
+    case WindCondition::Steady:
+    {
+        WindDisplay w;
+        snprintf(b, sizeof(b), "%d kts from %d&deg; mag", ld.wind_speed_kts, ld.wind_dir_mag);
+        w.src = b;
+        if (hw < -5)
+            snprintf(b, sizeof(b), "<b style=\"color:#ff8000\">%d kts TAILWIND &mdash; WRONG RWY?</b>", std::abs(hw));
+        else
+            snprintf(b, sizeof(b), "%d kts headwind", hw);
+        w.hw = b;
+        snprintf(b, sizeof(b), "%d kts %s", xw_abs, xw_side);
+        w.xw = b;
+        return w;
+    }
+    }
+    return {};
+}
+} // namespace
+
 static std::string landing_card(const LandingData &ld, const std::string &profile_name, const std::array<int, 4> &p)
 {
-    auto rc = rating_color(ld.rating);
-
-    // Pitch label
-    float       qa = std::abs(ld.pitch_deg);
-    std::string pitch_label;
-    if (qa <= 1.0f)
-        pitch_label = "good timing";
-    else if (qa <= 2.0f)
-        pitch_label = (ld.pitch_deg < 0) ? "late" : "early";
-    else
-        pitch_label = (ld.pitch_deg < 0) ? "too late" : "too early";
-
-    // Wind labels
-    auto        xw_abs  = std::abs(ld.crosswind_kts);
-    auto        hw      = ld.headwind_kts;
-    auto        xw_side = ld.crosswind_side.empty() ? "" : ld.crosswind_side;
-    std::string wind_src, wind_hw, wind_xw;
-    if (ld.wind_status == "CALM")
-    {
-        wind_src = "calm";
-        wind_hw  = "calm";
-        wind_xw  = "&mdash;";
-    }
-    else if (ld.wind_status == "LIGHT")
-    {
-        char b[128];
-        snprintf(b, sizeof(b), "%d kts (light/variable)", ld.wind_speed_kts);
-        wind_src = b;
-        snprintf(b, sizeof(b), "%d kts (light/variable)", ld.wind_speed_kts);
-        wind_hw = b;
-        snprintf(b, sizeof(b), "%d kts %s", xw_abs, xw_side.c_str());
-        wind_xw = b;
-    }
-    else if (hw < -5)
-    {
-        char b[256];
-        snprintf(b, sizeof(b), "<b style=\"color:#ff8000\">%d kts TAILWIND &mdash; WRONG RWY?</b>", std::abs(hw));
-        wind_hw = b;
-        snprintf(b, sizeof(b), "%d kts from %d&deg; mag", ld.wind_speed_kts, ld.wind_dir_mag);
-        wind_src = b;
-        snprintf(b, sizeof(b), "%d kts %s", xw_abs, xw_side.c_str());
-        wind_xw = b;
-    }
-    else
-    {
-        char b[256];
-        snprintf(b, sizeof(b), "%d kts headwind", hw);
-        wind_hw = b;
-        snprintf(b, sizeof(b), "%d kts from %d&deg; mag", ld.wind_speed_kts, ld.wind_dir_mag);
-        wind_src = b;
-        snprintf(b, sizeof(b), "%d kts %s", xw_abs, xw_side.c_str());
-        wind_xw = b;
-    }
+    auto        rc          = rating_color(ld.rating);
+    std::string pitch_label = pitch_label_for(ld.pitch_deg);
+    WindDisplay w           = format_wind_display(ld);
 
     char thresh[128];
     snprintf(thresh, sizeof(thresh), "Butter &gt;%d / Great &gt;%d / Acceptable &gt;%d / Hard &gt;%d", p[0], p[1], p[2],
@@ -154,8 +187,8 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
              "<tr><td style=\"color:#666;font-size:.85em\" colspan=\"2\">Profile: %s</td></tr>"
              "</table></div>\n",
              rc.c_str(), esc(ld.rating).c_str(), rc.c_str(), ld.fpm, ld.g_force, ld.float_time, ld.agl_ft, ld.pitch_deg,
-             pitch_label.c_str(), ld.pitch_rate, esc(ld.flare).c_str(), wind_src.c_str(), wind_hw.c_str(),
-             wind_xw.c_str(), thresh);
+             pitch_label.c_str(), ld.pitch_rate, esc(ld.flare).c_str(), w.src.c_str(), w.hw.c_str(), w.xw.c_str(),
+             thresh);
     return buf;
 }
 
