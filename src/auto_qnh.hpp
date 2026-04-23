@@ -15,9 +15,9 @@ namespace AutoQNH
 {
 void init();
 void stop();
-void draw();           // called from draw callback — renders warning text if needed
-void toggle();         // toggle entire Auto QNH feature (auto-correction + warnings)
-bool enabled();        // current feature state
+void draw();               // called from draw callback — renders warning text if needed
+void toggle();             // toggle entire Auto QNH feature (auto-correction + warnings)
+bool enabled();            // current feature state
 void set_enabled(bool on); // set feature state (used by settings persistence)
 
 // Toggles whether on-screen QNH warning text is drawn. Independent of enabled():

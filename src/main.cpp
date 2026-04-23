@@ -17,10 +17,7 @@ using json = nlohmann::json;
 
 // ── Settings persistence ─────────────────────────────────────────────────────
 
-static std::string settings_path()
-{
-    return FlightLogger::data_dir() + "settings.json";
-}
+static std::string settings_path() { return FlightLogger::data_dir() + "settings.json"; }
 
 static void load_settings()
 {

@@ -464,9 +464,8 @@ static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
     if (s_mouse_dbg_count < 20)
     {
         char buf[256];
-        snprintf(buf, sizeof(buf),
-                 "[xp_pilot] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) imgui(%.0f,%.0f) status=%d\n",
-                 x, y, left, top, right, bottom, mx, my, status);
+        snprintf(buf, sizeof(buf), "[xp_pilot] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) imgui(%.0f,%.0f) status=%d\n", x, y,
+                 left, top, right, bottom, mx, my, status);
         XPLMDebugString(buf);
         ++s_mouse_dbg_count;
     }
@@ -501,7 +500,13 @@ static int RightClickCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus st
     return 1;
 }
 
-static XPLMCursorStatus CursorCallback(XPLMWindowID, int, int, void *) { return xplm_CursorDefault; }
+static XPLMCursorStatus CursorCallback(XPLMWindowID wnd, int x, int y, void *)
+{
+    int left, top, right, bottom;
+    XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
+    ImGui::GetIO().AddMousePosEvent((float)(x - left), (float)(top - y));
+    return xplm_CursorDefault;
+}
 
 static void KeyCallback(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, void *, int losing_focus)
 {
@@ -607,9 +612,8 @@ void LogbookUI::draw()
     if (!s_fb_logged)
     {
         char dbg[192];
-        snprintf(dbg, sizeof(dbg),
-                 "[xp_pilot] Framebuffer: viewport(%d,%d) logical(%d,%d) scale(%.2f,%.2f)\n",
-                 fb_w, fb_h, sw, sh, (float)fb_w / (float)sw, (float)fb_h / (float)sh);
+        snprintf(dbg, sizeof(dbg), "[xp_pilot] Framebuffer: viewport(%d,%d) logical(%d,%d) scale(%.2f,%.2f)\n", fb_w,
+                 fb_h, sw, sh, (float)fb_w / (float)sw, (float)fb_h / (float)sh);
         XPLMDebugString(dbg);
         s_fb_logged = true;
     }
@@ -621,10 +625,10 @@ void LogbookUI::draw()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    ImGuiIO &io       = ImGui::GetIO();
-    double   now      = get_xp_time();
-    io.DeltaTime      = (float)std::max(now - s_last_frame_time, 0.001);
-    s_last_frame_time = now;
+    ImGuiIO &io                = ImGui::GetIO();
+    double   now               = get_xp_time();
+    io.DeltaTime               = (float)std::max(now - s_last_frame_time, 0.001);
+    s_last_frame_time          = now;
     io.DisplaySize             = ImVec2((float)sw, (float)sh);
     io.DisplayFramebufferScale = ImVec2((float)fb_w / (float)sw, (float)fb_h / (float)sh);
 
@@ -642,8 +646,7 @@ void LogbookUI::draw()
 
         bool open = true;
 #ifdef XP_PILOT_VERSION
-        static const std::string window_title =
-            std::string("Logbook v") + XP_PILOT_VERSION + "##xp_pilot";
+        static const std::string window_title = std::string("Logbook v") + XP_PILOT_VERSION + "##xp_pilot";
 #else
         static const std::string window_title = "Logbook##xp_pilot";
 #endif
@@ -708,8 +711,8 @@ void LogbookUI::open()
         int gl, gt, gr, gb;
         XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
         char dbg[128];
-        snprintf(dbg, sizeof(dbg), "[xp_pilot] Screen bounds: global(%d,%d,%d,%d) size(%dx%d)\n",
-                 gl, gt, gr, gb, gr - gl, gt - gb);
+        snprintf(dbg, sizeof(dbg), "[xp_pilot] Screen bounds: global(%d,%d,%d,%d) size(%dx%d)\n", gl, gt, gr, gb,
+                 gr - gl, gt - gb);
         XPLMDebugString(dbg);
         XPLMCreateWindow_t p       = {};
         p.structSize               = sizeof(p);

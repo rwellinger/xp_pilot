@@ -1,7 +1,6 @@
 #include "flight_logger.hpp"
 #include "html_report.hpp"
 #include <XPLM/XPLMDataAccess.h>
-#include <imgui.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
 #include <XPLM/XPLMNavigation.h>
@@ -16,6 +15,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <imgui.h>
 #include <json.hpp>
 #include <sstream>
 
@@ -243,9 +243,9 @@ static double      s_overlay_until = 0;
 static float       s_overlay_r = 1, s_overlay_g = 1, s_overlay_b = 1;
 
 // ── Feature toggles (persisted via settings.json) ─────────────────────────────
-static bool s_write_enabled          = true;
-static bool s_messages_enabled       = true;
-static bool s_landing_popup_enabled  = true;
+static bool s_write_enabled         = true;
+static bool s_messages_enabled      = true;
+static bool s_landing_popup_enabled = true;
 
 static double monotonic_clock()
 {
@@ -318,11 +318,16 @@ void FlightLogger::draw_popup()
 
     static auto rating_col = [](const std::string &r) -> ImVec4
     {
-        if (r == "BUTTER!")        return {1.00f, 1.00f, 0.00f, 1.0f};
-        if (r == "GREAT LANDING!") return {0.25f, 1.00f, 0.25f, 1.0f};
-        if (r == "ACCEPTABLE")     return {0.00f, 0.80f, 0.00f, 1.0f};
-        if (r == "HARD LANDING!")  return {1.00f, 0.50f, 0.00f, 1.0f};
-        if (r == "WASTED!")        return {1.00f, 0.13f, 0.13f, 1.0f};
+        if (r == "BUTTER!")
+            return {1.00f, 1.00f, 0.00f, 1.0f};
+        if (r == "GREAT LANDING!")
+            return {0.25f, 1.00f, 0.25f, 1.0f};
+        if (r == "ACCEPTABLE")
+            return {0.00f, 0.80f, 0.00f, 1.0f};
+        if (r == "HARD LANDING!")
+            return {1.00f, 0.50f, 0.00f, 1.0f};
+        if (r == "WASTED!")
+            return {1.00f, 0.13f, 0.13f, 1.0f};
         return {1.0f, 1.0f, 1.0f, 1.0f};
     };
 
@@ -331,14 +336,14 @@ void FlightLogger::draw_popup()
     ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
 
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.38f, 0.42f, 0.48f, 0.95f));
-    ImGui::PushStyleColor(ImGuiCol_Border,   ImVec4(0.70f, 0.80f, 0.90f, 1.00f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,  8.f);
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.70f, 0.80f, 0.90f, 1.00f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,   ImVec2(20.f, 14.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.f, 14.f));
 
     ImGui::Begin("##landing_popup", nullptr,
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
 
     const float content_w = ImGui::GetContentRegionAvail().x;
     char        buf[128];
