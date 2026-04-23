@@ -25,6 +25,8 @@ void               regen_all_reports();
 // ── Settings ──────────────────────────────────────────────────────────────────
 void set_write_enabled(bool on);
 bool write_enabled();
+void set_html_report_enabled(bool on);
+bool html_report_enabled();
 void set_messages_enabled(bool on);
 bool messages_enabled();
 void set_landing_popup_enabled(bool on);

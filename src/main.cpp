@@ -31,6 +31,7 @@ static void load_settings()
         AutoQNH::set_enabled(j.value("auto_qnh", false));
         AutoQNH::set_messages_enabled(j.value("qnh_messages", true));
         FlightLogger::set_write_enabled(j.value("write_logs", true));
+        FlightLogger::set_html_report_enabled(j.value("html_report", true));
         FlightLogger::set_messages_enabled(j.value("log_messages", true));
         FlightLogger::set_landing_popup_enabled(j.value("landing_popup", true));
     }
@@ -46,6 +47,7 @@ void Settings::save()
     j["auto_qnh"]      = AutoQNH::enabled();
     j["qnh_messages"]  = AutoQNH::messages_enabled();
     j["write_logs"]    = FlightLogger::write_enabled();
+    j["html_report"]   = FlightLogger::html_report_enabled();
     j["log_messages"]  = FlightLogger::messages_enabled();
     j["landing_popup"] = FlightLogger::landing_popup_enabled();
     std::ofstream f(settings_path());

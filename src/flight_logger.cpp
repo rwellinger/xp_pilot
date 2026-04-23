@@ -244,6 +244,7 @@ static float       s_overlay_r = 1, s_overlay_g = 1, s_overlay_b = 1;
 
 // ── Feature toggles (persisted via settings.json) ─────────────────────────────
 static bool s_write_enabled         = true;
+static bool s_html_report_enabled   = true;
 static bool s_messages_enabled      = true;
 static bool s_landing_popup_enabled = true;
 
@@ -266,6 +267,8 @@ static void show_overlay(const std::string &text, float sec, float r = 1.f, floa
 
 void FlightLogger::set_write_enabled(bool on) { s_write_enabled = on; }
 bool FlightLogger::write_enabled() { return s_write_enabled; }
+void FlightLogger::set_html_report_enabled(bool on) { s_html_report_enabled = on; }
+bool FlightLogger::html_report_enabled() { return s_html_report_enabled; }
 void FlightLogger::set_messages_enabled(bool on) { s_messages_enabled = on; }
 bool FlightLogger::messages_enabled() { return s_messages_enabled; }
 void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled = on; }
@@ -541,6 +544,16 @@ static void finalize_flight();
 
 static float triggers_cb(float, float, int, void *)
 {
+    // Both logger features off → no state machine work this frame.
+    // Reset any mid-flight state so re-enabling starts cleanly from Idle.
+    const bool logger_active = s_write_enabled || s_landing_popup_enabled;
+    if (!logger_active)
+    {
+        if (s_state != State::Idle)
+            session_reset();
+        return -1.f;
+    }
+
     float gs        = dr_f(dr_gs);
     bool  on_gnd    = dr_i(dr_onground) != 0;
     float agl       = dr_f(dr_agl);
@@ -556,7 +569,7 @@ static float triggers_cb(float, float, int, void *)
             s_last_gnd_apt = apt;
     }
 
-    // Engine edge detection
+    // Engine edge detection (DEP/ARR overlay is writer-specific context info)
     int cur_eng = any_engine_running() ? 1 : 0;
     if (s_prev_any_eng != -1 && on_gnd)
     {
@@ -567,7 +580,8 @@ static float triggers_cb(float, float, int, void *)
             {
                 s_last_gnd_apt = apt;
             }
-            show_overlay("DEP cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
+            if (s_write_enabled)
+                show_overlay("DEP cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
         }
         else if (s_prev_any_eng == 1 && cur_eng == 0)
         {
@@ -576,7 +590,8 @@ static float triggers_cb(float, float, int, void *)
             {
                 s_last_gnd_apt = apt;
             }
-            show_overlay("ARR cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
+            if (s_write_enabled)
+                show_overlay("ARR cached: " + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
         }
     }
     s_prev_any_eng = cur_eng;
@@ -606,7 +621,8 @@ static float triggers_cb(float, float, int, void *)
                 s_departure_icao = get_airport_id();
             s_state = State::Airborne;
             landing_arm();
-            show_overlay("REC  Flight recording started", 5.f);
+            if (s_write_enabled)
+                show_overlay("REC  Flight recording started", 5.f);
             XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
         }
         return -1.f;
@@ -615,26 +631,30 @@ static float triggers_cb(float, float, int, void *)
     // ── Airborne ─────────────────────────────────────────────────────────────
     if (s_state == State::Airborne)
     {
-        // Track sampling (10 s interval)
-        time_t now = std::time(nullptr);
-        if (now - s_last_sample_t >= 10)
+        // Track sampling + max-stats are only needed for the JSON log.
+        // Landing Rating uses the touchdown metrics below, not the track.
+        if (s_write_enabled)
         {
-            s_last_sample_t    = now;
-            int        alt_ft  = (int)(dr_d(dr_elevation) * 3.28084);
-            int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
-            int        vs      = (int)dr_f(dr_vertfpm);
-            TrackPoint tp;
-            tp.t       = now;
-            tp.lat     = dr_d(dr_lat);
-            tp.lon     = dr_d(dr_lon);
-            tp.alt_ft  = alt_ft;
-            tp.spd_kts = spd_kts;
-            tp.vs_fpm  = vs;
-            s_track.push_back(tp);
-            if (alt_ft > s_max_altitude_ft)
-                s_max_altitude_ft = alt_ft;
-            if (spd_kts > s_max_speed_kts)
-                s_max_speed_kts = spd_kts;
+            time_t now = std::time(nullptr);
+            if (now - s_last_sample_t >= 10)
+            {
+                s_last_sample_t    = now;
+                int        alt_ft  = (int)(dr_d(dr_elevation) * 3.28084);
+                int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
+                int        vs      = (int)dr_f(dr_vertfpm);
+                TrackPoint tp;
+                tp.t       = now;
+                tp.lat     = dr_d(dr_lat);
+                tp.lon     = dr_d(dr_lon);
+                tp.alt_ft  = alt_ft;
+                tp.spd_kts = spd_kts;
+                tp.vs_fpm  = vs;
+                s_track.push_back(tp);
+                if (alt_ft > s_max_altitude_ft)
+                    s_max_altitude_ft = alt_ft;
+                if (spd_kts > s_max_speed_kts)
+                    s_max_speed_kts = spd_kts;
+            }
         }
 
         // Landing detection
@@ -714,7 +734,8 @@ static float triggers_cb(float, float, int, void *)
         {
             s_state = State::Airborne;
             landing_arm();
-            show_overlay("REC  Touch-and-Go", 4.f);
+            if (s_write_enabled)
+                show_overlay("REC  Touch-and-Go", 4.f);
             XPLMDebugString("[xp_pilot] State: Landed -> Airborne (T&G)\n");
             return -1.f;
         }
@@ -875,10 +896,13 @@ static void finalize_flight()
     fd.track           = s_track;
     fd.landings        = s_landings;
 
-    auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
-    auto pthresh = FlightLogger::get_profile_thresholds(pname);
-    HtmlReport::generate(fd, s_data_dir, filename, pname, pthresh);
-    HtmlReport::generate_index(s_data_dir);
+    if (s_html_report_enabled)
+    {
+        auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
+        auto pthresh = FlightLogger::get_profile_thresholds(pname);
+        HtmlReport::generate(fd, s_data_dir, filename, pname, pthresh);
+        HtmlReport::generate_index(s_data_dir);
+    }
 
     std::string dep = s_departure_icao.empty() ? "?" : s_departure_icao;
     std::string arr = s_arrival_icao.empty() ? "?" : s_arrival_icao;

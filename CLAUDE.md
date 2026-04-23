@@ -48,3 +48,17 @@ Aircraft landing quality thresholds are configured in `data/flight_logger_profil
 - Output is `build/xp_pilot.xpl` (X-Plane plugin binary format)
 - Vendor dependencies in `vendor/` (imgui/, json.hpp) and SDK headers in `sdk/` (XPLM/, XPWidgets/) — both populated by `setup.sh`, not committed to the repo
 - Compiler flags: `-Wall -Wextra -fvisibility=hidden`, OpenGL deprecation warnings suppressed
+
+## Code Quality
+
+All implementation in this repo must follow clean-code best practices. This applies to every change, now and in the future:
+
+- **Single responsibility**: each function does one thing; each module owns one concern.
+- **Meaningful names**: variables, functions and types read as plain English — no abbreviations, no cryptic suffixes.
+- **Small functions, shallow nesting**: prefer early returns and helpers over deeply nested conditionals.
+- **DRY**: extract shared logic rather than copying it; but don't abstract speculatively.
+- **Encapsulation**: keep statics/internals private to their translation unit; expose only what the header promises.
+- **Separation of concerns**: UI code never touches file I/O directly; data modules never draw.
+- **Minimal comments**: let the code explain itself. Add a comment only when the *why* is non-obvious (invariant, workaround, surprising constraint). Don't comment what the code already says.
+- **No speculative generality**: don't build abstractions for hypothetical future needs — match the existing codebase style.
+- **Boundaries only for validation**: trust internal code; validate at the edges (user input, external APIs, file parsing).
