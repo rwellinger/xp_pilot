@@ -1,6 +1,6 @@
 ### Flight Logger + Auto QNH plugin for X-Plane 12
 
-macOS universal binary (arm64 + x86_64). Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
+Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
 ### What's New in v1.2.8
@@ -30,18 +30,17 @@ macOS universal binary (arm64 + x86_64). Records flights, generates HTML logbook
 
 ### Installation
 
-  Download `xp_pilot.xpl`, place it into your X-Plane `Resources/plugins/xp_pilot/` directory. See the README for setup.
+  Download the `xp_pilot.zip` from the release assets, unzip it, and copy the `xp_pilot` folder into your X-Plane `Resources/plugins/` directory. The ZIP contains all three platform binaries (`mac_x64/`, `lin_x64/`, `win_x64/`) — X-Plane 12 will load the right one automatically. See the README for setup.
 
 
 ### Requirements
 
-  - macOS 12.0+ (arm64 / x86_64 universal binary)
+  - macOS 12.0+ (arm64 / x86_64 universal binary), Linux (x86_64), or Windows
   - X-Plane 12
 
 
 ### Known Limitations
 
-  - macOS only
   - No automated tests — the plugin must be validated in X-Plane 12
   - Flight data JSON format may change between minor versions; regenerate reports after upgrades if needed
 

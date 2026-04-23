@@ -89,8 +89,23 @@ Under **Plugins → xp_pilot**:
 
 | Item | Description |
 |---|---|
-| Auto QNH | Toggle automatic QNH sync (checkbox) |
-| Open / Close Logbook | Open the in-sim flight logbook window |
+| Open / Close Logbook | Open the in-sim flight logbook window (contains all settings) |
+
+---
+
+## Settings
+
+All feature toggles live in the **Settings** tab of the Logbook window. Changes are saved immediately to `settings.json` and persist across sessions.
+
+| Setting | Default | Description |
+|---|---|---|
+| Write flight logs to disk | on | When off, no JSON flight file and no HTML report are written. Flight tracking and on-screen messages still work. |
+| Auto QNH | off | Silently syncs pilot and copilot altimeter to the actual sea-level pressure (skipped on standard 29.92). |
+| Show QNH warning messages | on | Gates the on-screen *CHECK ALTIMETER* and *ALTIMETER DISAGREE* warnings. Independent of Auto QNH. |
+| Show flight logger status messages | on | Gates the on-screen overlays (*DEP cached*, *REC Flight recording started*, *Touch-and-Go*, *Flight saved*, etc.). |
+| Show landing rating popup | on | Gates the post-touchdown popup with landing quality (BUTTER! / GREAT / ACCEPTABLE / HARD / WASTED) and metrics. Independent of the log-writing toggle. |
+
+Each toggle is independent, so combinations like "no disk logs but still show the landing rating" are supported for pilots who use external flight-reporting tools.
 
 ---
 
