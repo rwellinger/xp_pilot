@@ -9,6 +9,15 @@ A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows*
 
 ---
 
+## Why xp_pilot?
+
+- **Your data stays on your machine.** Flights, landings, and reports are plain JSON and HTML files in your X-Plane folder. No cloud, no server, no account — nothing to shut down, nothing to leak.
+- **No login, no subscription, no telemetry.** Install it and it works. You own your logbook.
+- **First-class native builds for macOS, Linux and Windows.** Universal binary on Apple Silicon and Intel Macs — a platform most X-Plane tools treat as an afterthought.
+- **Flight recording runs offline.** No internet needed while flying. Only the map tiles in the HTML reports are fetched from OpenStreetMap when you open a report.
+
+---
+
 ## Features
 
 ### Flight Logger
