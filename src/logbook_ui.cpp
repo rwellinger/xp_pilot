@@ -236,6 +236,20 @@ static void draw_settings()
         AutoQNH::set_messages_enabled(v);
         Settings::save();
     }
+
+    int ta = AutoQNH::transition_altitude_ft();
+    ImGui::SetNextItemWidth(140.f);
+    if (ImGui::InputInt("Transition altitude (ft)", &ta, 500, 1000))
+    {
+        AutoQNH::set_transition_altitude_ft(ta);
+        Settings::save();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Above this altitude, Auto QNH stops syncing and warns to set STD 29.92.\n"
+                          "USA: 18000 (fixed). Europe: varies per airport (3000-18000),\n"
+                          "see the approach chart for the destination.");
 }
 
 static void draw_logbook()

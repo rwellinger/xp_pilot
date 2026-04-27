@@ -1106,8 +1106,19 @@ void FlightLogger::init()
     // Strip filename (xp_pilot.xpl) then platform directory (mac_x64 / win_x64)
     std::filesystem::path dataPath = std::filesystem::path(p).parent_path().parent_path() / "data";
     s_data_dir                     = dataPath.generic_string() + "/";
-    std::filesystem::create_directories(dataPath / "flights");
-    std::filesystem::create_directories(dataPath / "reports");
+    XPLMDebugString(("[xp_pilot] data_dir: " + s_data_dir + "\n").c_str());
+
+    // Use the error_code overload — the throwing variant kills X-Plane if writes
+    // are blocked (sandbox, read-only volume, missing parent). Failing soft is OK:
+    // logging still tries to write later and will simply skip if the dir is absent.
+    std::error_code ec;
+    std::filesystem::create_directories(dataPath / "flights", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create flights dir: " + ec.message() + "\n").c_str());
+    ec.clear();
+    std::filesystem::create_directories(dataPath / "reports", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
 
     find_datarefs();
     load_profiles();
