@@ -28,6 +28,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Samples track points every 10 seconds (lat/lon, altitude, speed, vertical speed)
 - Captures landing data at touchdown: descent rate (fpm), G-force, pitch, float time, flare quality, wind (headwind/crosswind)
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
+- **Bounce detection** — counts bounced touchdowns and rates the landing by the *hardest* impact, not the cushioned final settle. A low-altitude rebound (AGL < 5 ft) counts as a bounce; a higher climb still triggers a separate Touch-and-Go.
 - Thresholds are profile-based per aircraft category (see [Aircraft Profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; an `index.html` lists all flights
 - Reports are stored next to the plugin: `data/flights/` and `data/reports/`
