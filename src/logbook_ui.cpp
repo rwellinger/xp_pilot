@@ -401,9 +401,13 @@ static void draw_logbook()
                     strftime(ts, sizeof(ts), "  Touchdown: %H:%M:%S UTC", t);
                     ImGui::TextUnformatted(ts);
                 }
-                char stats[128];
-                snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s", ld.fpm, ld.g_force,
-                         ld.float_time);
+                char stats[160];
+                if (ld.bounce_count > 0)
+                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s  |  %d bounce%s", ld.fpm,
+                             ld.g_force, ld.float_time, ld.bounce_count, ld.bounce_count == 1 ? "" : "s");
+                else
+                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s", ld.fpm, ld.g_force,
+                             ld.float_time);
                 ImGui::TextUnformatted(stats);
                 ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
 

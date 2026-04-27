@@ -169,6 +169,11 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
     snprintf(thresh, sizeof(thresh), "Butter &gt;%d / Great &gt;%d / Acceptable &gt;%d / Hard &gt;%d", p[0], p[1], p[2],
              p[3]);
 
+    char bounce_row[128] = "";
+    if (ld.bounce_count > 0)
+        snprintf(bounce_row, sizeof(bounce_row),
+                 "<tr><td>Bounces</td><td><b style=\"color:#e07a3c\">%d</b></td></tr>", ld.bounce_count);
+
     char buf[2048];
     snprintf(buf, sizeof(buf),
              "<div class=\"lcard\">"
@@ -181,14 +186,15 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
              "<tr><td>Pitch at TD</td><td><b>%.2f deg/s</b> &mdash; %s</td></tr>"
              "<tr><td>Pitch rate</td><td><b>%.2f</b></td></tr>"
              "<tr><td>Flare</td><td><b>%s</b></td></tr>"
+             "%s"
              "<tr><td>Wind</td><td><b>%s</b></td></tr>"
              "<tr><td>Headwind</td><td>%s</td></tr>"
              "<tr><td>Crosswind</td><td><b>%s</b></td></tr>"
              "<tr><td style=\"color:#666;font-size:.85em\" colspan=\"2\">Profile: %s</td></tr>"
              "</table></div>\n",
              rc.c_str(), esc(ld.rating).c_str(), rc.c_str(), ld.fpm, ld.g_force, ld.float_time, ld.agl_ft, ld.pitch_deg,
-             pitch_label.c_str(), ld.pitch_rate, esc(ld.flare).c_str(), w.src.c_str(), w.hw.c_str(), w.xw.c_str(),
-             thresh);
+             pitch_label.c_str(), ld.pitch_rate, esc(ld.flare).c_str(), bounce_row, w.src.c_str(), w.hw.c_str(),
+             w.xw.c_str(), thresh);
     return buf;
 }
 
@@ -452,6 +458,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.wind_dir_mag   = lj.value("wind_dir_mag", 0);
                 ld.headwind_kts   = lj.value("headwind_kts", 0);
                 ld.crosswind_kts  = lj.value("crosswind_kts", 0);
+                ld.bounce_count   = lj.value("bounce_count", 0);
                 ld.flare          = lj.value("flare", "");
                 ld.rating         = lj.value("rating", "");
                 ld.wind_status    = lj.value("wind_status", "STEADY");
