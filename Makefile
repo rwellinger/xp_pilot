@@ -10,7 +10,7 @@ CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: help all setup build test install format lint build-windows release release-build cleanup-tags cleanup-runs clean
+.PHONY: help all setup build test install format lint build-windows release release-build cleanup-tags cleanup-runs clean distclean
 
 .DEFAULT_GOAL := help
 
@@ -27,6 +27,7 @@ help:
 	@echo "  test            Build and run the Catch2 unit tests"
 	@echo "  install         Code-sign and copy the plugin into X-Plane (mac_x64)"
 	@echo "  clean           Remove build/ and build-lint/"
+	@echo "  distclean       clean + remove sdk/ and vendor/ (everything 'make setup' installed)"
 	@echo ""
 	@echo "Code quality:"
 	@echo "  format          Run clang-format on src/*.{cpp,hpp}"
@@ -220,3 +221,9 @@ cleanup-runs:
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	rm -rf build build-lint
+
+# ── Distclean ─────────────────────────────────────────────────────────────────
+# Remove everything 'make setup' downloaded so a full re-bootstrap is forced.
+distclean: clean
+	rm -rf sdk/ vendor/
+	@echo "Removed sdk/ and vendor/. Run 'make setup' to re-download dependencies."
