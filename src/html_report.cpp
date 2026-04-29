@@ -171,8 +171,8 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
 
     char bounce_row[128] = "";
     if (ld.bounce_count > 0)
-        snprintf(bounce_row, sizeof(bounce_row),
-                 "<tr><td>Bounces</td><td><b style=\"color:#e07a3c\">%d</b></td></tr>", ld.bounce_count);
+        snprintf(bounce_row, sizeof(bounce_row), "<tr><td>Bounces</td><td><b style=\"color:#e07a3c\">%d</b></td></tr>",
+                 ld.bounce_count);
 
     char buf[2048];
     snprintf(buf, sizeof(buf),

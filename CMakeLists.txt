@@ -4,6 +4,8 @@ project(xp_pilot CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(BUILD_TESTS "Build unit tests" ON)
+
 if(APPLE)
     # Universal Binary: native arm64 + x86_64 via Rosetta.
     # Allow override from command line (e.g. make lint passes arm64 only).
@@ -114,4 +116,9 @@ elseif(WIN32)
         "${CMAKE_SOURCE_DIR}/sdk/Libraries/Win/XPWidgets_64.lib"
         opengl32
     )
+endif()
+
+# ── Tests ─────────────────────────────────────────────────────────────────────
+if(BUILD_TESTS)
+    add_subdirectory(tests)
 endif()

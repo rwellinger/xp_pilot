@@ -45,13 +45,13 @@ static void load_settings()
 void Settings::save()
 {
     json j;
-    j["auto_qnh"]                  = AutoQNH::enabled();
-    j["qnh_messages"]              = AutoQNH::messages_enabled();
+    j["auto_qnh"]                   = AutoQNH::enabled();
+    j["qnh_messages"]               = AutoQNH::messages_enabled();
     j["qnh_transition_altitude_ft"] = AutoQNH::transition_altitude_ft();
-    j["write_logs"]    = FlightLogger::write_enabled();
-    j["html_report"]   = FlightLogger::html_report_enabled();
-    j["log_messages"]  = FlightLogger::messages_enabled();
-    j["landing_popup"] = FlightLogger::landing_popup_enabled();
+    j["write_logs"]                 = FlightLogger::write_enabled();
+    j["html_report"]                = FlightLogger::html_report_enabled();
+    j["log_messages"]               = FlightLogger::messages_enabled();
+    j["landing_popup"]              = FlightLogger::landing_popup_enabled();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);
@@ -101,7 +101,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     // system root.
     XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
 
-    snprintf(outName, 255, "xp_pilot v%s", XP_PILOT_VERSION);
+    snprintf(outName, 255, "XP Pilot Suite v%s", XP_PILOT_VERSION);
     strncpy(outSig, "thWelly.xp_pilot", 255);
     snprintf(outDesc, 255, "Flight Logger + Auto QNH v%s", XP_PILOT_VERSION);
 
@@ -127,8 +127,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         XPLMRegisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
 
         XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
-        int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
-        s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
+        int        sub          = XPLMAppendMenuItem(plugins_menu, "XP Pilot Suite", nullptr, 0);
+        s_plugin_menu           = XPLMCreateMenu("XP Pilot Suite", plugins_menu, sub, PluginMenuHandler, nullptr);
         s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
 
         char banner[128];

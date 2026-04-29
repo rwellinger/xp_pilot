@@ -700,9 +700,8 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     // — der erste bleibt das offizielle Rating, ein späterer Touch-and-Go (AGL > 50 ft)
     // erzeugt sowieso einen separaten Landing-Eintrag.
     constexpr float BOUNCE_AGL_LIMIT_FT = 5.f;
-    const bool is_bounce =
-        s_ld_captured_valid && s_main_gear_lifted && s_max_agl_since_td < BOUNCE_AGL_LIMIT_FT;
-    const bool is_hop = s_ld_captured_valid && !is_bounce;
+    const bool      is_bounce = s_ld_captured_valid && s_main_gear_lifted && s_max_agl_since_td < BOUNCE_AGL_LIMIT_FT;
+    const bool      is_hop    = s_ld_captured_valid && !is_bounce;
     if (is_hop)
     {
         s_main_gear_lifted = false;

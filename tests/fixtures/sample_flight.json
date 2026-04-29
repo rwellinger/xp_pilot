@@ -1,0 +1,40 @@
+{
+  "date": "2026-04-29",
+  "start_utc": "08:30",
+  "end_utc": "09:45",
+  "departure_icao": "LSZB",
+  "arrival_icao": "LSGG",
+  "aircraft_icao": "DA42",
+  "aircraft_tail": "HB-LXY",
+  "start_time": 1745916600,
+  "end_time": 1745921100,
+  "block_time_min": 75,
+  "max_altitude_ft": 9500,
+  "max_speed_kts": 165,
+  "track": [
+    {"t": 1745916600, "lat": 46.9141, "lon": 7.4970, "alt": 1700, "spd": 0,   "vs": 0},
+    {"t": 1745916660, "lat": 46.9200, "lon": 7.5000, "alt": 3500, "spd": 110, "vs": 800},
+    {"t": 1745916720, "lat": 46.9500, "lon": 7.3000, "alt": 9500, "spd": 165, "vs": 0},
+    {"t": 1745920980, "lat": 46.2381, "lon": 6.1097, "alt": 1500, "spd": 90,  "vs": -700}
+  ],
+  "landings": [
+    {
+      "fpm": -180.0,
+      "g_force": 1.25,
+      "pitch_deg": 4.5,
+      "pitch_rate": 0.2,
+      "agl_ft": 51.0,
+      "float_time": 2.4,
+      "time": 1745921040,
+      "wind_speed_kts": 8,
+      "wind_dir_mag": 240,
+      "headwind_kts": 6,
+      "crosswind_kts": -4,
+      "bounce_count": 0,
+      "flare": "smooth",
+      "rating": "GREAT LANDING!",
+      "wind_status": "STEADY",
+      "crosswind_side": "LEFT"
+    }
+  ]
+}

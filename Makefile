@@ -3,11 +3,14 @@ SHELL := /bin/bash
 XPLANE_ROOT := /Users/robertw/X-Plane 12
 PLUGIN_DIR  := $(XPLANE_ROOT)/Resources/available plugins/xp_pilot
 
-SDK_SENTINEL   := sdk/XPLM/XPLMPlugin.h
-IMGUI_SENTINEL := vendor/imgui/imgui.h
-JSON_SENTINEL  := vendor/json.hpp
+SDK_SENTINEL    := sdk/XPLM/XPLMPlugin.h
+IMGUI_SENTINEL  := vendor/imgui/imgui.h
+JSON_SENTINEL   := vendor/json.hpp
+CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
-.PHONY: help all setup build install format lint build-windows release release-build cleanup-tags cleanup-runs clean
+CATCH2_VERSION := 3.7.1
+
+.PHONY: help all setup build test install format lint build-windows release release-build cleanup-tags cleanup-runs clean
 
 .DEFAULT_GOAL := help
 
@@ -19,8 +22,9 @@ help:
 	@echo ""
 	@echo "Common:"
 	@echo "  help            Show this message (default)"
-	@echo "  setup           Download SDK, Dear ImGui and nlohmann/json into sdk/ + vendor/"
+	@echo "  setup           Download SDK, Dear ImGui, nlohmann/json, Catch2 into sdk/ + vendor/"
 	@echo "  build           Configure + compile → build/xp_pilot.xpl"
+	@echo "  test            Build and run the Catch2 unit tests"
 	@echo "  install         Code-sign and copy the plugin into X-Plane (mac_x64)"
 	@echo "  clean           Remove build/ and build-lint/"
 	@echo ""
@@ -37,10 +41,10 @@ help:
 	@echo "  cleanup-tags            Prune local tags removed on origin"
 	@echo "  cleanup-runs            Delete all GitHub Actions runs except the newest per workflow"
 
-all: format build lint
+all: format build lint test
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "Setup complete. Run 'make build' to compile."
 
 $(SDK_SENTINEL):
@@ -82,14 +86,32 @@ $(JSON_SENTINEL):
 	     -o vendor/json.hpp
 	@echo "nlohmann/json installed."
 
+$(CATCH2_SENTINEL):
+	@echo "Downloading Catch2 v$(CATCH2_VERSION) (amalgamated)..."
+	@set -euo pipefail; \
+	TMP=$$(mktemp -d); \
+	trap "rm -rf $$TMP" EXIT; \
+	mkdir -p vendor/catch2; \
+	curl -fsSL "https://github.com/catchorg/Catch2/archive/refs/tags/v$(CATCH2_VERSION).tar.gz" \
+	     -o "$$TMP/catch2.tar.gz"; \
+	tar -xzf "$$TMP/catch2.tar.gz" -C "$$TMP/"; \
+	cp "$$TMP/Catch2-$(CATCH2_VERSION)/extras/catch_amalgamated.hpp" vendor/catch2/; \
+	cp "$$TMP/Catch2-$(CATCH2_VERSION)/extras/catch_amalgamated.cpp" vendor/catch2/
+	@echo "Catch2 installed."
+
 # ── Build ─────────────────────────────────────────────────────────────────────
-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "=== Building xp_pilot ==="
 	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
 	cmake --build build --parallel
 	@echo ""
 	@file build/xp_pilot.xpl
 	@echo "Done. Run 'make install' to deploy."
+
+# ── Test ──────────────────────────────────────────────────────────────────────
+test: build
+	@echo "=== Running xp_pilot tests ==="
+	@./build/xp_pilot_tests
 
 # ── Install ───────────────────────────────────────────────────────────────────
 install:
@@ -139,7 +161,7 @@ format:
 	    exit 1; }
 	clang-format -i src/*.cpp src/*.hpp
 
-lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@command -v clang-tidy >/dev/null 2>&1 || { \
 	    echo "clang-tidy not found. Install with: brew install llvm"; \
 	    echo "Then add to PATH: export PATH=\"\$$(brew --prefix llvm)/bin:\$$PATH\""; \
@@ -148,7 +170,7 @@ lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
 	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp
 
 # ── Build (Windows CI) ────────────────────────────────────────────────────────
-build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	cmake -B build -A x64
 	cmake --build build --config Release
 
@@ -171,7 +193,7 @@ release:
 	@git push origin "v$(VERSION)"
 	@echo "Released v$(VERSION) and pushed tag to origin."
 
-release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL)
+release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "=== Building xp_pilot (release) ==="
 	cmake -B build -DCMAKE_BUILD_TYPE=Release -DRELEASE=ON -Wno-dev
 	cmake --build build --parallel

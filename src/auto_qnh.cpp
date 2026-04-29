@@ -1,4 +1,5 @@
 #include "auto_qnh.hpp"
+#include "auto_qnh_logic.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -9,13 +10,14 @@
 #include <cmath>
 #include <cstring>
 
-static constexpr float INHG_PER_PA    = 1.0f / 3386.389f;
-static constexpr float THRESHOLD_ON   = 0.05f; // ~1.7 hPa — triggers warning / auto-set
-static constexpr float THRESHOLD_OFF  = 0.02f; // hysteresis: warning clears below this
-static constexpr float FLIGHTLEVEL    = 29.92f;
-static constexpr float FL_EPSILON     = 0.01f;
-static constexpr int   TA_DEFAULT_FT  = 18000; // FAA-standard; configurable per user / region
-static constexpr float TA_HYSTERESIS  = 200.0f; // ft buffer around TA to prevent flicker
+using AutoQnhLogic::next_above_ta;
+using AutoQnhLogic::next_qnh_warning_state;
+using AutoQnhLogic::THRESHOLD_ON;
+
+static constexpr float INHG_PER_PA   = 1.0f / 3386.389f;
+static constexpr float FLIGHTLEVEL   = 29.92f;
+static constexpr float FL_EPSILON    = 0.01f;
+static constexpr int   TA_DEFAULT_FT = 18000; // FAA-standard; configurable per user / region
 
 // Datarefs
 static XPLMDataRef s_baro_pilot   = nullptr;
@@ -24,11 +26,11 @@ static XPLMDataRef s_sealevel_pas = nullptr;
 static XPLMDataRef s_alt_ft_pilot = nullptr;
 
 // State
-static bool s_enabled              = false;
-static bool s_warning_active       = false;
-static bool s_messages_enabled     = true;
-static bool s_above_ta             = false;
-static int  s_transition_altitude  = TA_DEFAULT_FT;
+static bool s_enabled             = false;
+static bool s_warning_active      = false;
+static bool s_messages_enabled    = true;
+static bool s_above_ta            = false;
+static int  s_transition_altitude = TA_DEFAULT_FT;
 
 // Commands
 static XPLMCommandRef s_cmd_qnh = nullptr;
@@ -59,13 +61,6 @@ static float pilot_altitude_ft()
 
 // Latching predicate so the warning/mode does not flicker as altitude oscillates
 // across TA: enter "above" only +HYST above TA, leave only -HYST below TA.
-static bool next_above_ta(float alt, int ta, bool was_above)
-{
-    if (was_above)
-        return alt > (float)ta - TA_HYSTERESIS;
-    return alt >= (float)ta + TA_HYSTERESIS;
-}
-
 static void set_both_baros(float inhg)
 {
     if (s_baro_pilot)
@@ -120,21 +115,6 @@ static float FlightLoopCB(float, float, int, void *)
 }
 
 // ── Draw: warning text ────────────────────────────────────────────────────────
-
-// Below TA: warning silenced when pilot is on STD (intentional); otherwise it
-// latches above THRESHOLD_ON and releases below THRESHOLD_OFF.
-// Above TA: warning is on whenever pilot is NOT on STD — drift vs. local QNH
-// is irrelevant up here.
-static bool next_qnh_warning_state(bool above_ta, bool on_fl, float drift, bool was_active)
-{
-    if (above_ta)
-        return !on_fl;
-    if (on_fl)
-        return false;
-    if (was_active)
-        return drift >= THRESHOLD_OFF;
-    return drift > THRESHOLD_ON;
-}
 
 static void draw_copilot_disagree_warning(float pqnh)
 {
