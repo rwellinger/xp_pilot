@@ -93,6 +93,12 @@ static int CmdLogbook(XPLMCommandRef, XPLMCommandPhase phase, void *)
 
 PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 {
+    // Use POSIX paths on all platforms. On macOS this is required for X-Plane installs
+    // on external volumes — without it the SDK returns HFS paths that lose the
+    // /Volumes/<name>/ mount prefix, causing all plugin file I/O to hit the read-only
+    // system root.
+    XPLMEnableFeature("XPLM_USE_NATIVE_PATHS", 1);
+
     snprintf(outName, 255, "xp_pilot v%s", XP_PILOT_VERSION);
     strncpy(outSig, "thWelly.xp_pilot", 255);
     snprintf(outDesc, 255, "Flight Logger + Auto QNH v%s", XP_PILOT_VERSION);

@@ -1026,27 +1026,14 @@ void FlightLogger::regen_all_reports()
 
 void FlightLogger::init()
 {
-    // Determine data directory relative to the plugin binary.
-    // XPLMGetPluginInfo returns an HFS path on macOS (colon-separated,
-    // e.g. "Macintosh HD:Users:foo:X-Plane 12:Resources:plugins:xp_pilot:mac_x64:xp_pilot.xpl").
-    // Convert to POSIX by stripping the volume name and replacing colons with slashes.
+    // Determine data directory relative to the plugin binary. XPLM_USE_NATIVE_PATHS is
+    // enabled in XPluginStart, so this is a POSIX path on all platforms — including
+    // external volumes mounted under /Volumes/.
     char pluginPathRaw[2048] = {};
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPathRaw, nullptr, nullptr);
-    std::string p(pluginPathRaw);
-#if defined(__APPLE__)
-    // macOS may return an HFS path (colon-separated, no slashes) — convert to POSIX
-    if (p.find(':') != std::string::npos && p.find('/') == std::string::npos)
-    {
-        auto        colon = p.find(':');
-        std::string posix = p.substr(colon + 1);
-        for (char &c : posix)
-            if (c == ':')
-                c = '/';
-        p = "/" + posix;
-    }
-#endif
+
     // Strip filename (xp_pilot.xpl) then platform directory (mac_x64 / win_x64)
-    std::filesystem::path dataPath = std::filesystem::path(p).parent_path().parent_path() / "data";
+    std::filesystem::path dataPath = std::filesystem::path(pluginPathRaw).parent_path().parent_path() / "data";
     s_data_dir                     = dataPath.generic_string() + "/";
     std::filesystem::create_directories(dataPath / "flights");
     std::filesystem::create_directories(dataPath / "reports");
