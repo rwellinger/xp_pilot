@@ -369,9 +369,16 @@ void FlightLogger::draw_popup()
     snprintf(buf, sizeof(buf), "Nose: %.2f deg/sec | Float: %.2f secs", s_popup_ld.pitch_rate, s_popup_ld.float_time);
     center_text(buf);
 
+    // Line 4 (optional): Bounce-Anzahl, falls aufgetreten
+    if (s_popup_ld.bounce_count > 0)
+    {
+        snprintf(buf, sizeof(buf), "Bounces: %d", s_popup_ld.bounce_count);
+        center_text(buf);
+    }
+
     ImGui::Spacing();
 
-    // Line 4: Rating (colored, slightly larger)
+    // Line 5: Rating (colored, slightly larger)
     ImGui::PushStyleColor(ImGuiCol_Text, rating_col(s_popup_ld.rating));
     ImGui::SetWindowFontScale(1.2f);
     float tw = ImGui::CalcTextSize(s_popup_ld.rating.c_str()).x;
@@ -444,6 +451,10 @@ static bool        s_prev_on_all = false;
 static bool        s_ld_armed    = false;
 static LandingData s_ld_captured;
 static bool        s_ld_captured_valid = false;
+static int         s_bounce_count      = 0;     // Touchdowns nach dem ersten, vor Bug-Touchdown
+static float       s_worst_fpm_mag     = 0.f;   // |fpm| des bisher schlechtesten Touchdowns
+static bool        s_main_gear_lifted  = false; // wahr, sobald Hauptfahrwerk nach erstem Touchdown abgehoben hat
+static float       s_max_agl_since_td  = 0.f;   // [ft] max. AGL seit letztem Hauptfahrwerk-Touchdown
 
 static std::string eval_flare(float Q, float Qrad)
 {
@@ -505,6 +516,10 @@ static void landing_arm()
     s_ld_captured_valid = false;
     s_prev_on_any       = false;
     s_prev_on_all       = false;
+    s_bounce_count      = 0;
+    s_worst_fpm_mag     = 0.f;
+    s_main_gear_lifted  = false;
+    s_max_agl_since_td  = 0.f;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -671,11 +686,29 @@ static void update_track_sample()
         s_max_speed_kts = spd_kts;
 }
 
-// Record landing metrics when main gear first touches the ground.
+// Record landing metrics when main gear touches down. On bounces (multiple main-gear
+// touchdowns before the nose gear settles), the *worst* touchdown's metrics win — so
+// the rating reflects the hardest impact rather than the cushioned final settle.
 static void capture_main_gear_touchdown(const Frame &f, bool on_any)
 {
     if (!s_ld_armed || s_prev_on_any || !on_any)
         return;
+
+    // Bounce-Klassifikation: Wenn schon ein Touchdown erfasst ist, prüfen ob das ein
+    // echter Bounce war (Hauptfahrwerk hat kurz abgehoben, AGL < 5 ft) oder ein
+    // Hop/Mini-T&G (AGL >= 5 ft). Bei einem Hop ignorieren wir den zweiten Touchdown
+    // — der erste bleibt das offizielle Rating, ein späterer Touch-and-Go (AGL > 50 ft)
+    // erzeugt sowieso einen separaten Landing-Eintrag.
+    constexpr float BOUNCE_AGL_LIMIT_FT = 5.f;
+    const bool is_bounce =
+        s_ld_captured_valid && s_main_gear_lifted && s_max_agl_since_td < BOUNCE_AGL_LIMIT_FT;
+    const bool is_hop = s_ld_captured_valid && !is_bounce;
+    if (is_hop)
+    {
+        s_main_gear_lifted = false;
+        s_max_agl_since_td = 0.f;
+        return;
+    }
 
     const float vertfpm  = dr_f(dr_vertfpm);
     const float wind_spd = dr_f(dr_wind_spd);
@@ -690,6 +723,18 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
         gVS = ((f.agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
     if (s_float_timer > 0.f && s_float_final == 0.f)
         s_float_final = (float)monotonic_clock() - s_float_timer;
+
+    const float fpm_mag = std::abs(gVS);
+
+    if (is_bounce)
+    {
+        ++s_bounce_count;
+        s_main_gear_lifted = false;
+        s_max_agl_since_td = 0.f;
+        // Nur überschreiben, wenn dieser Touchdown härter war als der bisher schlechteste.
+        if (fpm_mag <= s_worst_fpm_mag)
+            return;
+    }
 
     float hw = 0.f, xw = 0.f;
     calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
@@ -711,6 +756,7 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     s_ld_captured.crosswind_kts  = (int)std::lround(xw);
     s_ld_captured.crosswind_side = (xw >= 0.f) ? "R" : "L";
     s_ld_captured_valid          = true;
+    s_worst_fpm_mag              = fpm_mag;
 }
 
 // Finalize landing once the nose gear touches down after the mains.
@@ -723,7 +769,8 @@ static void finalize_landing_on_nose_gear(bool on_all)
     auto pthresh = FlightLogger::get_profile_thresholds(pname);
     s_ld_captured.rating =
         eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts, s_ld_captured.wind_status, pthresh);
-    s_ld_captured.time = std::time(nullptr);
+    s_ld_captured.time         = std::time(nullptr);
+    s_ld_captured.bounce_count = s_bounce_count;
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = get_airport_id();
     s_state        = State::Landed;
@@ -749,6 +796,16 @@ static void handle_airborne_state(const Frame &f)
         s_float_timer = (float)monotonic_clock();
 
     capture_main_gear_touchdown(f, on_any);
+
+    // Track lift-off und max. AGL zwischen Hauptfahrwerk-Touchdowns für Bounce-Erkennung.
+    if (s_ld_captured_valid && !on_any)
+    {
+        s_main_gear_lifted     = true;
+        const float agl_ft_now = f.agl * 3.28084f;
+        if (agl_ft_now > s_max_agl_since_td)
+            s_max_agl_since_td = agl_ft_now;
+    }
+
     finalize_landing_on_nose_gear(on_all);
 
     s_prev_on_any = on_any;
@@ -895,6 +952,7 @@ static std::string save_flight()
                            {"headwind_kts", ld.headwind_kts},
                            {"crosswind_kts", ld.crosswind_kts},
                            {"crosswind_side", ld.crosswind_side},
+                           {"bounce_count", ld.bounce_count},
                            {"flare", ld.flare},
                            {"rating", ld.rating}});
     }
@@ -1035,8 +1093,19 @@ void FlightLogger::init()
     // Strip filename (xp_pilot.xpl) then platform directory (mac_x64 / win_x64)
     std::filesystem::path dataPath = std::filesystem::path(pluginPathRaw).parent_path().parent_path() / "data";
     s_data_dir                     = dataPath.generic_string() + "/";
-    std::filesystem::create_directories(dataPath / "flights");
-    std::filesystem::create_directories(dataPath / "reports");
+    XPLMDebugString(("[xp_pilot] data_dir: " + s_data_dir + "\n").c_str());
+
+    // Use the error_code overload — the throwing variant kills X-Plane if writes
+    // are blocked (sandbox, read-only volume, missing parent). Failing soft is OK:
+    // logging still tries to write later and will simply skip if the dir is absent.
+    std::error_code ec;
+    std::filesystem::create_directories(dataPath / "flights", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create flights dir: " + ec.message() + "\n").c_str());
+    ec.clear();
+    std::filesystem::create_directories(dataPath / "reports", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
 
     find_datarefs();
     load_profiles();

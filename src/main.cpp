@@ -30,6 +30,7 @@ static void load_settings()
         f >> j;
         AutoQNH::set_enabled(j.value("auto_qnh", false));
         AutoQNH::set_messages_enabled(j.value("qnh_messages", true));
+        AutoQNH::set_transition_altitude_ft(j.value("qnh_transition_altitude_ft", 18000));
         FlightLogger::set_write_enabled(j.value("write_logs", true));
         FlightLogger::set_html_report_enabled(j.value("html_report", true));
         FlightLogger::set_messages_enabled(j.value("log_messages", true));
@@ -44,8 +45,9 @@ static void load_settings()
 void Settings::save()
 {
     json j;
-    j["auto_qnh"]      = AutoQNH::enabled();
-    j["qnh_messages"]  = AutoQNH::messages_enabled();
+    j["auto_qnh"]                  = AutoQNH::enabled();
+    j["qnh_messages"]              = AutoQNH::messages_enabled();
+    j["qnh_transition_altitude_ft"] = AutoQNH::transition_altitude_ft();
     j["write_logs"]    = FlightLogger::write_enabled();
     j["html_report"]   = FlightLogger::html_report_enabled();
     j["log_messages"]  = FlightLogger::messages_enabled();
@@ -103,31 +105,47 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
     strncpy(outSig, "thWelly.xp_pilot", 255);
     snprintf(outDesc, 255, "Flight Logger + Auto QNH v%s", XP_PILOT_VERSION);
 
-    // Initialise all modules
-    FlightLogger::init();
-    AutoQNH::init();
-    LogbookUI::init();
+    // XPluginStart must never throw — an uncaught exception here will crash X-Plane
+    // before any other plugin gets a chance to load. Trace each step so we can
+    // pinpoint the failing module from the user's Log.txt if init aborts.
+    try
+    {
+        XPLMDebugString("[xp_pilot] XPluginStart: entry\n");
 
-    // Restore saved feature states
-    load_settings();
+        XPLMDebugString("[xp_pilot] XPluginStart: FlightLogger::init\n");
+        FlightLogger::init();
+        XPLMDebugString("[xp_pilot] XPluginStart: AutoQNH::init\n");
+        AutoQNH::init();
+        XPLMDebugString("[xp_pilot] XPluginStart: LogbookUI::init\n");
+        LogbookUI::init();
+        XPLMDebugString("[xp_pilot] XPluginStart: load_settings\n");
+        load_settings();
 
-    // Draw callback for overlays (after windows, no blend)
-    XPLMRegisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
+        XPLMRegisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
 
-    // Commands
-    s_cmd_logbook = XPLMCreateCommand("xp_pilot/logbook/toggle", "Toggle Flight Logbook");
-    XPLMRegisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
+        s_cmd_logbook = XPLMCreateCommand("xp_pilot/logbook/toggle", "Toggle Flight Logbook");
+        XPLMRegisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
 
-    // Plugin menu (single "xp_pilot" submenu for all items)
-    XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
-    int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
-    s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
-    s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
+        XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
+        int        sub          = XPLMAppendMenuItem(plugins_menu, "xp_pilot", nullptr, 0);
+        s_plugin_menu           = XPLMCreateMenu("xp_pilot", plugins_menu, sub, PluginMenuHandler, nullptr);
+        s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
 
-    char banner[128];
-    snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
-    XPLMDebugString(banner);
-    return 1;
+        char banner[128];
+        snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
+        XPLMDebugString(banner);
+        return 1;
+    }
+    catch (const std::exception &e)
+    {
+        XPLMDebugString(("[xp_pilot] FATAL: XPluginStart threw: " + std::string(e.what()) + "\n").c_str());
+        return 0;
+    }
+    catch (...)
+    {
+        XPLMDebugString("[xp_pilot] FATAL: XPluginStart threw unknown exception\n");
+        return 0;
+    }
 }
 
 PLUGIN_API void XPluginStop()

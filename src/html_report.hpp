@@ -39,6 +39,7 @@ struct LandingData
     int         wind_dir_mag   = 0;
     int         headwind_kts   = 0;
     int         crosswind_kts  = 0;
+    int         bounce_count   = 0;
     std::string flare;
     std::string rating;
     std::string wind_status;
