@@ -18,6 +18,12 @@ A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows*
 
 ---
 
+## What's New in v1.3.2
+
+- **External volume support on macOS** — flight logs and HTML reports now write correctly when X-Plane is installed on an external disk under `/Volumes/`. Previous versions silently dropped the volume mount prefix and tried to write to the read-only system root.
+
+---
+
 ## Features
 
 ### Flight Logger

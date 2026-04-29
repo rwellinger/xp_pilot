@@ -3,6 +3,11 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### What's New in v1.3.2
+
+  - **External volume support on macOS** — fixes flight log and HTML report writing when X-Plane is installed on an external disk mounted under `/Volumes/`. Earlier versions converted the SDK's HFS path by hand and silently dropped the volume mount prefix, so all plugin file I/O ended up pointing at the read-only system root. xp_pilot now requests POSIX paths via `XPLM_USE_NATIVE_PATHS` and resolves the data directory consistently on every platform.
+
+
 ### What's New in v1.3.0
 
   - **Bounce detection** — the flight logger now distinguishes a bounced landing from a clean one. When the main gear touches down, lifts off, and touches again before the nose gear settles, each additional touchdown is counted as a *bounce*.
@@ -41,4 +46,4 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - No automated tests — the plugin must be validated in X-Plane 12
   - Flight data JSON format may change between minor versions; regenerate reports after upgrades if needed
 
-  Full Changelog: https://github.com/thWelly/xp_pilot/compare/v1.2.8...v1.3.0
+  Full Changelog: https://github.com/thWelly/xp_pilot/compare/v1.3.0...v1.3.2
