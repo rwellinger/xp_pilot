@@ -10,7 +10,7 @@ CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
 CATCH2_VERSION := 3.7.1
 
-.PHONY: help all setup build test install format lint build-windows release release-build cleanup-tags cleanup-runs clean distclean
+.PHONY: help all setup build test install format lint sanitize build-windows release release-build cleanup-tags cleanup-runs clean distclean
 
 .DEFAULT_GOAL := help
 
@@ -26,7 +26,8 @@ help:
 	@echo "  build           Configure + compile → build/xp_pilot.xpl"
 	@echo "  test            Build and run the Catch2 unit tests"
 	@echo "  install         Code-sign and copy the plugin into X-Plane (mac_x64)"
-	@echo "  clean           Remove build/ and build-lint/"
+	@echo "  sanitize        Build + run the unit tests under ASan + UBSan"
+	@echo "  clean           Remove build/, build-lint/ and build-sanitize/"
 	@echo "  distclean       clean + remove sdk/ and vendor/ (everything 'make setup' installed)"
 	@echo ""
 	@echo "Code quality:"
@@ -170,6 +171,25 @@ lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	cmake -B build-lint -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
 	clang-tidy -p build-lint --extra-arg="-isysroot" --extra-arg="$(shell xcrun --show-sdk-path)" src/*.cpp
 
+# ── Sanitize ──────────────────────────────────────────────────────────────────
+# Builds + runs only the SDK-free Catch2 tests under AddressSanitizer +
+# UndefinedBehaviorSanitizer. The .xpl plugin is intentionally NOT instrumented
+# — ASan inside the X-Plane process is fragile on macOS ARM64 (dyld + code
+# signing). For leak / heap analysis of the running plugin, attach
+# Instruments.app to the X-Plane process.
+sanitize: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+	@echo "=== Configuring sanitizer build (ASan + UBSan) ==="
+	cmake -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DXP_PILOT_SANITIZE=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
+	@echo "=== Building xp_pilot_tests with ASan + UBSan ==="
+	cmake --build build-sanitize --target xp_pilot_tests --parallel
+	@echo ""
+	@echo "=== Running unit tests under ASan + UBSan ==="
+	@ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1 \
+	 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+		./build-sanitize/xp_pilot_tests
+	@echo ""
+	@echo "Sanitizer run clean."
+
 # ── Build (Windows CI) ────────────────────────────────────────────────────────
 build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	cmake -B build -A x64
@@ -220,7 +240,7 @@ cleanup-runs:
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
-	rm -rf build build-lint
+	rm -rf build build-lint build-sanitize
 
 # ── Distclean ─────────────────────────────────────────────────────────────────
 # Remove everything 'make setup' downloaded so a full re-bootstrap is forced.

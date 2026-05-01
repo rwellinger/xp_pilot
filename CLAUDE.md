@@ -48,6 +48,7 @@ Aircraft landing quality thresholds are configured in `data/flight_logger_profil
 - Output is `build/xp_pilot.xpl` (X-Plane plugin binary format)
 - Vendor dependencies in `vendor/` (imgui/, json.hpp) and SDK headers in `sdk/` (XPLM/, XPWidgets/) — both populated by `setup.sh`, not committed to the repo
 - Compiler flags: `-Wall -Wextra -fvisibility=hidden`, OpenGL deprecation warnings suppressed
+- `make sanitize` builds + runs the Catch2 tests under ASan + UBSan in `build-sanitize/`. The `.xpl` plugin is intentionally not instrumented — for in-sim memory analysis use Instruments.app against the X-Plane process.
 
 ## Code Quality
 

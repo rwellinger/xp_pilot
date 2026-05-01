@@ -33,6 +33,15 @@ else()
     target_compile_options(xp_pilot_tests PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+if(XP_PILOT_SANITIZE)
+    target_compile_options(xp_pilot_tests PRIVATE
+        ${XP_PILOT_SANITIZER_FLAGS} -O1 -g
+    )
+    target_link_options(xp_pilot_tests PRIVATE
+        ${XP_PILOT_SANITIZER_FLAGS}
+    )
+endif()
+
 # Tests run on the host arch only — no Universal Binary, no Rosetta slice.
 if(APPLE)
     set_target_properties(xp_pilot_tests PROPERTIES

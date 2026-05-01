@@ -5,6 +5,16 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TESTS "Build unit tests" ON)
+option(XP_PILOT_SANITIZE "Enable ASan + UBSan on the unit tests" OFF)
+
+if(XP_PILOT_SANITIZE)
+    set(XP_PILOT_SANITIZER_FLAGS
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=all
+    )
+    message(STATUS "Sanitizer build: ASan + UBSan on unit tests (.xpl plugin is not instrumented)")
+endif()
 
 if(APPLE)
     # Universal Binary: native arm64 + x86_64 via Rosetta.
