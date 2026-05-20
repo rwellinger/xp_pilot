@@ -92,8 +92,6 @@ h1{color:#00d4ff}h2{color:#aaa;font-size:1em;font-weight:normal;margin-top:0}
 .stat .val{font-size:1.6em;color:#00d4ff}.stat .lbl{font-size:.8em;color:#888}
 #map{height:420px;border-radius:8px;margin-bottom:20px}
 canvas{background:#16213e;border-radius:8px;margin-bottom:20px;width:100%!important}
-#ac{height:240px!important}
-#sc{height:180px!important}
 .lcard{background:#16213e;border-radius:8px;padding:14px 18px;margin-bottom:12px;display:inline-block;min-width:300px}
 .lcard .rat{font-size:1.4em;font-weight:bold;margin-bottom:8px}
 .lcard table{border-collapse:collapse}.lcard td{padding:2px 10px 2px 0}
@@ -262,6 +260,11 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
     snprintf(clat_s, sizeof(clat_s), "%.6f", clat);
     snprintf(clon_s, sizeof(clon_s), "%.6f", clon);
 
+    const bool  is_short_flight = fd.block_time_min < 30;
+    const int   ac_height       = is_short_flight ? 180 : 240;
+    const int   sc_height       = is_short_flight ? 140 : 180;
+    const char *time_fmt        = is_short_flight ? "ms" : "hm";
+
     // HTML template
     std::ostringstream html;
     html << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>" << esc(fd.departure_icao) << " to "
@@ -284,8 +287,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "</div><div class=\"lbl\">Track Points</div></div>"
          << "</div>"
          << "<div id=\"map\"></div>"
-         << "<canvas id=\"ac\" height=\"120\"></canvas>"
-         << "<canvas id=\"sc\" height=\"80\"></canvas>"
+         << "<canvas id=\"ac\" style=\"height:" << ac_height << "px\"></canvas>"
+         << "<canvas id=\"sc\" style=\"height:" << sc_height << "px\"></canvas>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
          << "<script>"
@@ -301,17 +304,22 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
             "addTo(map);"
          << "map.fitBounds(poly.getBounds(),{padding:[20,20]});"
          << "}else{map.setView([" << clat_s << "," << clon_s << "],8);}"
-         << "var lb=alts.map(function(_,i){return i*10+'s';});"
+         << "var fmt='" << time_fmt << "';"
+         << "var lb=alts.map(function(_,i){var s=i*10;"
+            "if(fmt==='ms'){var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}"
+            "var h=Math.floor(s/3600),mm=Math.floor((s%3600)/60);return h+':'+(mm<10?'0':'')+mm;});"
          << "new Chart(document.getElementById('ac'),{type:'line',data:{labels:lb,datasets:[{label:'Altitude "
             "(ft)',data:alts,borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,.08)',tension:.3,pointRadius:0,fill:"
-            "true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0'}}},scales:{x:{ticks:{"
-            "color:'#888',maxTicksLimit:12},grid:{color:'#333'}},y:{beginAtZero:true,ticks:{color:'#888',callback:"
-            "function(v){return v+' ft'}},grid:{color:'#333'}}}}});"
+            "true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0',font:{size:13}}}},"
+            "scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#333'}},"
+            "y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' ft'}},"
+            "grid:{color:'#333'}}}}});"
          << "new Chart(document.getElementById('sc'),{type:'line',data:{labels:lb,datasets:[{label:'IAS "
             "(kts)',data:spds,borderColor:'#ff9900',backgroundColor:'rgba(255,153,0,.08)',tension:.3,pointRadius:0,"
-            "fill:true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0'}}},scales:{x:{"
-            "ticks:{color:'#888',maxTicksLimit:12},grid:{color:'#333'}},y:{beginAtZero:true,ticks:{color:'#888',"
-            "callback:function(v){return v+' kts'}},grid:{color:'#333'}}}}});"
+            "fill:true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0',font:{size:13}}}},"
+            "scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#333'}},"
+            "y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' kts'}},"
+            "grid:{color:'#333'}}}}});"
          << "</script></body></html>";
 
     // Write to file
