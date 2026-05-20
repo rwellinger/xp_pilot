@@ -1105,6 +1105,14 @@ void FlightLogger::init()
     std::filesystem::create_directories(dataPath / "reports", ec);
     if (ec)
         XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
+    ec.clear();
+    std::filesystem::create_directories(dataPath / "flights" / "archived", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create flights/archived dir: " + ec.message() + "\n").c_str());
+    ec.clear();
+    std::filesystem::create_directories(dataPath / "reports" / "archived", ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create reports/archived dir: " + ec.message() + "\n").c_str());
 
     find_datarefs();
     load_profiles();
