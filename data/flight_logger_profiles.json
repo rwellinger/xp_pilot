@@ -56,6 +56,10 @@
     { "match": "A333",  "profile": "heavy_jet" },
     { "match": "B738",  "profile": "heavy_jet" },
     { "match": "MD82",  "profile": "heavy_jet" },
+    { "match": "E170",  "profile": "heavy_jet" },
+    { "match": "E75",   "profile": "heavy_jet" },
+    { "match": "E190",  "profile": "heavy_jet" },
+    { "match": "E195",  "profile": "heavy_jet" },
     { "match": "F14",   "profile": "heavy_jet" },
     { "match": "F4",    "profile": "heavy_jet" },
 
