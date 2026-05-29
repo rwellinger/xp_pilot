@@ -40,6 +40,7 @@ struct LandingData
     int         headwind_kts   = 0;
     int         crosswind_kts  = 0;
     int         bounce_count   = 0;
+    bool        is_rotorcraft  = false;
     std::string flare;
     std::string rating;
     std::string wind_status;
@@ -56,6 +57,7 @@ struct FlightData
     std::string              arrival_icao;
     std::string              aircraft_icao;
     std::string              aircraft_tail;
+    std::string              aircraft_category = "fixed_wing"; // "fixed_wing" | "rotorcraft"
     time_t                   start_time      = 0;
     time_t                   end_time        = 0;
     int                      block_time_min  = 0;

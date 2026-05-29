@@ -1,18 +1,22 @@
 {
   "_comment": [
     "profiles: landing quality thresholds [butter, great, acceptable, hard] in fpm (negative = descent)",
+    "  array form (legacy) implies category=fixed_wing",
+    "  object form: { \"category\": \"fixed_wing\"|\"rotorcraft\", \"thresholds\": [..] }",
     "aircraft: ICAO match string -> profile name + optional shutdown_trigger override",
     "shutdown_trigger values: engine (all engines off) | beacon (beacon light off) | nav_light (nav lights off)",
     "default_shutdown_trigger applies to all aircraft unless overridden per entry"
   ],
   "default_shutdown_trigger": "engine",
   "profiles": {
-    "ultra_light": [  -75, -150, -250, -400 ],
-    "light_ga":    [ -100, -200, -300, -500 ],
-    "medium_ga":   [ -125, -250, -350, -600 ],
-    "turboprop":   [ -150, -275, -400, -650 ],
-    "vlj":         [ -200, -350, -500, -750 ],
-    "heavy_jet":   [ -250, -400, -600, -850 ]
+    "ultra_light":         [  -75, -150, -250, -400 ],
+    "light_ga":            [ -100, -200, -300, -500 ],
+    "medium_ga":           [ -125, -250, -350, -600 ],
+    "turboprop":           [ -150, -275, -400, -650 ],
+    "vlj":                 [ -200, -350, -500, -750 ],
+    "heavy_jet":           [ -250, -400, -600, -850 ],
+    "light_helicopter":    { "category": "rotorcraft", "thresholds": [ -50, -120, -250, -400 ] },
+    "turbine_helicopter":  { "category": "rotorcraft", "thresholds": [ -75, -150, -300, -500 ] }
   },
   "aircraft": [
     { "match": "SHRK",  "profile": "ultra_light" },
@@ -39,7 +43,6 @@
     { "match": "BE35",  "profile": "turboprop" },
     { "match": "PC12",  "profile": "turboprop", "shutdown_trigger": "beacon" },
     { "match": "BE9L",  "profile": "turboprop" },
-    { "match": "S76",   "profile": "turboprop" },
     { "match": "P46T",  "profile": "turboprop" },
 
     { "match": "C510",  "profile": "vlj" },
@@ -56,6 +59,11 @@
     { "match": "F14",   "profile": "heavy_jet" },
     { "match": "F4",    "profile": "heavy_jet" },
 
-    { "match": "R22",   "profile": "light_ga" }
+    { "match": "R22",   "profile": "light_helicopter" },
+    { "match": "CB2T",  "profile": "light_helicopter" },
+    { "match": "R66",   "profile": "turbine_helicopter" },
+    { "match": "EC30",  "profile": "turbine_helicopter" },
+    { "match": "H130",  "profile": "turbine_helicopter" },
+    { "match": "S76",   "profile": "turbine_helicopter" }
   ]
 }

@@ -254,7 +254,7 @@ static void draw_wind_status_line(const LandingData &ld)
         return;
 
     case WindCondition::Steady:
-        if (ld.headwind_kts < -5)
+        if (ld.headwind_kts < -5 && !ld.is_rotorcraft)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.5f, 0, 1));
             snprintf(line, sizeof(line), "  TAILWIND +%d kts  --  WRONG RWY?", std::abs(ld.headwind_kts));
@@ -263,8 +263,10 @@ static void draw_wind_status_line(const LandingData &ld)
         }
         else
         {
-            snprintf(line, sizeof(line), "  Wind: %d kts | HW %d kts | XW %d kts %s", ld.wind_speed_kts,
-                     ld.headwind_kts, xw, ld.crosswind_side.c_str());
+            const int  hw_abs   = std::abs(ld.headwind_kts);
+            const char *hw_lbl  = ld.headwind_kts < 0 ? "TW" : "HW";
+            snprintf(line, sizeof(line), "  Wind: %d kts | %s %d kts | XW %d kts %s", ld.wind_speed_kts, hw_lbl, hw_abs,
+                     xw, ld.crosswind_side.c_str());
             ImGui::TextUnformatted(line);
         }
         return;
@@ -360,9 +362,10 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
     ImGui::TextUnformatted(route.c_str());
 
     char info[256];
-    snprintf(info, sizeof(info), "%s  %s-%s UTC  |  %s  %s", fd.date.c_str(),
+    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
+    snprintf(info, sizeof(info), "%s  %s-%s UTC  |  %s  %s%s", fd.date.c_str(),
              fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.end_utc.empty() ? "?" : fd.end_utc.c_str(),
-             fd.aircraft_icao.c_str(), fd.aircraft_tail.c_str());
+             fd.aircraft_icao.c_str(), fd.aircraft_tail.c_str(), heli_suffix);
     ImGui::TextUnformatted(info);
     ImGui::Separator();
 
@@ -450,14 +453,23 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
                 ImGui::TextUnformatted(ts);
             }
             char stats[160];
-            if (ld.bounce_count > 0)
+            if (ld.is_rotorcraft)
+            {
+                if (ld.bounce_count > 0)
+                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  %d bounce%s", ld.fpm, ld.g_force,
+                             ld.bounce_count, ld.bounce_count == 1 ? "" : "s");
+                else
+                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G", ld.fpm, ld.g_force);
+            }
+            else if (ld.bounce_count > 0)
                 snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s  |  %d bounce%s", ld.fpm,
                          ld.g_force, ld.float_time, ld.bounce_count, ld.bounce_count == 1 ? "" : "s");
             else
                 snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s", ld.fpm, ld.g_force,
                          ld.float_time);
             ImGui::TextUnformatted(stats);
-            ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
+            if (!ld.is_rotorcraft)
+                ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
 
             draw_wind_status_line(ld);
             if (i + 1 < fd.landings.size())

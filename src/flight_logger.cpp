@@ -31,6 +31,7 @@ struct ProfileEntry
 };
 
 static std::map<std::string, std::array<int, 4>> s_profiles;
+static std::map<std::string, std::string>        s_profile_category; // profile name -> "fixed_wing" | "rotorcraft"
 static std::vector<ProfileEntry>                 s_icao_map;
 static std::string                               s_default_shutdown = "engine";
 static std::string                               s_data_dir;
@@ -55,12 +56,28 @@ static void load_profiles()
         f >> j;
         if (j.contains("profiles"))
         {
-            for (auto &[name, arr] : j["profiles"].items())
+            for (auto &[name, val] : j["profiles"].items())
             {
-                if (arr.is_array() && arr.size() == 4)
+                std::array<int, 4> thr{};
+                std::string        cat = "fixed_wing";
+                if (val.is_array() && val.size() == 4)
                 {
-                    s_profiles[name] = {arr[0].get<int>(), arr[1].get<int>(), arr[2].get<int>(), arr[3].get<int>()};
+                    thr = {val[0].get<int>(), val[1].get<int>(), val[2].get<int>(), val[3].get<int>()};
                 }
+                else if (val.is_object() && val.contains("thresholds") && val["thresholds"].is_array() &&
+                         val["thresholds"].size() == 4)
+                {
+                    auto &t = val["thresholds"];
+                    thr     = {t[0].get<int>(), t[1].get<int>(), t[2].get<int>(), t[3].get<int>()};
+                    if (val.contains("category"))
+                        cat = val["category"].get<std::string>();
+                }
+                else
+                {
+                    continue;
+                }
+                s_profiles[name]         = thr;
+                s_profile_category[name] = cat;
             }
         }
         if (j.contains("default_shutdown_trigger"))
@@ -103,6 +120,14 @@ std::array<int, 4> FlightLogger::get_profile_thresholds(const std::string &name)
     if (it != s_profiles.end())
         return it->second;
     return {-125, -250, -350, -600};
+}
+
+std::string FlightLogger::get_profile_category(const std::string &name)
+{
+    auto it = s_profile_category.find(name);
+    if (it != s_profile_category.end())
+        return it->second;
+    return "fixed_wing";
 }
 
 static std::string get_shutdown_trigger(const std::string &plane_icao)
@@ -362,12 +387,16 @@ void FlightLogger::draw_popup()
     snprintf(buf, sizeof(buf), "Vertical Speed: %.2fFPM / %.2fG", s_popup_ld.fpm, s_popup_ld.g_force);
     center_text(buf);
 
-    // Line 2: Flare quality
-    center_text(s_popup_ld.flare.c_str());
+    if (!s_popup_ld.is_rotorcraft)
+    {
+        // Line 2: Flare quality
+        center_text(s_popup_ld.flare.c_str());
 
-    // Line 3: Nose pitch rate + float time
-    snprintf(buf, sizeof(buf), "Nose: %.2f deg/sec | Float: %.2f secs", s_popup_ld.pitch_rate, s_popup_ld.float_time);
-    center_text(buf);
+        // Line 3: Nose pitch rate + float time
+        snprintf(buf, sizeof(buf), "Nose: %.2f deg/sec | Float: %.2f secs", s_popup_ld.pitch_rate,
+                 s_popup_ld.float_time);
+        center_text(buf);
+    }
 
     // Line 4 (optional): Bounce-Anzahl, falls aufgetreten
     if (s_popup_ld.bounce_count > 0)
@@ -540,6 +569,7 @@ static std::string              s_departure_icao;
 static std::string              s_arrival_icao;
 static std::string              s_aircraft_icao;
 static std::string              s_aircraft_tail;
+static bool                     s_is_rotorcraft   = false;
 static time_t                   s_start_time      = 0;
 static time_t                   s_end_time        = 0;
 static int                      s_max_altitude_ft = 0;
@@ -550,9 +580,12 @@ static std::string              s_last_gnd_apt;
 static int                      s_prev_any_eng  = -1; // -1 = unknown
 static time_t                   s_last_sample_t = 0;
 
-static constexpr float GS_ROLLING_MPS   = 15.4f; // 30 kts
-static constexpr float GS_TAXI_STOP_MPS = 2.6f;  // 5 kts
-static constexpr float AGL_AIRBORNE_M   = 15.0f; // ~50 ft
+static constexpr float GS_ROLLING_MPS     = 15.4f; // 30 kts
+static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
+static constexpr float AGL_AIRBORNE_M     = 15.0f; // ~50 ft (fixed-wing climb-out)
+static constexpr float AGL_AIRBORNE_HELI_M = 3.0f; // ~10 ft (rotorcraft lift-off / touch-and-go)
+
+static float agl_airborne_threshold() { return s_is_rotorcraft ? AGL_AIRBORNE_HELI_M : AGL_AIRBORNE_M; }
 
 static void session_reset()
 {
@@ -561,6 +594,7 @@ static void session_reset()
     s_arrival_icao.clear();
     s_aircraft_icao.clear();
     s_aircraft_tail.clear();
+    s_is_rotorcraft   = false;
     s_start_time = s_end_time = 0;
     s_max_altitude_ft = s_max_speed_kts = 0;
     s_track.clear();
@@ -633,10 +667,35 @@ static void handle_engine_edge_detection(bool on_gnd)
 
 static void handle_idle_state(const Frame &f)
 {
+    const std::string icao    = dr_str(dr_acf_icao);
+    const std::string pname   = FlightLogger::get_profile_name(icao);
+    const bool        is_heli = FlightLogger::get_profile_category(pname) == "rotorcraft";
+
+    if (is_heli)
+    {
+        // Helicopters skip the Rolling phase — flight starts the moment the skids leave the ground.
+        if (f.on_gnd && f.agl <= AGL_AIRBORNE_HELI_M)
+            return;
+
+        s_is_rotorcraft  = true;
+        s_aircraft_icao  = icao;
+        s_aircraft_tail  = dr_str(dr_acf_tail);
+        s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
+        s_start_time     = std::time(nullptr);
+        s_last_sample_t  = s_start_time;
+        s_state          = State::Airborne;
+        landing_arm();
+        if (s_write_enabled)
+            show_overlay("REC  Flight recording started", 5.f);
+        XPLMDebugString("[xp_pilot] State: Idle -> Airborne (rotorcraft, skipped Rolling)\n");
+        return;
+    }
+
     if (f.gs <= GS_ROLLING_MPS || !f.on_gnd)
         return;
 
-    s_aircraft_icao  = dr_str(dr_acf_icao);
+    s_is_rotorcraft  = false;
+    s_aircraft_icao  = icao;
     s_aircraft_tail  = dr_str(dr_acf_tail);
     s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
     s_start_time     = std::time(nullptr);
@@ -686,6 +745,37 @@ static void update_track_sample()
         s_max_speed_kts = spd_kts;
 }
 
+// Fill the airframe-agnostic landing metrics (vertical speed, G, wind). Fixed-wing
+// callers layer pitch/flare/float on top; rotorcraft callers don't.
+static void fill_landing_metrics(LandingData &ld, const Frame &f)
+{
+    const float vertfpm  = dr_f(dr_vertfpm);
+    const float wind_spd = dr_f(dr_wind_spd);
+    const float wind_dir = dr_f(dr_wind_dir);
+    const float magpsi   = dr_f(dr_magpsi);
+
+    const float tspan = s_agl_buf.tspan();
+    float       gVS   = vertfpm;
+    if (tspan > 0.f)
+        gVS = ((f.agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
+
+    float hw = 0.f, xw = 0.f;
+    calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
+    WindCondition wcond = (wind_spd < 3.f)   ? WindCondition::Calm
+                          : (wind_spd < 6.f) ? WindCondition::Light
+                                             : WindCondition::Steady;
+
+    ld.fpm            = gVS;
+    ld.g_force        = s_g_buf.avg();
+    ld.agl_ft         = f.agl * 3.28084f;
+    ld.wind_speed_kts = (int)std::lround(wind_spd);
+    ld.wind_dir_mag   = (int)std::lround(wind_dir);
+    ld.wind_status    = wind_condition_to_string(wcond);
+    ld.headwind_kts   = (int)std::lround(hw);
+    ld.crosswind_kts  = (int)std::lround(xw);
+    ld.crosswind_side = (xw >= 0.f) ? "R" : "L";
+}
+
 // Record landing metrics when main gear touches down. On bounces (multiple main-gear
 // touchdowns before the nose gear settles), the *worst* touchdown's metrics win — so
 // the rating reflects the hardest impact rather than the cushioned final settle.
@@ -709,21 +799,19 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
         return;
     }
 
-    const float vertfpm  = dr_f(dr_vertfpm);
-    const float wind_spd = dr_f(dr_wind_spd);
-    const float wind_dir = dr_f(dr_wind_dir);
-    const float magpsi   = dr_f(dr_magpsi);
-    const float Q        = dr_f(dr_Q);
-    const float Qrad     = dr_f(dr_Qrad);
+    LandingData candidate;
+    fill_landing_metrics(candidate, f);
 
-    const float tspan = s_agl_buf.tspan();
-    float       gVS   = vertfpm;
-    if (tspan > 0.f)
-        gVS = ((f.agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
+    const float Q    = dr_f(dr_Q);
+    const float Qrad = dr_f(dr_Qrad);
     if (s_float_timer > 0.f && s_float_final == 0.f)
         s_float_final = (float)monotonic_clock() - s_float_timer;
+    candidate.pitch_deg  = Q;
+    candidate.pitch_rate = Qrad;
+    candidate.float_time = s_float_final;
+    candidate.flare      = eval_flare(Q, Qrad);
 
-    const float fpm_mag = std::abs(gVS);
+    const float fpm_mag = std::abs(candidate.fpm);
 
     if (is_bounce)
     {
@@ -735,27 +823,9 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
             return;
     }
 
-    float hw = 0.f, xw = 0.f;
-    calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
-    WindCondition wcond = (wind_spd < 3.f)   ? WindCondition::Calm
-                          : (wind_spd < 6.f) ? WindCondition::Light
-                                             : WindCondition::Steady;
-
-    s_ld_captured.fpm            = gVS;
-    s_ld_captured.g_force        = s_g_buf.avg();
-    s_ld_captured.pitch_deg      = Q;
-    s_ld_captured.pitch_rate     = Qrad;
-    s_ld_captured.agl_ft         = f.agl * 3.28084f;
-    s_ld_captured.float_time     = s_float_final;
-    s_ld_captured.flare          = eval_flare(Q, Qrad);
-    s_ld_captured.wind_speed_kts = (int)std::lround(wind_spd);
-    s_ld_captured.wind_dir_mag   = (int)std::lround(wind_dir);
-    s_ld_captured.wind_status    = wind_condition_to_string(wcond);
-    s_ld_captured.headwind_kts   = (int)std::lround(hw);
-    s_ld_captured.crosswind_kts  = (int)std::lround(xw);
-    s_ld_captured.crosswind_side = (xw >= 0.f) ? "R" : "L";
-    s_ld_captured_valid          = true;
-    s_worst_fpm_mag              = fpm_mag;
+    s_ld_captured       = candidate;
+    s_ld_captured_valid = true;
+    s_worst_fpm_mag     = fpm_mag;
 }
 
 // Finalize landing once the nose gear touches down after the mains.
@@ -778,6 +848,33 @@ static void finalize_landing_on_nose_gear(bool on_all)
     XPLMDebugString("[xp_pilot] State: Airborne -> Landed\n");
 }
 
+// Skid-landing helicopters touch down with both contact points simultaneously, so
+// there is no main-gear-then-nose-gear sequence. Capture and finalize the landing
+// in one step on the rising edge of onground_all. Pitch/flare/float don't apply.
+static void capture_helicopter_touchdown(const Frame &f, bool on_all)
+{
+    if (!s_ld_armed || s_prev_on_all || !on_all)
+        return;
+
+    fill_landing_metrics(s_ld_captured, f);
+    s_ld_captured.is_rotorcraft = true;
+
+    auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
+    auto pthresh = FlightLogger::get_profile_thresholds(pname);
+    s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts,
+                                             s_ld_captured.wind_status, pthresh);
+    s_ld_captured.time         = std::time(nullptr);
+    s_ld_captured.bounce_count = 0;
+    s_ld_captured_valid        = true;
+
+    s_landings.push_back(s_ld_captured);
+    s_arrival_icao = get_airport_id();
+    s_state        = State::Landed;
+    show_popup(s_ld_captured);
+    landing_arm();
+    XPLMDebugString("[xp_pilot] State: Airborne -> Landed (rotorcraft)\n");
+}
+
 static void handle_airborne_state(const Frame &f)
 {
     update_track_sample();
@@ -789,6 +886,14 @@ static void handle_airborne_state(const Frame &f)
     {
         s_agl_buf.push(f.agl, f.localtime);
         s_g_buf.push(f.gforce, f.localtime);
+    }
+
+    if (s_is_rotorcraft)
+    {
+        capture_helicopter_touchdown(f, on_all);
+        s_prev_on_any = on_any;
+        s_prev_on_all = on_all;
+        return;
     }
 
     if (s_ld_armed && f.agl <= 15.f && s_float_timer == 0.f)
@@ -813,7 +918,7 @@ static void handle_airborne_state(const Frame &f)
 
 static void handle_landed_state(const Frame &f)
 {
-    if (f.agl > AGL_AIRBORNE_M)
+    if (f.agl > agl_airborne_threshold())
     {
         s_state = State::Airborne;
         landing_arm();
@@ -914,9 +1019,10 @@ static std::string save_flight()
     obj["end_utc"]         = eut;
     obj["departure_icao"]  = dep;
     obj["arrival_icao"]    = arr;
-    obj["aircraft_icao"]   = icao;
-    obj["aircraft_tail"]   = s_aircraft_tail;
-    obj["start_time"]      = (long long)s_start_time;
+    obj["aircraft_icao"]     = icao;
+    obj["aircraft_tail"]     = s_aircraft_tail;
+    obj["aircraft_category"] = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
+    obj["start_time"]        = (long long)s_start_time;
     obj["end_time"]        = (long long)s_end_time;
     obj["block_time_min"]  = (int)((s_end_time - s_start_time) / 60);
     obj["max_altitude_ft"] = s_max_altitude_ft;
@@ -952,6 +1058,7 @@ static std::string save_flight()
                            {"crosswind_kts", ld.crosswind_kts},
                            {"crosswind_side", ld.crosswind_side},
                            {"bounce_count", ld.bounce_count},
+                           {"is_rotorcraft", ld.is_rotorcraft},
                            {"flare", ld.flare},
                            {"rating", ld.rating}});
     }
@@ -1002,11 +1109,12 @@ static void finalize_flight()
     tm           = gmtime(&s_end_time);
     strftime(buf, sizeof(buf), "%H:%M", tm);
     fd.end_utc         = buf;
-    fd.departure_icao  = s_departure_icao;
-    fd.arrival_icao    = s_arrival_icao;
-    fd.aircraft_icao   = s_aircraft_icao;
-    fd.aircraft_tail   = s_aircraft_tail;
-    fd.start_time      = s_start_time;
+    fd.departure_icao    = s_departure_icao;
+    fd.arrival_icao      = s_arrival_icao;
+    fd.aircraft_icao     = s_aircraft_icao;
+    fd.aircraft_tail     = s_aircraft_tail;
+    fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
+    fd.start_time        = s_start_time;
     fd.end_time        = s_end_time;
     fd.block_time_min  = (int)((s_end_time - s_start_time) / 60);
     fd.max_altitude_ft = s_max_altitude_ft;

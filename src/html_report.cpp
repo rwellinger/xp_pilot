@@ -97,6 +97,7 @@ canvas{background:#16213e;border-radius:8px;margin-bottom:20px;width:100%!import
 .lcard table{border-collapse:collapse}.lcard td{padding:2px 10px 2px 0}
 a{color:#00d4ff}table{width:100%;border-collapse:collapse}
 thead tr{color:#888;border-bottom:1px solid #333}
+.badge-heli{background:#3a5;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;margin-left:6px;vertical-align:middle}
 </style>)";
 
 // ── Landing card HTML ─────────────────────────────────────────────────────────
@@ -145,8 +146,11 @@ WindDisplay format_wind_display(const LandingData &ld)
         WindDisplay w;
         snprintf(b, sizeof(b), "%d kts from %d&deg; mag", ld.wind_speed_kts, ld.wind_dir_mag);
         w.src = b;
-        if (hw < -5)
+        // Rotorcraft don't align with a runway, so a tailwind isn't a "wrong RWY" warning.
+        if (hw < -5 && !ld.is_rotorcraft)
             snprintf(b, sizeof(b), "<b style=\"color:#ff8000\">%d kts TAILWIND &mdash; WRONG RWY?</b>", std::abs(hw));
+        else if (hw < 0)
+            snprintf(b, sizeof(b), "%d kts tailwind", std::abs(hw));
         else
             snprintf(b, sizeof(b), "%d kts headwind", hw);
         w.hw = b;
@@ -161,41 +165,60 @@ WindDisplay format_wind_display(const LandingData &ld)
 
 static std::string landing_card(const LandingData &ld, const std::string &profile_name, const std::array<int, 4> &p)
 {
-    auto        rc          = rating_color(ld.rating);
-    std::string pitch_label = pitch_label_for(ld.pitch_deg);
-    WindDisplay w           = format_wind_display(ld);
+    auto        rc = rating_color(ld.rating);
+    WindDisplay w  = format_wind_display(ld);
+
+    char b[512];
+    std::string out = "<div class=\"lcard\">";
+    snprintf(b, sizeof(b), "<div class=\"rat\" style=\"color:%s\">%s</div><table>", rc.c_str(), esc(ld.rating).c_str());
+    out += b;
+
+    snprintf(b, sizeof(b), "<tr><td>Vertical Speed</td><td><b style=\"color:%s\">%.0f fpm</b></td></tr>", rc.c_str(),
+             ld.fpm);
+    out += b;
+    snprintf(b, sizeof(b), "<tr><td>G-Force</td><td><b>%.2f G</b></td></tr>", ld.g_force);
+    out += b;
+
+    // Pitch / flare / float / 50-ft-gate are flare-specific metrics — not meaningful for
+    // a rotorcraft set-down, where descent rate alone defines the landing quality.
+    if (!ld.is_rotorcraft)
+    {
+        std::string pitch_label = pitch_label_for(ld.pitch_deg);
+        snprintf(b, sizeof(b), "<tr><td>Float time</td><td><b>%.1f s</b></td></tr>", ld.float_time);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>AGL at 50ft gate</td><td><b>%.0f ft</b></td></tr>", ld.agl_ft);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Pitch at TD</td><td><b>%.2f deg/s</b> &mdash; %s</td></tr>", ld.pitch_deg,
+                 pitch_label.c_str());
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Pitch rate</td><td><b>%.2f</b></td></tr>", ld.pitch_rate);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Flare</td><td><b>%s</b></td></tr>", esc(ld.flare).c_str());
+        out += b;
+    }
+
+    if (ld.bounce_count > 0)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Bounces</td><td><b style=\"color:#e07a3c\">%d</b></td></tr>", ld.bounce_count);
+        out += b;
+    }
+
+    snprintf(b, sizeof(b), "<tr><td>Wind</td><td><b>%s</b></td></tr>", w.src.c_str());
+    out += b;
+    snprintf(b, sizeof(b), "<tr><td>Headwind</td><td>%s</td></tr>", w.hw.c_str());
+    out += b;
+    snprintf(b, sizeof(b), "<tr><td>Crosswind</td><td><b>%s</b></td></tr>", w.xw.c_str());
+    out += b;
 
     char thresh[128];
     snprintf(thresh, sizeof(thresh), "Butter &gt;%d / Great &gt;%d / Acceptable &gt;%d / Hard &gt;%d", p[0], p[1], p[2],
              p[3]);
+    snprintf(b, sizeof(b), "<tr><td style=\"color:#666;font-size:.85em\" colspan=\"2\">Profile: %s &mdash; %s</td></tr>",
+             esc(profile_name).c_str(), thresh);
+    out += b;
 
-    char bounce_row[128] = "";
-    if (ld.bounce_count > 0)
-        snprintf(bounce_row, sizeof(bounce_row), "<tr><td>Bounces</td><td><b style=\"color:#e07a3c\">%d</b></td></tr>",
-                 ld.bounce_count);
-
-    char buf[2048];
-    snprintf(buf, sizeof(buf),
-             "<div class=\"lcard\">"
-             "<div class=\"rat\" style=\"color:%s\">%s</div>"
-             "<table>"
-             "<tr><td>Vertical Speed</td><td><b style=\"color:%s\">%.0f fpm</b></td></tr>"
-             "<tr><td>G-Force</td><td><b>%.2f G</b></td></tr>"
-             "<tr><td>Float time</td><td><b>%.1f s</b></td></tr>"
-             "<tr><td>AGL at 50ft gate</td><td><b>%.0f ft</b></td></tr>"
-             "<tr><td>Pitch at TD</td><td><b>%.2f deg/s</b> &mdash; %s</td></tr>"
-             "<tr><td>Pitch rate</td><td><b>%.2f</b></td></tr>"
-             "<tr><td>Flare</td><td><b>%s</b></td></tr>"
-             "%s"
-             "<tr><td>Wind</td><td><b>%s</b></td></tr>"
-             "<tr><td>Headwind</td><td>%s</td></tr>"
-             "<tr><td>Crosswind</td><td><b>%s</b></td></tr>"
-             "<tr><td style=\"color:#666;font-size:.85em\" colspan=\"2\">Profile: %s</td></tr>"
-             "</table></div>\n",
-             rc.c_str(), esc(ld.rating).c_str(), rc.c_str(), ld.fpm, ld.g_force, ld.float_time, ld.agl_ft, ld.pitch_deg,
-             pitch_label.c_str(), ld.pitch_rate, esc(ld.flare).c_str(), bounce_row, w.src.c_str(), w.hw.c_str(),
-             w.xw.c_str(), thresh);
-    return buf;
+    out += "</table></div>\n";
+    return out;
 }
 
 // ── Report generation ─────────────────────────────────────────────────────────
@@ -275,7 +298,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "</head><body>"
          << "<h1>" << esc(fd.departure_icao) << " &rarr; " << esc(fd.arrival_icao) << "</h1>"
          << "<h2>" << esc(fd.date) << " " << esc(fd.start_utc) << "&ndash;" << esc(fd.end_utc) << " UTC &bull; "
-         << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail) << "</h2>"
+         << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail)
+         << (fd.aircraft_category == "rotorcraft" ? "<span class=\"badge-heli\">Helicopter</span>" : "") << "</h2>"
          << "<div class=\"stats\">"
          << "<div class=\"stat\"><div class=\"val\">" << fmt_dur(fd.block_time_min)
          << "</div><div class=\"lbl\">Block Time</div></div>"
@@ -431,9 +455,10 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.end_utc         = j.value("end_utc", "");
         fd.departure_icao  = j.value("departure_icao", "");
         fd.arrival_icao    = j.value("arrival_icao", "");
-        fd.aircraft_icao   = j.value("aircraft_icao", "");
-        fd.aircraft_tail   = j.value("aircraft_tail", "");
-        fd.start_time      = j.value("start_time", (time_t)0);
+        fd.aircraft_icao     = j.value("aircraft_icao", "");
+        fd.aircraft_tail     = j.value("aircraft_tail", "");
+        fd.aircraft_category = j.value("aircraft_category", "fixed_wing");
+        fd.start_time        = j.value("start_time", (time_t)0);
         fd.end_time        = j.value("end_time", (time_t)0);
         fd.block_time_min  = j.value("block_time_min", 0);
         fd.max_altitude_ft = j.value("max_altitude_ft", 0);
@@ -471,6 +496,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.headwind_kts   = lj.value("headwind_kts", 0);
                 ld.crosswind_kts  = lj.value("crosswind_kts", 0);
                 ld.bounce_count   = lj.value("bounce_count", 0);
+                ld.is_rotorcraft  = lj.value("is_rotorcraft", false);
                 ld.flare          = lj.value("flare", "");
                 ld.rating         = lj.value("rating", "");
                 ld.wind_status    = lj.value("wind_status", "STEADY");
