@@ -68,6 +68,7 @@
     { "match": "R66",   "profile": "turbine_helicopter" },
     { "match": "EC30",  "profile": "turbine_helicopter" },
     { "match": "H130",  "profile": "turbine_helicopter" },
-    { "match": "S76",   "profile": "turbine_helicopter" }
+    { "match": "S76",   "profile": "turbine_helicopter" },
+    { "match": "A109",  "profile": "turbine_helicopter" }
   ]
 }
