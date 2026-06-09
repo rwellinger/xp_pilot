@@ -44,6 +44,8 @@
     { "match": "PC12",  "profile": "turboprop", "shutdown_trigger": "beacon" },
     { "match": "BE9L",  "profile": "turboprop" },
     { "match": "P46T",  "profile": "turboprop" },
+    { "match": "T6A",   "profile": "turboprop" },
+    { "match": "PC21",  "profile": "turboprop" },
 
     { "match": "C510",  "profile": "vlj" },
     { "match": "E55P",  "profile": "vlj" },
