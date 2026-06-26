@@ -144,7 +144,7 @@ static FlightData read_flight_detail(const std::string &dir, const std::string &
 
 static void load_entries()
 {
-    s_entries = read_flight_summaries(FlightLogger::data_dir() + "flights/");
+    s_entries = read_flight_summaries(FlightLogger::output_dir() + "flights/");
     s_active_checked.assign(s_entries.size(), false);
     s_selected               = -1;
     s_confirm_del            = false;
@@ -156,7 +156,7 @@ static void load_entries()
 
 static void load_archived_entries()
 {
-    s_arch_entries = read_flight_summaries(FlightLogger::data_dir() + "flights/archived/");
+    s_arch_entries = read_flight_summaries(FlightLogger::output_dir() + "flights/archived/");
     s_arch_checked.assign(s_arch_entries.size(), false);
     s_arch_selected                 = -1;
     s_arch_confirm_del              = false;
@@ -167,12 +167,12 @@ static void load_archived_entries()
 
 static FlightData load_detail(const std::string &fname)
 {
-    return read_flight_detail(FlightLogger::data_dir() + "flights/", fname);
+    return read_flight_detail(FlightLogger::output_dir() + "flights/", fname);
 }
 
 static FlightData load_archived_detail(const std::string &fname)
 {
-    return read_flight_detail(FlightLogger::data_dir() + "flights/archived/", fname);
+    return read_flight_detail(FlightLogger::output_dir() + "flights/archived/", fname);
 }
 
 // Move JSON + HTML from active to archived. Returns true if JSON move succeeded.
@@ -180,7 +180,7 @@ static FlightData load_archived_detail(const std::string &fname)
 static bool archive_flight(const std::string &fname)
 {
     namespace fs            = std::filesystem;
-    const std::string &dd   = FlightLogger::data_dir();
+    const std::string &dd   = FlightLogger::output_dir();
     const std::string  base = fname.substr(0, fname.rfind('.'));
 
     std::error_code ec;
@@ -199,7 +199,7 @@ static bool archive_flight(const std::string &fname)
 // Delete the JSON + HTML for one flight. `subdir` is either "" (active) or "archived/".
 static void delete_flight_files(const std::string &fname, const std::string &subdir)
 {
-    const std::string &dd   = FlightLogger::data_dir();
+    const std::string &dd   = FlightLogger::output_dir();
     const std::string  base = fname.substr(0, fname.rfind('.'));
     std::remove((dd + "flights/" + subdir + fname).c_str());
     std::remove((dd + "reports/" + subdir + base + ".html").c_str());
@@ -557,7 +557,7 @@ static void draw_logbook()
                 for (int i = 0; i < (int)s_entries.size(); ++i)
                     if (s_active_checked[i])
                         archive_flight(s_entries[i].filename);
-                HtmlReport::generate_index(FlightLogger::data_dir());
+                HtmlReport::generate_index(FlightLogger::output_dir());
                 load_entries();
                 s_arch_loaded = false; // force reload when Archive tab is opened
             }
@@ -576,7 +576,7 @@ static void draw_logbook()
                 for (int i = 0; i < (int)s_entries.size(); ++i)
                     if (s_active_checked[i])
                         delete_flight_files(s_entries[i].filename, "");
-                HtmlReport::generate_index(FlightLogger::data_dir());
+                HtmlReport::generate_index(FlightLogger::output_dir());
                 load_entries();
             }
             ImGui::SameLine();
@@ -628,7 +628,7 @@ static void draw_logbook()
                     s_detail                 = load_detail(e.filename);
                     s_detail_loaded          = true;
                     s_report_html =
-                        FlightLogger::data_dir() + "reports/" + e.filename.substr(0, e.filename.rfind('.')) + ".html";
+                        FlightLogger::output_dir() + "reports/" + e.filename.substr(0, e.filename.rfind('.')) + ".html";
                     s_report_exists = std::ifstream(s_report_html).good();
                 }
             }
@@ -672,7 +672,7 @@ static void draw_logbook()
             {
                 auto &fn = s_entries[s_selected].filename;
                 archive_flight(fn);
-                HtmlReport::generate_index(FlightLogger::data_dir());
+                HtmlReport::generate_index(FlightLogger::output_dir());
                 load_entries();
                 s_arch_loaded = false;
             }
@@ -698,7 +698,7 @@ static void draw_logbook()
             {
                 auto &fn = s_entries[s_selected].filename;
                 delete_flight_files(fn, "");
-                HtmlReport::generate_index(FlightLogger::data_dir());
+                HtmlReport::generate_index(FlightLogger::output_dir());
                 load_entries();
             }
             ImGui::SameLine();
@@ -803,7 +803,7 @@ static void draw_archive()
                     s_arch_confirm_del   = false;
                     s_arch_detail        = load_archived_detail(e.filename);
                     s_arch_detail_loaded = true;
-                    s_arch_report_html   = FlightLogger::data_dir() + "reports/archived/" +
+                    s_arch_report_html   = FlightLogger::output_dir() + "reports/archived/" +
                                            e.filename.substr(0, e.filename.rfind('.')) + ".html";
                     s_arch_report_exists = std::ifstream(s_arch_report_html).good();
                 }

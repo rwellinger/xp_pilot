@@ -52,12 +52,13 @@ static std::map<std::string, std::array<int, 4>> s_profiles;
 static std::map<std::string, std::string>        s_profile_category; // profile name -> "fixed_wing" | "rotorcraft"
 static std::vector<ProfileEntry>                 s_icao_map;
 static std::string                               s_default_shutdown = "engine";
-static std::string                               s_data_dir;
+static std::string                               s_config_dir; // bundled config (landing profiles), next to the plugin
+static std::string                               s_output_dir; // user data (flights, reports, index, settings) in Output
 static bool                                      s_lb_needs_refresh = true;
 
 static void load_profiles()
 {
-    std::string path = s_data_dir + "flight_logger_profiles.json";
+    std::string path = s_config_dir + "flight_logger_profiles.json";
 
     std::ifstream f(path);
     if (!f.is_open())
@@ -1022,7 +1023,7 @@ static std::string save_flight()
 
     char base[256];
     snprintf(base, sizeof(base), "%s_%s_%s_%s", date_buf, dep.c_str(), arr.c_str(), icao.c_str());
-    std::string fdir = s_data_dir + "flights/";
+    std::string fdir = s_output_dir + "flights/";
     std::string path = fdir + base + ".json";
     // Avoid overwrite
     if (std::ifstream(path).good())
@@ -1144,8 +1145,8 @@ static void finalize_flight()
     {
         auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
         auto pthresh = FlightLogger::get_profile_thresholds(pname);
-        HtmlReport::generate(fd, s_data_dir, filename, pname, pthresh);
-        HtmlReport::generate_index(s_data_dir);
+        HtmlReport::generate(fd, s_output_dir, filename, pname, pthresh);
+        HtmlReport::generate_index(s_output_dir);
     }
 
     std::string dep = s_departure_icao.empty() ? "?" : s_departure_icao;
@@ -1160,12 +1161,12 @@ static void finalize_flight()
 // PUBLIC API
 // ════════════════════════════════════════════════════════════════
 
-const std::string &FlightLogger::data_dir() { return s_data_dir; }
+const std::string &FlightLogger::output_dir() { return s_output_dir; }
 bool              &FlightLogger::lb_needs_refresh() { return s_lb_needs_refresh; }
 
 void FlightLogger::regen_all_reports()
 {
-    std::string fdir = s_data_dir + "flights/";
+    std::string fdir = s_output_dir + "flights/";
     // Collect .json filenames, sort for deterministic order
     std::vector<std::string> fnames;
     std::error_code          ec;
@@ -1197,48 +1198,113 @@ void FlightLogger::regen_all_reports()
         auto        fd      = parse_flight_json(c, fname);
         auto        pname   = get_profile_name(fd.aircraft_icao);
         auto        pthresh = get_profile_thresholds(pname);
-        HtmlReport::generate(fd, s_data_dir, fname, pname, pthresh);
+        HtmlReport::generate(fd, s_output_dir, fname, pname, pthresh);
         ++count;
     }
-    HtmlReport::generate_index(s_data_dir);
+    HtmlReport::generate_index(s_output_dir);
     char msg[64];
     snprintf(msg, sizeof(msg), "[xp_pilot] Regenerated %d reports\n", count);
     XPLMDebugString(msg);
     show_overlay(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
 }
 
+// Move one file, falling back to copy + remove when source and destination are on
+// different volumes (rename then fails with cross_device_link). Soft-fails.
+static void move_file(const std::filesystem::path &src, const std::filesystem::path &dst)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::exists(src, ec))
+        return;
+    fs::create_directories(dst.parent_path(), ec);
+    ec.clear();
+    fs::rename(src, dst, ec);
+    if (!ec)
+        return;
+    ec.clear();
+    fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
+    if (ec)
+    {
+        XPLMDebugString(("[xp_pilot] migrate: cannot move " + src.filename().string() + ": " + ec.message() + "\n").c_str());
+        return;
+    }
+    ec.clear();
+    fs::remove(src, ec);
+}
+
+// One-time migration of user data from the old in-plugin location (<plugin>/data)
+// to X-Plane's Output dir. Guarded by a marker so it runs only once. The bundled
+// landing profiles stay in the plugin and are deliberately not moved.
+static void migrate_user_data_to_output(const std::filesystem::path &config_dir,
+                                        const std::filesystem::path &output_dir)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path  marker = output_dir / ".migrated";
+    if (fs::exists(marker, ec))
+        return;
+
+    auto move_matching = [](const fs::path &src_dir, const fs::path &dst_dir, const std::string &ext) {
+        std::error_code it_ec;
+        auto            it = fs::directory_iterator(src_dir, it_ec);
+        if (it_ec)
+            return;
+        for (auto &entry : it)
+        {
+            if (!entry.is_regular_file())
+                continue;
+            const std::string name = entry.path().filename().string();
+            if (name.size() > ext.size() && name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
+                move_file(entry.path(), dst_dir / name);
+        }
+    };
+
+    move_matching(config_dir / "flights", output_dir / "flights", ".json");
+    move_matching(config_dir / "flights" / "archived", output_dir / "flights" / "archived", ".json");
+    move_matching(config_dir / "reports", output_dir / "reports", ".html");
+    move_matching(config_dir / "reports" / "archived", output_dir / "reports" / "archived", ".html");
+    move_file(config_dir / "index.html", output_dir / "index.html");
+    move_file(config_dir / "settings.json", output_dir / "settings.json");
+
+    std::ofstream(marker) << "migrated\n";
+}
+
 void FlightLogger::init()
 {
-    // Determine data directory relative to the plugin binary. XPLM_USE_NATIVE_PATHS is
-    // enabled in XPluginStart, so this is a POSIX path on all platforms — including
-    // external volumes mounted under /Volumes/.
+    // Bundled config (landing profiles) lives next to the plugin binary.
+    // XPLM_USE_NATIVE_PATHS is enabled in XPluginStart, so paths are POSIX on all
+    // platforms — including external volumes mounted under /Volumes/.
     char pluginPathRaw[2048] = {};
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, pluginPathRaw, nullptr, nullptr);
 
     // Strip filename (xp_pilot.xpl) then platform directory (mac_x64 / win_x64)
-    std::filesystem::path dataPath = std::filesystem::path(pluginPathRaw).parent_path().parent_path() / "data";
-    s_data_dir                     = dataPath.generic_string() + "/";
-    XPLMDebugString(("[xp_pilot] data_dir: " + s_data_dir + "\n").c_str());
+    std::filesystem::path configPath = std::filesystem::path(pluginPathRaw).parent_path().parent_path() / "data";
+    s_config_dir                     = configPath.generic_string() + "/";
+
+    // User data (flights, reports, index, settings) lives under X-Plane's Output dir
+    // so it survives plugin updates. XPLMGetSystemPath returns the X-Plane root with
+    // a trailing separator.
+    char systemPathRaw[2048] = {};
+    XPLMGetSystemPath(systemPathRaw);
+    std::filesystem::path outputPath = std::filesystem::path(systemPathRaw) / "Output" / "x_pilot_reports";
+    s_output_dir                     = outputPath.generic_string() + "/";
+    XPLMDebugString(("[xp_pilot] config_dir: " + s_config_dir + "\n").c_str());
+    XPLMDebugString(("[xp_pilot] output_dir: " + s_output_dir + "\n").c_str());
 
     // Use the error_code overload — the throwing variant kills X-Plane if writes
     // are blocked (sandbox, read-only volume, missing parent). Failing soft is OK:
     // logging still tries to write later and will simply skip if the dir is absent.
+    // create_directories also creates the parent flights/ and reports/ dirs.
     std::error_code ec;
-    std::filesystem::create_directories(dataPath / "flights", ec);
+    std::filesystem::create_directories(outputPath / "flights" / "archived", ec);
     if (ec)
         XPLMDebugString(("[xp_pilot] WARNING: cannot create flights dir: " + ec.message() + "\n").c_str());
     ec.clear();
-    std::filesystem::create_directories(dataPath / "reports", ec);
+    std::filesystem::create_directories(outputPath / "reports" / "archived", ec);
     if (ec)
         XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
-    ec.clear();
-    std::filesystem::create_directories(dataPath / "flights" / "archived", ec);
-    if (ec)
-        XPLMDebugString(("[xp_pilot] WARNING: cannot create flights/archived dir: " + ec.message() + "\n").c_str());
-    ec.clear();
-    std::filesystem::create_directories(dataPath / "reports" / "archived", ec);
-    if (ec)
-        XPLMDebugString(("[xp_pilot] WARNING: cannot create reports/archived dir: " + ec.message() + "\n").c_str());
+
+    migrate_user_data_to_output(configPath, outputPath);
 
     find_datarefs();
     load_profiles();

@@ -26,12 +26,14 @@ There are no automated tests — the plugin must be tested by loading it in X-Pl
 Modules coordinate through X-Plane's XPLM API:
 
 - **`main.cpp`** — Plugin entry points (`XPluginStart`, `XPluginStop`, `XPluginEnable`, `XPluginDisable`). Registers the draw callback that drives the UI.
-- **`flight_logger`** — Core data acquisition. Runs every frame sampling aircraft state via X-Plane datarefs. Saves flight data to `~/X-Plane 12/Output/FlightLogger/flights/` as JSON. Handles aircraft profiles for landing quality thresholds.
+- **`flight_logger`** — Core data acquisition. Runs every frame sampling aircraft state via X-Plane datarefs. Saves flight data to `<X-Plane>/Output/x_pilot_reports/flights/` as JSON (resolved via `XPLMGetSystemPath`). Handles aircraft profiles for landing quality thresholds.
 - **`auto_qnh`** — Monitors altimeter settings, syncs to actual QNH, issues warnings for mismatches, and registers X-Plane commands.
 - **`logbook_ui`** — Dear ImGui window displaying flight history from JSON files, with delete/view/regenerate actions.
-- **`html_report`** — Parses flight JSON and generates HTML reports in `~/X-Plane 12/Output/FlightLogger/reports/`.
+- **`html_report`** — Parses flight JSON and generates HTML reports in `<X-Plane>/Output/x_pilot_reports/reports/`.
 
 Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions.
+
+**Data locations.** User data (flights, reports, `index.html`, `settings.json`) lives under `<X-Plane>/Output/x_pilot_reports/` so it survives plugin updates. The only bundled, read-only config is `flight_logger_profiles.json`, which stays in the plugin's own `data/` directory. On first start, `flight_logger::init()` migrates any user data left in the old in-plugin `data/` location to Output once (guarded by a `.migrated` marker).
 
 ## Key Data Structures
 

@@ -36,7 +36,8 @@ void draw_popup();
 bool popup_active();
 
 // ── Logbook access ────────────────────────────────────────────────────────────
-const std::string &data_dir();
+// User data root (flights, reports, index, settings) under X-Plane's Output dir.
+const std::string &output_dir();
 bool              &lb_needs_refresh();
 void               regen_all_reports();
 

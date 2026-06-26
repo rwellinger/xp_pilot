@@ -8,7 +8,7 @@ IMGUI_SENTINEL  := vendor/imgui/imgui.h
 JSON_SENTINEL   := vendor/json.hpp
 CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
-CATCH2_VERSION := 3.7.1
+CATCH2_VERSION := 3.15.1
 
 .PHONY: help all setup build test install format lint sanitize build-windows release release-build cleanup-tags cleanup-runs clean distclean
 
@@ -66,14 +66,14 @@ $(SDK_SENTINEL):
 	@echo "SDK headers installed."
 
 $(IMGUI_SENTINEL):
-	@echo "Downloading Dear ImGui v1.91.9..."
+	@echo "Downloading Dear ImGui v1.92.8..."
 	@set -euo pipefail; \
 	TMP=$$(mktemp -d); \
 	trap "rm -rf $$TMP" EXIT; \
 	mkdir -p vendor/imgui/backends; \
-	curl -fsSL "https://github.com/ocornut/imgui/archive/refs/tags/v1.91.9.zip" -o "$$TMP/imgui.zip"; \
+	curl -fsSL "https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8.zip" -o "$$TMP/imgui.zip"; \
 	unzip -q "$$TMP/imgui.zip" -d "$$TMP/"; \
-	SRC="$$TMP/imgui-1.91.9"; \
+	SRC="$$TMP/imgui-1.92.8"; \
 	cp "$$SRC"/imgui.{h,cpp} vendor/imgui/; \
 	cp "$$SRC"/imgui_{draw,tables,widgets}.cpp vendor/imgui/; \
 	cp "$$SRC"/imgui_internal.h "$$SRC"/imconfig.h vendor/imgui/; \
@@ -82,9 +82,9 @@ $(IMGUI_SENTINEL):
 	@echo "Dear ImGui installed."
 
 $(JSON_SENTINEL):
-	@echo "Downloading nlohmann/json v3.11.3..."
+	@echo "Downloading nlohmann/json v3.12.0..."
 	@mkdir -p vendor
-	@curl -fsSL "https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp" \
+	@curl -fsSL "https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp" \
 	     -o vendor/json.hpp
 	@echo "nlohmann/json installed."
 
