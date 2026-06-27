@@ -109,7 +109,8 @@ h1{color:#00d4ff}h2{color:#aaa;font-size:1em;font-weight:normal;margin-top:0}
 .stat{background:#16213e;border-radius:8px;padding:10px 16px;min-width:120px}
 .stat .val{font-size:1.6em;color:#00d4ff}.stat .lbl{font-size:.8em;color:#888}
 #map{height:420px;border-radius:8px;margin-bottom:20px}
-canvas{background:#16213e;border-radius:8px;margin-bottom:20px;width:100%!important}
+canvas{background:#16213e;border-radius:8px}
+.chart-box{position:relative;margin-bottom:20px}
 .lcard{background:#16213e;border-radius:8px;padding:14px 18px;margin-bottom:12px;display:inline-block;min-width:300px}
 .lcard .rat{font-size:1.4em;font-weight:bold;margin-bottom:8px}
 .lcard table{border-collapse:collapse}.lcard td{padding:2px 10px 2px 0}
@@ -329,8 +330,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "</div><div class=\"lbl\">Track Points</div></div>"
          << "</div>"
          << "<div id=\"map\"></div>"
-         << "<canvas id=\"ac\" style=\"height:" << ac_height << "px\"></canvas>"
-         << "<canvas id=\"sc\" style=\"height:" << sc_height << "px\"></canvas>"
+         << "<div class=\"chart-box\" style=\"height:" << ac_height << "px\"><canvas id=\"ac\"></canvas></div>"
+         << "<div class=\"chart-box\" style=\"height:" << sc_height << "px\"><canvas id=\"sc\"></canvas></div>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
          << "<script>"
