@@ -143,6 +143,11 @@ jobs:
           cp dist/linux/xp_pilot.xpl   dist/xp_pilot/lin_x64/xp_pilot.xpl
           cp dist/windows/xp_pilot.xpl dist/xp_pilot/win_x64/xp_pilot.xpl
           cp data/flight_logger_profiles.json dist/xp_pilot/data/
+          # SkunkCrafts control files into the staging tree, BEFORE the zip, so
+          # the release ZIP also carries the cfg (manual installs become
+          # updater-discoverable). Version from the tag (v1.2.3 -> 1.2.3).
+          python3 tools/skunkcrafts/generate.py \
+            --tree dist/xp_pilot --version "${GITHUB_REF_NAME#v}"
           cd dist && zip -r xp_pilot.zip xp_pilot/
 
       - name: Create release with assets
@@ -150,3 +155,21 @@ jobs:
         with:
           files: dist/xp_pilot.zip
           generate_release_notes: true
+
+      - name: Publish SkunkCrafts update tree
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          STAGE=dist/xp_pilot
+          pushd "$STAGE"
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "release ${GITHUB_REF_NAME}"
+          git branch -M release
+          git push --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" release
+          popd

@@ -1,0 +1,7 @@
+zone|custom
+liveries|false
+module|https://raw.githubusercontent.com/rwellinger/xp_pilot/refs/heads/release/
+version|@VERSION@
+disabled|false
+name|Welly's XP Pilot
+locked|false

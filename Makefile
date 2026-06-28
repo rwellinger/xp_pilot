@@ -3,6 +3,8 @@ SHELL := /bin/bash
 XPLANE_ROOT := /Users/robertw/X-Plane 12
 PLUGIN_DIR  := $(XPLANE_ROOT)/Resources/available plugins/xp_pilot
 
+SKUNK_DIR := build/skunkcrafts
+
 SDK_SENTINEL    := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL  := vendor/imgui/imgui.h
 JSON_SENTINEL   := vendor/json.hpp
@@ -10,7 +12,7 @@ CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
 
 CATCH2_VERSION := 3.15.1
 
-.PHONY: help all setup build test install format lint sanitize build-windows release release-build cleanup-tags cleanup-runs clean distclean
+.PHONY: help all setup build test install format lint sanitize build-windows skunkcrafts release release-build cleanup-tags cleanup-runs clean distclean
 
 .DEFAULT_GOAL := help
 
@@ -36,6 +38,7 @@ help:
 	@echo ""
 	@echo "CI / cross-platform:"
 	@echo "  build-windows   Windows x64 build (used by CI)"
+	@echo "  skunkcrafts     Stage a SkunkCrafts update tree from the install → build/skunkcrafts/"
 	@echo ""
 	@echo "Release:"
 	@echo "  release VERSION=x.y.z   Tag + push release (commits VERSION.txt)"
@@ -194,6 +197,27 @@ sanitize: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	cmake -B build -A x64
 	cmake --build build --config Release
+
+# ── SkunkCrafts update tree ───────────────────────────────────────────────────
+# Stages a publishable tree from the installed plugin and writes the SkunkCrafts
+# control files into it. Local installs only carry the mac_x64 binary — the full
+# three-platform tree is produced by the release workflow. The live install at
+# $(PLUGIN_DIR) is left untouched.
+skunkcrafts:
+	@if [ ! -d "$(PLUGIN_DIR)" ]; then \
+	    echo "Plugin not installed at '$(PLUGIN_DIR)'. Run 'make install' first."; exit 1; \
+	fi
+	@VER="$(VERSION)"; \
+	if [ -z "$$VER" ] && [ -f VERSION.txt ]; then VER="$$(cat VERSION.txt)"; fi; \
+	if [ -z "$$VER" ]; then echo "No version. Set VERSION=x.y.z or VERSION.txt."; exit 1; fi; \
+	echo "=== Staging SkunkCrafts release tree ($$VER) ==="; \
+	rm -rf "$(SKUNK_DIR)"; mkdir -p "$(SKUNK_DIR)"; \
+	rsync -a \
+	    --exclude '.DS_Store' \
+	    --exclude 'skunkcrafts_updater*' \
+	    "$(PLUGIN_DIR)/" "$(SKUNK_DIR)/"; \
+	python3 tools/skunkcrafts/generate.py --tree "$(SKUNK_DIR)" --version "$$VER"; \
+	echo "Staged release tree at $(SKUNK_DIR)/ (version $$VER)."
 
 # ── Release ───────────────────────────────────────────────────────────────────
 release:
