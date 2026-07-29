@@ -110,6 +110,7 @@ TEST_CASE("parse_flight_json: reads the pause total of a v2 flight", "[parse]")
     FlightData  fd      = parse_flight_json(content, "2026-04-29_LSZB_LSGG_DA42.json");
 
     REQUIRE(fd.block_time_min == 55);
+    REQUIRE(fd.block_time_sec == 3312);
     REQUIRE(fd.paused_sec == 1200);
 }
 
@@ -117,6 +118,8 @@ TEST_CASE("parse_flight_json: pre-v2 flights without paused_sec default to no pa
 {
     FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
     REQUIRE(fd.paused_sec == 0);
+    // No second-resolution field: the minute value carries the block time.
+    REQUIRE(fd.block_time_sec == 75 * 60);
 }
 
 TEST_CASE("parse_flight_json: parses every track point", "[parse]")
@@ -164,9 +167,56 @@ TEST_CASE("parse_flight_json: missing fields take documented defaults", "[parse]
     REQUIRE(fd.start_utc.empty());
     REQUIRE(fd.block_time_min == 0);
     REQUIRE(fd.paused_sec == 0);
+    REQUIRE(fd.block_time_sec == 0);
     REQUIRE(fd.max_altitude_ft == 0);
     REQUIRE(fd.track.empty());
     REQUIRE(fd.landings.empty());
+}
+
+// ── resolve_pauses ───────────────────────────────────────────────────────────
+
+TEST_CASE("resolve_pauses: returns the recorded pauses unchanged", "[pauses]")
+{
+    FlightData fd;
+    fd.paused_sec = 50;
+    fd.pauses.push_back(PauseEvent{1745916700, 50, 46.9, 7.5});
+
+    auto pauses = resolve_pauses(fd);
+    REQUIRE(pauses.size() == 1);
+    REQUIRE(pauses.front().sec == 50);
+    REQUIRE(pauses.front().lat == Catch::Approx(46.9));
+}
+
+TEST_CASE("resolve_pauses: reconstructs pauses from track gaps when none were recorded", "[pauses]")
+{
+    FlightData fd;
+    fd.paused_sec = 50;
+    // 10 s sampling; the third gap is 60 s wall clock, so 50 s of it was a pause.
+    for (int i = 0; i < 4; ++i)
+        fd.track.push_back(TrackPoint{1745916600 + i * 10, 46.9 + i * 0.01, 7.5, 0, 0, 0});
+    fd.track.push_back(TrackPoint{1745916600 + 30 + 60, 47.2, 7.5, 0, 0, 0});
+
+    auto pauses = resolve_pauses(fd);
+    REQUIRE(pauses.size() == 1);
+    REQUIRE(pauses.front().sec == 50);
+    REQUIRE(pauses.front().t == 1745916630);
+    REQUIRE(pauses.front().lat == Catch::Approx(46.93));
+}
+
+TEST_CASE("resolve_pauses: a flight without a pause yields nothing", "[pauses]")
+{
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
+    REQUIRE(resolve_pauses(fd).empty());
+}
+
+TEST_CASE("parse_flight_json: reads a recorded pauses array", "[parse][pauses]")
+{
+    FlightData fd = parse_flight_json(
+        R"({"paused_sec":50,"pauses":[{"t":1745916630,"sec":50,"lat":46.93,"lon":7.5}]})", "x.json");
+
+    REQUIRE(fd.pauses.size() == 1);
+    REQUIRE(fd.pauses.front().sec == 50);
+    REQUIRE(fd.pauses.front().lon == Catch::Approx(7.5));
 }
 
 // ── HtmlReport::generate ─────────────────────────────────────────────────────
@@ -209,10 +259,14 @@ TEST_CASE("HtmlReport::generate: a paused flight shows total, pause and net bloc
     FlightData  paused = parse_flight_json(read_fixture("sample_flight_paused.json"), jname);
     std::string html   = slurp(root / "reports" / HtmlReport::generate(paused, ddir, jname, "medium_ga", thresholds));
 
-    // 55 min block time + 20 min pause = 1h 15m gross.
+    // 3312 s block time + 1200 s pause = 4512 s gross, and the three tiles add up.
     REQUIRE(html.find(">1h 15m</div><div class=\"lbl\">Total<") != std::string::npos);
-    REQUIRE(html.find(">20m</div><div class=\"lbl\">Paused<") != std::string::npos);
-    REQUIRE(html.find(">55m</div><div class=\"lbl\">Block Time<") != std::string::npos);
+    REQUIRE(html.find(">20m 00s</div><div class=\"lbl\">Paused<") != std::string::npos);
+    REQUIRE(html.find(">55m 12s</div><div class=\"lbl\">Block Time<") != std::string::npos);
+
+    // The pause is marked on the route and explained by a legend below the map.
+    REQUIRE(html.find("pauses=[[46.950000,7.300000,\"20m 00s\"]]") != std::string::npos);
+    REQUIRE(html.find("<p class=\"legend\">") != std::string::npos);
 
     // A flight without a pause keeps the single Block Time tile it always had.
     FlightData  unpaused = parse_flight_json(read_fixture("sample_flight.json"), jname);
@@ -220,7 +274,31 @@ TEST_CASE("HtmlReport::generate: a paused flight shows total, pause and net bloc
 
     REQUIRE(plain.find("Paused") == std::string::npos);
     REQUIRE(plain.find("Total") == std::string::npos);
+    REQUIRE(plain.find("<p class=\"legend\">") == std::string::npos);
+    REQUIRE(plain.find("pauses=[]") != std::string::npos);
     REQUIRE(plain.find(">1h 15m</div><div class=\"lbl\">Block Time<") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+// Regression for issue #3: a 50-second pause was measured but swallowed by a display
+// threshold, so the report looked exactly like a flight that was never paused.
+TEST_CASE("HtmlReport::generate: a pause under a minute is still reported", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string ddir  = root.string() + "/";
+    std::string jname = "2026-07-29_EDNY_EDNY_EFOX.json";
+
+    FlightData fd     = parse_flight_json(read_fixture("sample_flight.json"), jname);
+    fd.block_time_sec = 492;
+    fd.paused_sec     = 50;
+
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+    std::string html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "medium_ga", thresholds));
+
+    REQUIRE(html.find(">9m 02s</div><div class=\"lbl\">Total<") != std::string::npos);
+    REQUIRE(html.find(">50s</div><div class=\"lbl\">Paused<") != std::string::npos);
+    REQUIRE(html.find(">8m 12s</div><div class=\"lbl\">Block Time<") != std::string::npos);
 
     fs::remove_all(root);
 }

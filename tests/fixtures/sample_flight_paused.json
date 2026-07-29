@@ -10,9 +10,13 @@
   "start_time": 1745916600,
   "end_time": 1745921100,
   "block_time_min": 55,
+  "block_time_sec": 3312,
   "paused_sec": 1200,
   "max_altitude_ft": 9500,
   "max_speed_kts": 165,
+  "pauses": [
+    {"t": 1745916720, "sec": 1200, "lat": 46.9500, "lon": 7.3000}
+  ],
   "track": [
     {"t": 1745916600, "lat": 46.9141, "lon": 7.4970, "alt": 1700, "spd": 0,   "vs": 0},
     {"t": 1745916660, "lat": 46.9200, "lon": 7.5000, "alt": 3500, "spd": 110, "vs": 800},

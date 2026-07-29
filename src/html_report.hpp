@@ -44,6 +44,14 @@ struct TrackPoint
     int    alt_ft = 0, spd_kts = 0, vs_fpm = 0;
 };
 
+// One sim pause during a flight, with the position the aircraft was frozen at.
+struct PauseEvent
+{
+    time_t t   = 0; // when the pause started
+    int    sec = 0;
+    double lat = 0, lon = 0;
+};
+
 struct LandingData
 {
     float       fpm            = 0;
@@ -80,11 +88,17 @@ struct FlightData
     time_t                   end_time        = 0;
     int                      block_time_min  = 0; // net of sim pause
     int                      paused_sec      = 0; // 0 for flights logged before v2
+    int                      block_time_sec  = 0; // exact active time; falls back to the minute value
     int                      max_altitude_ft = 0;
     int                      max_speed_kts   = 0;
     std::vector<TrackPoint>  track;
     std::vector<LandingData> landings;
+    std::vector<PauseEvent>  pauses;
 };
+
+// The pauses to display: the recorded ones, or — for flights logged before they were
+// tracked individually — the ones reconstructed from the gaps between track points.
+std::vector<PauseEvent> resolve_pauses(const FlightData &fd);
 
 // ── HTML report / index generation ───────────────────────────────────────────
 

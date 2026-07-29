@@ -6,8 +6,11 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 ### What's New in v1.5.5
 
   - **Sim pauses no longer count as flight time** ([#3](https://github.com/rwellinger/xp_pilot/issues/3)) — pausing a flight and picking it up later used to produce impossible block times, because the block time was a plain wall-clock difference between takeoff roll and shutdown. The flight logger now accumulates only unpaused simulation time (`sim/time/paused`), so the block time reflects what was actually flown.
-    - Flights that were paused show the full calculation in the HTML report and in the Logbook detail view: **Total** (gross), **Paused** and **Block Time** (net). Flights without a pause look exactly as before.
-    - The pause total is stored as `paused_sec` in the flight JSON, which is now written as `version: 2`. Existing flight logs stay readable and unchanged — they simply report no pause.
+    - Flights that were paused show the full calculation in the HTML report and in the Logbook detail view: **Total** (gross), **Paused** and **Block Time** (net), down to the second so the three values visibly add up. Flights without a pause look exactly as before.
+    - The block time starts with the takeoff roll, not with engine start. A pause *before* that — waiting on the runway — lies outside the block time and is therefore not counted; there is nothing to subtract it from.
+    - **Pauses are marked on the route** — a yellow dot on the HTML report's map (hover for the duration) and on the track view in the logbook window, with a legend below the map. Flights recorded before this release have their pauses reconstructed from the gaps between track points, so older reports gain the markers when regenerated.
+    - The pause total is stored as `paused_sec` in the flight JSON, alongside the exact active time in `block_time_sec` and a `pauses` array holding each pause with timestamp, duration and position; the file is now written as `version: 2`. Existing flight logs stay readable and unchanged — they simply report no pause, and their block time keeps its minute resolution.
+    - Every pause is noted in X-Plane's `Log.txt` (`Sim resumed after N s`), so an unexpected block time can be traced without picking the flight JSON apart.
     - Track sampling pauses along with the sim, so the report's altitude and speed charts keep a true 10-second time axis instead of stretching across the pause.
 
 

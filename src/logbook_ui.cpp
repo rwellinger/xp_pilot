@@ -240,21 +240,33 @@ static std::string fmt_dur(int min)
     return b;
 }
 
+// Second-resolution counterpart to fmt_dur(), used where a pause has to add up exactly:
+// "1h 23m" from an hour on, "8m 12s" below that, "50s" under a minute.
+static std::string fmt_dur_sec(int sec)
+{
+    char b[32];
+    if (sec >= 3600)
+        snprintf(b, sizeof(b), "%dh %02dm", sec / 3600, (sec % 3600) / 60);
+    else if (sec >= 60)
+        snprintf(b, sizeof(b), "%dm %02ds", sec / 60, sec % 60);
+    else
+        snprintf(b, sizeof(b), "%ds", sec);
+    return b;
+}
+
 // Mirrors the report's stat tiles: gross time, pause total and net block time whenever
-// the flight was paused, otherwise the plain Block Time line. Pauses below a minute
-// round to "0m" and stay hidden.
+// the flight was paused, otherwise the plain minute-resolution Block Time line.
 static void draw_time_lines(const FlightData &fd)
 {
-    if (fd.paused_sec < 60)
+    if (fd.paused_sec <= 0)
     {
         ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
         return;
     }
 
-    const int paused_min = fd.paused_sec / 60;
-    ImGui::TextUnformatted(("Total Time:   " + fmt_dur(fd.block_time_min + paused_min)).c_str());
-    ImGui::TextUnformatted(("Paused:       " + fmt_dur(paused_min)).c_str());
-    ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
+    ImGui::TextUnformatted(("Total Time:   " + fmt_dur_sec(fd.block_time_sec + fd.paused_sec)).c_str());
+    ImGui::TextUnformatted(("Paused:       " + fmt_dur_sec(fd.paused_sec)).c_str());
+    ImGui::TextUnformatted(("Block Time:   " + fmt_dur_sec(fd.block_time_sec)).c_str());
 }
 
 static ImVec4 rating_color(const std::string &r)
@@ -449,11 +461,28 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
             dl->AddLine(ImVec2(org.x + x1, org.y + y1), ImVec2(org.x + x2, org.y + y2), IM_COL32(212, 212, 0, 255),
                         1.5f);
         }
+        for (const auto &p : resolve_pauses(fd))
+        {
+            if (p.lat == 0.0 && p.lon == 0.0)
+                continue;
+            float px, py;
+            to_px(p.lat, p.lon, px, py);
+            dl->AddCircleFilled(ImVec2(org.x + px, org.y + py), 4.f, IM_COL32(255, 204, 0, 255));
+        }
+
         float dx, dy, ax, ay;
         to_px(fd.track.front().lat, fd.track.front().lon, dx, dy);
         to_px(fd.track.back().lat, fd.track.back().lon, ax, ay);
         dl->AddCircleFilled(ImVec2(org.x + dx, org.y + dy), 5.f, IM_COL32(64, 255, 0, 255));
         dl->AddCircleFilled(ImVec2(org.x + ax, org.y + ay), 5.f, IM_COL32(0, 0, 255, 255));
+
+        // Legend for the yellow markers drawn above.
+        if (fd.paused_sec > 0)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pause");
+            ImGui::SameLine(0.f, 6.f);
+            ImGui::TextDisabled("= sim paused here, not counted as block time");
+        }
     }
     else
     {

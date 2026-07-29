@@ -36,6 +36,9 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
 - **Bounce detection** — counts bounced touchdowns and rates the landing by the *hardest* impact, not the cushioned final settle. A low-altitude rebound (AGL < 5 ft) counts as a bounce; a higher climb still triggers a separate Touch-and-Go.
 - Thresholds are profile-based per aircraft category (see [Aircraft Profiles](#aircraft-profiles))
+- **Pause-aware block time** — time spent with the sim paused is excluded from the block time. Whenever a flight was paused, the report and the logbook show the full calculation: total time, pause total, and net block time.
+  - Each pause is marked in yellow on the route — in the HTML report's map (hover for its duration) and in the logbook window's track view.
+  - The clock starts with the takeoff roll, not with engine start. Pausing *before* that — sitting on the runway ready for departure — happens outside the block time and is therefore not recorded as a pause; there is nothing yet to subtract it from.
 - HTML reports include a mini route map and charts; an `index.html` lists all flights
 - Reports are stored next to the plugin: `data/flights/` and `data/reports/`
 

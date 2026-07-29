@@ -600,8 +600,9 @@ static int                      s_prev_any_eng = -1; // -1 = unknown
 
 // Flight time excluding sim pause: only frames with sim/time/paused == 0 are counted,
 // so a flight parked in pause for hours no longer inflates the block time.
-static double s_active_seconds     = 0.0;
-static double s_last_sample_active = 0.0;
+static double                  s_active_seconds     = 0.0;
+static double                  s_last_sample_active = 0.0;
+static std::vector<PauseEvent> s_pauses;
 
 static constexpr float GS_ROLLING_MPS     = 15.4f; // 30 kts
 static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
@@ -623,10 +624,12 @@ static void session_reset()
     s_max_altitude_ft = s_max_speed_kts = 0;
     s_track.clear();
     s_landings.clear();
+    s_pauses.clear();
 }
 
 // Block time is the accumulated active (unpaused) flight time; the pause total is
 // what the wall clock ran beyond it.
+static int block_time_seconds() { return (int)std::lround(s_active_seconds); }
 static int block_time_minutes() { return (int)(s_active_seconds / 60.0); }
 
 static int paused_seconds()
@@ -995,6 +998,38 @@ static void accumulate_active_time(const Frame &f, float elapsed_real_sec)
         s_active_seconds += elapsed_real_sec;
 }
 
+// Records each pause with the position the aircraft was frozen at, so the report can
+// mark it on the route, and logs it so an unexpected block time can be traced from
+// Log.txt without picking the flight JSON apart.
+static void record_pause_release(const Frame &f)
+{
+    static int        prev_paused = 0;
+    static PauseEvent pending;
+
+    if (flight_in_progress())
+    {
+        if (f.paused != 0 && prev_paused == 0)
+        {
+            pending     = PauseEvent{};
+            pending.t   = std::time(nullptr);
+            pending.lat = dr_d(dr_lat);
+            pending.lon = dr_d(dr_lon);
+        }
+        else if (f.paused == 0 && prev_paused != 0 && pending.t != 0)
+        {
+            pending.sec = (int)(std::time(nullptr) - pending.t);
+            s_pauses.push_back(pending);
+            pending = PauseEvent{};
+
+            char msg[128];
+            snprintf(msg, sizeof(msg), "[xp_pilot] Sim resumed after %d s (excluded from block time)\n",
+                     s_pauses.back().sec);
+            XPLMDebugString(msg);
+        }
+    }
+    prev_paused = f.paused;
+}
+
 static float triggers_cb(float elapsed_real_sec, float, int, void *)
 {
     // Both logger features off → no state machine work this frame.
@@ -1009,6 +1044,7 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
 
     const Frame f = read_frame();
     accumulate_active_time(f, elapsed_real_sec);
+    record_pause_release(f);
     cache_airport_when_stationary(f);
     handle_engine_edge_detection(f.on_gnd);
 
@@ -1074,6 +1110,7 @@ static std::string save_flight()
     obj["start_time"]        = (long long)s_start_time;
     obj["end_time"]        = (long long)s_end_time;
     obj["block_time_min"]  = block_time_minutes();
+    obj["block_time_sec"]  = block_time_seconds();
     obj["paused_sec"]      = paused_seconds();
     obj["max_altitude_ft"] = s_max_altitude_ft;
     obj["max_speed_kts"]   = s_max_speed_kts;
@@ -1090,6 +1127,13 @@ static std::string save_flight()
                              {"vs", tp.vs_fpm}});
     }
     obj["track"] = track_arr;
+
+    json pause_arr = json::array();
+    for (auto &p : s_pauses)
+    {
+        pause_arr.push_back({{"t", (long long)p.t}, {"sec", p.sec}, {"lat", p.lat}, {"lon", p.lon}});
+    }
+    obj["pauses"] = pause_arr;
 
     json ldg_arr = json::array();
     for (auto &ld : s_landings)
@@ -1167,11 +1211,13 @@ static void finalize_flight()
     fd.start_time        = s_start_time;
     fd.end_time        = s_end_time;
     fd.block_time_min  = block_time_minutes();
+    fd.block_time_sec  = block_time_seconds();
     fd.paused_sec      = paused_seconds();
     fd.max_altitude_ft = s_max_altitude_ft;
     fd.max_speed_kts   = s_max_speed_kts;
     fd.track           = s_track;
     fd.landings        = s_landings;
+    fd.pauses          = s_pauses;
 
     if (s_html_report_enabled)
     {

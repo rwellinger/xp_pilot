@@ -53,6 +53,44 @@ const char *wind_condition_to_string(WindCondition c)
     return "STEADY";
 }
 
+// ── Pause resolution ──────────────────────────────────────────────────────────
+
+namespace
+{
+constexpr int TRACK_SAMPLE_SEC = 10; // update_track_sample() samples this often
+constexpr int PAUSE_GAP_SEC    = 15; // wall-clock spacing that means "more than jitter"
+
+// Track points are sampled every 10 seconds of *active* time, so a wider wall-clock gap
+// between two of them means the sim stood still in between. That reconstructs the pauses
+// of flights recorded before they were stored individually.
+std::vector<PauseEvent> pauses_from_track_gaps(const std::vector<TrackPoint> &track)
+{
+    std::vector<PauseEvent> out;
+    for (size_t i = 1; i < track.size(); ++i)
+    {
+        const time_t gap = track[i].t - track[i - 1].t;
+        if (gap <= PAUSE_GAP_SEC)
+            continue;
+        PauseEvent p;
+        p.t   = track[i - 1].t;
+        p.sec = (int)(gap - TRACK_SAMPLE_SEC);
+        p.lat = track[i - 1].lat;
+        p.lon = track[i - 1].lon;
+        out.push_back(p);
+    }
+    return out;
+}
+} // namespace
+
+std::vector<PauseEvent> resolve_pauses(const FlightData &fd)
+{
+    if (!fd.pauses.empty())
+        return fd.pauses;
+    if (fd.paused_sec <= 0)
+        return {};
+    return pauses_from_track_gaps(fd.track);
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 static std::string esc(const std::string &s)
@@ -86,22 +124,36 @@ static std::string fmt_dur(int min)
     return buf;
 }
 
+// Second-resolution counterpart to fmt_dur(), used where a pause has to add up exactly:
+// "1h 23m" from an hour on, "8m 12s" below that, "50s" under a minute.
+static std::string fmt_dur_sec(int sec)
+{
+    char buf[32];
+    if (sec >= 3600)
+        snprintf(buf, sizeof(buf), "%dh %02dm", sec / 3600, (sec % 3600) / 60);
+    else if (sec >= 60)
+        snprintf(buf, sizeof(buf), "%dm %02ds", sec / 60, sec % 60);
+    else
+        snprintf(buf, sizeof(buf), "%ds", sec);
+    return buf;
+}
+
 static std::string stat_tile(const std::string &value, const std::string &label)
 {
     return "<div class=\"stat\"><div class=\"val\">" + value + "</div><div class=\"lbl\">" + label + "</div></div>";
 }
 
 // Flights recorded with a sim pause show the full calculation — gross time, pause total,
-// net block time. Everything else keeps the single Block Time tile it always had. Pauses
-// below a minute stay hidden: they round to "0m" and only add noise.
+// net block time — to the second, so Total minus Paused visibly adds up. Everything else
+// keeps the single, minute-resolution Block Time tile it always had.
 static std::string time_stat_tiles(const FlightData &fd)
 {
-    if (fd.paused_sec < 60)
+    if (fd.paused_sec <= 0)
         return stat_tile(fmt_dur(fd.block_time_min), "Block Time");
 
-    const int paused_min = fd.paused_sec / 60;
-    return stat_tile(fmt_dur(fd.block_time_min + paused_min), "Total") + stat_tile(fmt_dur(paused_min), "Paused") +
-           stat_tile(fmt_dur(fd.block_time_min), "Block Time");
+    return stat_tile(fmt_dur_sec(fd.block_time_sec + fd.paused_sec), "Total") +
+           stat_tile(fmt_dur_sec(fd.paused_sec), "Paused") +
+           stat_tile(fmt_dur_sec(fd.block_time_sec), "Block Time");
 }
 
 static std::string rating_color(const std::string &r)
@@ -126,7 +178,10 @@ h1{color:#00d4ff}h2{color:#aaa;font-size:1em;font-weight:normal;margin-top:0}
 .stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .stat{background:#16213e;border-radius:8px;padding:10px 16px;min-width:120px}
 .stat .val{font-size:1.6em;color:#00d4ff}.stat .lbl{font-size:.8em;color:#888}
-#map{height:420px;border-radius:8px;margin-bottom:20px}
+#map{height:420px;border-radius:8px;margin-bottom:8px}
+.legend{color:#888;font-size:.85em;margin:0 0 20px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.dot-pause{background:#ffcc00}
 canvas{background:#16213e;border-radius:8px}
 .chart-box{position:relative;margin-bottom:20px}
 .lcard{background:#16213e;border-radius:8px;padding:14px 18px;margin-bottom:12px;display:inline-block;min-width:300px}
@@ -296,6 +351,20 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
     js_alts = "[" + js_alts + "]";
     js_spds = "[" + js_spds + "]";
 
+    // Pause markers: [lat, lon, "50s"] per pause, dropped on the route by the map script
+    const std::vector<PauseEvent> pauses = resolve_pauses(fd);
+    std::string                   js_pauses;
+    for (const auto &p : pauses)
+    {
+        if (p.lat == 0.0 && p.lon == 0.0)
+            continue; // no position recorded — nothing to mark on the map
+        char b[96];
+        snprintf(b, sizeof(b), "%s[%.6f,%.6f,\"%s\"]", js_pauses.empty() ? "" : ",", p.lat, p.lon,
+                 fmt_dur_sec(p.sec).c_str());
+        js_pauses += b;
+    }
+    js_pauses = "[" + js_pauses + "]";
+
     // Landing cards
     std::string lcards;
     if (fd.landings.empty())
@@ -346,12 +415,16 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "</div><div class=\"lbl\">Track Points</div></div>"
          << "</div>"
          << "<div id=\"map\"></div>"
+         << (pauses.empty() ? ""
+                            : "<p class=\"legend\"><span class=\"dot dot-pause\"></span>Pause &mdash; sim was "
+                              "paused here; the time is not part of the block time</p>")
          << "<div class=\"chart-box\" style=\"height:" << ac_height << "px\"><canvas id=\"ac\"></canvas></div>"
          << "<div class=\"chart-box\" style=\"height:" << sc_height << "px\"><canvas id=\"sc\"></canvas></div>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
          << "<script>"
-         << "var lats=" << js_lats << ",lons=" << js_lons << ",alts=" << js_alts << ",spds=" << js_spds << ";"
+         << "var lats=" << js_lats << ",lons=" << js_lons << ",alts=" << js_alts << ",spds=" << js_spds
+         << ",pauses=" << js_pauses << ";"
          << "var map=L.map('map');"
          << "L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',"
          << "{maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd'}).addTo(map);"
@@ -361,6 +434,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "L.circleMarker(coords[0],{radius:6,color:'#00ff80',fillOpacity:1}).bindTooltip('Departure').addTo(map);"
          << "L.circleMarker(coords[coords.length-1],{radius:6,color:'#ff4040',fillOpacity:1}).bindTooltip('Arrival')."
             "addTo(map);"
+         << "pauses.forEach(function(p){L.circleMarker([p[0],p[1]],{radius:6,color:'#ffcc00',fillColor:'#ffcc00',"
+            "fillOpacity:.9}).bindTooltip('Pause '+p[2]).addTo(map);});"
          << "map.fitBounds(poly.getBounds(),{padding:[20,20]});"
          << "}else{map.setView([" << clat_s << "," << clon_s << "],8);}"
          << "var fmt='" << time_fmt << "';"
@@ -497,6 +572,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.end_time        = j.value("end_time", (time_t)0);
         fd.block_time_min  = j.value("block_time_min", 0);
         fd.paused_sec      = j.value("paused_sec", 0);
+        fd.block_time_sec  = j.value("block_time_sec", fd.block_time_min * 60);
         fd.max_altitude_ft = j.value("max_altitude_ft", 0);
         fd.max_speed_kts   = j.value("max_speed_kts", 0);
 
@@ -512,6 +588,19 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 p.spd_kts = tp.value("spd", 0);
                 p.vs_fpm  = tp.value("vs", 0);
                 fd.track.push_back(p);
+            }
+        }
+
+        if (j.contains("pauses") && j["pauses"].is_array())
+        {
+            for (auto &pj : j["pauses"])
+            {
+                PauseEvent p;
+                p.t   = pj.value("t", (time_t)0);
+                p.sec = pj.value("sec", 0);
+                p.lat = pj.value("lat", 0.0);
+                p.lon = pj.value("lon", 0.0);
+                fd.pauses.push_back(p);
             }
         }
 
