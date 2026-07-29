@@ -104,6 +104,21 @@ TEST_CASE("parse_flight_json: populates all top-level fields", "[parse]")
     REQUIRE(fd.max_speed_kts == 165);
 }
 
+TEST_CASE("parse_flight_json: reads the pause total of a v2 flight", "[parse]")
+{
+    std::string content = read_fixture("sample_flight_paused.json");
+    FlightData  fd      = parse_flight_json(content, "2026-04-29_LSZB_LSGG_DA42.json");
+
+    REQUIRE(fd.block_time_min == 55);
+    REQUIRE(fd.paused_sec == 1200);
+}
+
+TEST_CASE("parse_flight_json: pre-v2 flights without paused_sec default to no pause", "[parse]")
+{
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
+    REQUIRE(fd.paused_sec == 0);
+}
+
 TEST_CASE("parse_flight_json: parses every track point", "[parse]")
 {
     std::string content = read_fixture("sample_flight.json");
@@ -148,6 +163,7 @@ TEST_CASE("parse_flight_json: missing fields take documented defaults", "[parse]
     REQUIRE(fd.date == "?");          // documented placeholder
     REQUIRE(fd.start_utc.empty());
     REQUIRE(fd.block_time_min == 0);
+    REQUIRE(fd.paused_sec == 0);
     REQUIRE(fd.max_altitude_ft == 0);
     REQUIRE(fd.track.empty());
     REQUIRE(fd.landings.empty());
@@ -178,6 +194,33 @@ TEST_CASE("HtmlReport::generate: writes a report file and returns its basename",
     REQUIRE(html.find("GREAT LANDING!") != std::string::npos);
     // Threshold legend is rendered from the supplied profile thresholds.
     REQUIRE(html.find("Butter &gt;-100") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: a paused flight shows total, pause and net block time", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string ddir  = root.string() + "/";
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+
+    FlightData  paused = parse_flight_json(read_fixture("sample_flight_paused.json"), jname);
+    std::string html   = slurp(root / "reports" / HtmlReport::generate(paused, ddir, jname, "medium_ga", thresholds));
+
+    // 55 min block time + 20 min pause = 1h 15m gross.
+    REQUIRE(html.find(">1h 15m</div><div class=\"lbl\">Total<") != std::string::npos);
+    REQUIRE(html.find(">20m</div><div class=\"lbl\">Paused<") != std::string::npos);
+    REQUIRE(html.find(">55m</div><div class=\"lbl\">Block Time<") != std::string::npos);
+
+    // A flight without a pause keeps the single Block Time tile it always had.
+    FlightData  unpaused = parse_flight_json(read_fixture("sample_flight.json"), jname);
+    std::string plain = slurp(root / "reports" / HtmlReport::generate(unpaused, ddir, jname, "medium_ga", thresholds));
+
+    REQUIRE(plain.find("Paused") == std::string::npos);
+    REQUIRE(plain.find("Total") == std::string::npos);
+    REQUIRE(plain.find(">1h 15m</div><div class=\"lbl\">Block Time<") != std::string::npos);
 
     fs::remove_all(root);
 }

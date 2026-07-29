@@ -240,6 +240,23 @@ static std::string fmt_dur(int min)
     return b;
 }
 
+// Mirrors the report's stat tiles: gross time, pause total and net block time whenever
+// the flight was paused, otherwise the plain Block Time line. Pauses below a minute
+// round to "0m" and stay hidden.
+static void draw_time_lines(const FlightData &fd)
+{
+    if (fd.paused_sec < 60)
+    {
+        ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
+        return;
+    }
+
+    const int paused_min = fd.paused_sec / 60;
+    ImGui::TextUnformatted(("Total Time:   " + fmt_dur(fd.block_time_min + paused_min)).c_str());
+    ImGui::TextUnformatted(("Paused:       " + fmt_dur(paused_min)).c_str());
+    ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
+}
+
 static ImVec4 rating_color(const std::string &r)
 {
     if (r == "BUTTER!")
@@ -387,7 +404,7 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
     ImGui::TextUnformatted(info);
     ImGui::Separator();
 
-    ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
+    draw_time_lines(fd);
     ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
     ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
     ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());

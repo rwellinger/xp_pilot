@@ -3,6 +3,14 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### What's New in v1.5.5
+
+  - **Sim pauses no longer count as flight time** ([#3](https://github.com/rwellinger/xp_pilot/issues/3)) — pausing a flight and picking it up later used to produce impossible block times, because the block time was a plain wall-clock difference between takeoff roll and shutdown. The flight logger now accumulates only unpaused simulation time (`sim/time/paused`), so the block time reflects what was actually flown.
+    - Flights that were paused show the full calculation in the HTML report and in the Logbook detail view: **Total** (gross), **Paused** and **Block Time** (net). Flights without a pause look exactly as before.
+    - The pause total is stored as `paused_sec` in the flight JSON, which is now written as `version: 2`. Existing flight logs stay readable and unchanged — they simply report no pause.
+    - Track sampling pauses along with the sim, so the report's altitude and speed charts keep a true 10-second time axis instead of stretching across the pause.
+
+
 ### What's New in v1.3.2
 
   - **External volume support on macOS** — fixes flight log and HTML report writing when X-Plane is installed on an external disk mounted under `/Volumes/`. Earlier versions converted the SDK's HFS path by hand and silently dropped the volume mount prefix, so all plugin file I/O ended up pointing at the read-only system root. xp_pilot now requests POSIX paths via `XPLM_USE_NATIVE_PATHS` and resolves the data directory consistently on every platform.

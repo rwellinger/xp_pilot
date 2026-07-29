@@ -23,6 +23,7 @@
     { "match": "ASK2",  "profile": "ultra_light" },
     { "match": "L5",    "profile": "ultra_light" },
     { "match": "CTLS",  "profile": "ultra_light" },
+    { "match": "EFOX",  "profile": "ultra_light" },
 
     { "match": "C172",  "profile": "light_ga" },
     { "match": "PA28",  "profile": "light_ga" },

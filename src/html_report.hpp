@@ -78,7 +78,8 @@ struct FlightData
     std::string              aircraft_category = "fixed_wing"; // "fixed_wing" | "rotorcraft"
     time_t                   start_time      = 0;
     time_t                   end_time        = 0;
-    int                      block_time_min  = 0;
+    int                      block_time_min  = 0; // net of sim pause
+    int                      paused_sec      = 0; // 0 for flights logged before v2
     int                      max_altitude_ft = 0;
     int                      max_speed_kts   = 0;
     std::vector<TrackPoint>  track;

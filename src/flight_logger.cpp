@@ -596,8 +596,12 @@ static int                      s_max_speed_kts   = 0;
 static std::vector<TrackPoint>  s_track;
 static std::vector<LandingData> s_landings;
 static std::string              s_last_gnd_apt;
-static int                      s_prev_any_eng  = -1; // -1 = unknown
-static time_t                   s_last_sample_t = 0;
+static int                      s_prev_any_eng = -1; // -1 = unknown
+
+// Flight time excluding sim pause: only frames with sim/time/paused == 0 are counted,
+// so a flight parked in pause for hours no longer inflates the block time.
+static double s_active_seconds     = 0.0;
+static double s_last_sample_active = 0.0;
 
 static constexpr float GS_ROLLING_MPS     = 15.4f; // 30 kts
 static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
@@ -615,9 +619,20 @@ static void session_reset()
     s_aircraft_tail.clear();
     s_is_rotorcraft   = false;
     s_start_time = s_end_time = 0;
+    s_active_seconds = s_last_sample_active = 0.0;
     s_max_altitude_ft = s_max_speed_kts = 0;
     s_track.clear();
     s_landings.clear();
+}
+
+// Block time is the accumulated active (unpaused) flight time; the pause total is
+// what the wall clock ran beyond it.
+static int block_time_minutes() { return (int)(s_active_seconds / 60.0); }
+
+static int paused_seconds()
+{
+    const double paused = (double)(s_end_time - s_start_time) - s_active_seconds;
+    return paused > 0.0 ? (int)std::lround(paused) : 0;
 }
 
 static void finalize_flight();
@@ -701,7 +716,6 @@ static void handle_idle_state(const Frame &f)
         s_aircraft_tail  = dr_str(dr_acf_tail);
         s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
         s_start_time     = std::time(nullptr);
-        s_last_sample_t  = s_start_time;
         s_state          = State::Airborne;
         landing_arm();
         if (s_write_enabled)
@@ -727,7 +741,7 @@ static void handle_rolling_state(const Frame &f)
     if (f.agl <= AGL_AIRBORNE_M)
         return;
 
-    s_last_sample_t = std::time(nullptr);
+    s_last_sample_active = s_active_seconds;
     if (s_departure_icao.empty())
         s_departure_icao = get_airport_id();
     s_state = State::Airborne;
@@ -737,17 +751,19 @@ static void handle_rolling_state(const Frame &f)
     XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
 }
 
-// Sample track/max-stats every 10 seconds while airborne (writer only).
+// Sample track/max-stats every 10 seconds of active flight time while airborne (writer
+// only). Pausing the sim pauses the sampler, which keeps the report's altitude/speed
+// charts — they derive their time axis from the sample index — on a true 10 s grid.
 static void update_track_sample()
 {
     if (!s_write_enabled)
         return;
-    time_t now = std::time(nullptr);
-    if (now - s_last_sample_t < 10)
+    if (s_active_seconds - s_last_sample_active < 10.0)
         return;
 
-    s_last_sample_t    = now;
-    int        alt_ft  = (int)(dr_d(dr_elevation) * 3.28084);
+    s_last_sample_active = s_active_seconds;
+    time_t     now       = std::time(nullptr);
+    int        alt_ft    = (int)(dr_d(dr_elevation) * 3.28084);
     int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
     int        vs      = (int)dr_f(dr_vertfpm);
     TrackPoint tp;
@@ -966,7 +982,20 @@ static void handle_shutdown_state()
     XPLMDebugString("[xp_pilot] State: Shutdown -> Idle\n");
 }
 
-static float triggers_cb(float, float, int, void *)
+static bool flight_in_progress()
+{
+    return s_state == State::Rolling || s_state == State::Airborne || s_state == State::Landed;
+}
+
+// Flight-loop callbacks keep firing while the sim is paused, so gate the accumulator
+// on the pause dataref instead of trusting the wall clock.
+static void accumulate_active_time(const Frame &f, float elapsed_real_sec)
+{
+    if (f.paused == 0 && flight_in_progress())
+        s_active_seconds += elapsed_real_sec;
+}
+
+static float triggers_cb(float elapsed_real_sec, float, int, void *)
 {
     // Both logger features off → no state machine work this frame.
     // Reset any mid-flight state so re-enabling starts cleanly from Idle.
@@ -979,6 +1008,7 @@ static float triggers_cb(float, float, int, void *)
     }
 
     const Frame f = read_frame();
+    accumulate_active_time(f, elapsed_real_sec);
     cache_airport_when_stationary(f);
     handle_engine_edge_detection(f.on_gnd);
 
@@ -1032,7 +1062,7 @@ static std::string save_flight()
     }
 
     json obj;
-    obj["version"]         = 1;
+    obj["version"]         = 2;
     obj["date"]            = date_buf;
     obj["start_utc"]       = sut;
     obj["end_utc"]         = eut;
@@ -1043,7 +1073,8 @@ static std::string save_flight()
     obj["aircraft_category"] = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
     obj["start_time"]        = (long long)s_start_time;
     obj["end_time"]        = (long long)s_end_time;
-    obj["block_time_min"]  = (int)((s_end_time - s_start_time) / 60);
+    obj["block_time_min"]  = block_time_minutes();
+    obj["paused_sec"]      = paused_seconds();
     obj["max_altitude_ft"] = s_max_altitude_ft;
     obj["max_speed_kts"]   = s_max_speed_kts;
     obj["fuel_used_kg"]    = 0;
@@ -1135,7 +1166,8 @@ static void finalize_flight()
     fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
     fd.start_time        = s_start_time;
     fd.end_time        = s_end_time;
-    fd.block_time_min  = (int)((s_end_time - s_start_time) / 60);
+    fd.block_time_min  = block_time_minutes();
+    fd.paused_sec      = paused_seconds();
     fd.max_altitude_ft = s_max_altitude_ft;
     fd.max_speed_kts   = s_max_speed_kts;
     fd.track           = s_track;

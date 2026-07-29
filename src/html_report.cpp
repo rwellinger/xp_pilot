@@ -86,6 +86,24 @@ static std::string fmt_dur(int min)
     return buf;
 }
 
+static std::string stat_tile(const std::string &value, const std::string &label)
+{
+    return "<div class=\"stat\"><div class=\"val\">" + value + "</div><div class=\"lbl\">" + label + "</div></div>";
+}
+
+// Flights recorded with a sim pause show the full calculation — gross time, pause total,
+// net block time. Everything else keeps the single Block Time tile it always had. Pauses
+// below a minute stay hidden: they round to "0m" and only add noise.
+static std::string time_stat_tiles(const FlightData &fd)
+{
+    if (fd.paused_sec < 60)
+        return stat_tile(fmt_dur(fd.block_time_min), "Block Time");
+
+    const int paused_min = fd.paused_sec / 60;
+    return stat_tile(fmt_dur(fd.block_time_min + paused_min), "Total") + stat_tile(fmt_dur(paused_min), "Paused") +
+           stat_tile(fmt_dur(fd.block_time_min), "Block Time");
+}
+
 static std::string rating_color(const std::string &r)
 {
     if (r == "BUTTER!")
@@ -319,9 +337,7 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "<h2>" << esc(fd.date) << " " << esc(fd.start_utc) << "&ndash;" << esc(fd.end_utc) << " UTC &bull; "
          << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail)
          << (fd.aircraft_category == "rotorcraft" ? "<span class=\"badge-heli\">Helicopter</span>" : "") << "</h2>"
-         << "<div class=\"stats\">"
-         << "<div class=\"stat\"><div class=\"val\">" << fmt_dur(fd.block_time_min)
-         << "</div><div class=\"lbl\">Block Time</div></div>"
+         << "<div class=\"stats\">" << time_stat_tiles(fd)
          << "<div class=\"stat\"><div class=\"val\">" << fd.max_altitude_ft
          << " ft</div><div class=\"lbl\">Max Altitude</div></div>"
          << "<div class=\"stat\"><div class=\"val\">" << fd.max_speed_kts
@@ -480,6 +496,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.start_time        = j.value("start_time", (time_t)0);
         fd.end_time        = j.value("end_time", (time_t)0);
         fd.block_time_min  = j.value("block_time_min", 0);
+        fd.paused_sec      = j.value("paused_sec", 0);
         fd.max_altitude_ft = j.value("max_altitude_ft", 0);
         fd.max_speed_kts   = j.value("max_speed_kts", 0);
 
