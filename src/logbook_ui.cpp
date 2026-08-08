@@ -34,6 +34,7 @@
 #include <GL/gl.h>
 #endif
 #include <algorithm>
+#include <cmath>
 // Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
 #include <cstdio> // snprintf
 #include <filesystem>

@@ -19,6 +19,7 @@
 #include "html_report.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 // Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
 #include <cstdio> // snprintf
 #include <filesystem>
@@ -489,8 +490,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
          << map_and_charts_script(track, js_pauses, time_fmt) << "</body></html>";
 
-    const std::string rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";
-    std::ofstream     f(data_dir + "reports/" + rname);
+    std::string   rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";
+    std::ofstream f(data_dir + "reports/" + rname);
     if (!f.is_open())
         return "";
     f << html.str();
