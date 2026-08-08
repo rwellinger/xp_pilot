@@ -14,8 +14,10 @@ add_executable(xp_pilot_tests
 )
 
 target_include_directories(xp_pilot_tests PRIVATE
-    ${CATCH2_DIR}
     ${CMAKE_SOURCE_DIR}/src
+)
+target_include_directories(xp_pilot_tests SYSTEM PRIVATE
+    ${CATCH2_DIR}
     ${CMAKE_SOURCE_DIR}/vendor
 )
 

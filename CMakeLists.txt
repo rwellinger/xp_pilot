@@ -25,15 +25,6 @@ if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0")
 endif()
 
-# ── X-Plane SDK headers ────────────────────────────────────────────────────────
-# Download once with: ./setup.sh
-include_directories(
-    ${CMAKE_SOURCE_DIR}/sdk
-    ${CMAKE_SOURCE_DIR}/sdk/XPLM
-    ${CMAKE_SOURCE_DIR}/sdk/XPWidgets
-    ${CMAKE_SOURCE_DIR}/vendor
-)
-
 # ── Dear ImGui (downloaded by setup.sh into vendor/imgui) ─────────────────────
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
 set(IMGUI_SOURCES
@@ -54,7 +45,13 @@ add_library(xp_pilot MODULE
     ${IMGUI_SOURCES}
 )
 
-target_include_directories(xp_pilot PRIVATE
+# External deps as SYSTEM so compiler warnings and clang-tidy skip them.
+# Own sources under src/ stay on the normal include path and remain linted.
+target_include_directories(xp_pilot SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/sdk
+    ${CMAKE_SOURCE_DIR}/sdk/XPLM
+    ${CMAKE_SOURCE_DIR}/sdk/XPWidgets
+    ${CMAKE_SOURCE_DIR}/vendor
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
 )

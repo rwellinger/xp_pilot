@@ -1,6 +1,7 @@
-# Build output
+# Build output (created by cmake / make build|lint|sanitize)
 build/
 build-lint/
+build-sanitize/
 
 # X-Plane SDK headers (downloaded by setup.sh)
 sdk/

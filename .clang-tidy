@@ -6,7 +6,8 @@ Checks: >-
   performance-*,
   -performance-avoid-endl
 
-# Only report issues in our own source files, not in SDK/vendor headers
+# Belt-and-suspenders: only report diagnostics from our headers.
+# External deps are already SYSTEM includes in CMake (skipped by default).
 HeaderFilterRegex: 'src/.*\.(h|hpp)$'
 
 # Treat matched checks as errors in CI
