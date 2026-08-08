@@ -1,0 +1,7 @@
+build/
+build-lint/
+build-sanitize/
+cmake-build-*/
+sdk/
+vendor/
+.git/

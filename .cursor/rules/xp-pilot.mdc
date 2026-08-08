@@ -1,10 +1,11 @@
-# CLAUDE.md
+---
+description: xp_pilot architecture, build commands, and coding standards
+alwaysApply: true
+---
 
-Project guidance for Claude Code and other AI assistants. Cursor reads the same content from `.cursor/rules/xp-pilot.mdc`.
+# xp_pilot
 
-## Project Overview
-
-**xp_pilot** is a C++17 X-Plane 12 flight simulator plugin for macOS, Linux, and Windows. It provides two features: Flight Logger (records flight data and generates HTML logbook reports) and Auto QNH (automatic barometric altimeter management).
+C++17 X-Plane 12 flight simulator plugin for macOS, Linux, and Windows. Two features: **Flight Logger** (records flight data, generates HTML logbook reports) and **Auto QNH** (automatic barometric altimeter management).
 
 ## Commands
 
@@ -35,6 +36,7 @@ Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions.
 ## Key Data Structures
 
 Defined in `html_report.hpp`:
+
 - `TrackPoint` — timestamped lat/lon/altitude/speed/vertical speed sample
 - `LandingData` — descent rate, G-force, pitch, wind, quality rating
 - `FlightData` — complete flight record (aircraft, airports, block time, track points, landings)
@@ -45,13 +47,13 @@ Aircraft landing quality thresholds are configured in `data/flight_logger_profil
 
 - **CMake 3.21+**, C++17, macOS 12.0+ universal binary (arm64 + x86_64)
 - Output is `build/xp_pilot.xpl` (X-Plane plugin binary format)
-- Vendor dependencies in `vendor/` and SDK headers in `sdk/` — populated by `make setup`, not committed to the repo
+- Vendor dependencies in `vendor/` and SDK headers in `sdk/` — populated by `make setup`, not committed
 - Compiler flags: `-Wall -Wextra -fvisibility=hidden`, OpenGL deprecation warnings suppressed
 - The `.xpl` plugin is intentionally not ASan-instrumented — for in-sim memory analysis use Instruments.app against the X-Plane process
 
 ## Code Quality
 
-All implementation in this repo must follow clean-code best practices. This applies to every change, now and in the future:
+All implementation in this repo must follow clean-code best practices:
 
 - **Single responsibility**: each function does one thing; each module owns one concern.
 - **Meaningful names**: variables, functions and types read as plain English — no abbreviations, no cryptic suffixes.
@@ -59,6 +61,6 @@ All implementation in this repo must follow clean-code best practices. This appl
 - **DRY**: extract shared logic rather than copying it; but don't abstract speculatively.
 - **Encapsulation**: keep statics/internals private to their translation unit; expose only what the header promises.
 - **Separation of concerns**: UI code never touches file I/O directly; data modules never draw.
-- **Minimal comments**: let the code explain itself. Add a comment only when the *why* is non-obvious (invariant, workaround, surprising constraint). Don't comment what the code already says.
+- **Minimal comments**: let the code explain itself. Add a comment only when the *why* is non-obvious.
 - **No speculative generality**: don't build abstractions for hypothetical future needs — match the existing codebase style.
 - **Boundaries only for validation**: trust internal code; validate at the edges (user input, external APIs, file parsing).

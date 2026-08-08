@@ -173,7 +173,7 @@ Version history and detailed changelogs: [RELEASE.md](RELEASE.md) and the [GitHu
 
 ## For developers
 
-See [CLAUDE.md](CLAUDE.md) for architecture, module layout, and coding conventions. See [RELEASE.md](RELEASE.md) for the release process and changelog.
+Project context for AI assistants: [.cursor/rules/xp-pilot.mdc](.cursor/rules/xp-pilot.mdc) (Cursor) and [CLAUDE.md](CLAUDE.md) (Claude Code). See [RELEASE.md](RELEASE.md) for the release process and changelog.
 
 ### Build from source
 
