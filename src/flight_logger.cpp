@@ -27,9 +27,9 @@
 #include <XPLM/XPLMUtilities.h>
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
-#include <cstring>
-#include <ctime>
+// Keep these explicit: MSVC needs them; Clang often pulls them in transitively and flags them unused.
+#include <cstdio> // snprintf
+#include <ctime>  // std::time, time_t
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -221,7 +221,7 @@ static std::string dr_str(XPLMDataRef dr)
     if (!dr)
         return "";
     char buf[64] = {};
-    XPLMGetDatab(dr, buf, 0, (int)sizeof(buf) - 1);
+    XPLMGetDatab(dr, buf, 0, static_cast<int>(sizeof(buf)) - 1);
     return buf;
 }
 
@@ -264,8 +264,8 @@ static std::string get_airport_id()
         return cached_id;
     last_check = now;
 
-    float      lat = (float)dr_d(dr_lat);
-    float      lon = (float)dr_d(dr_lon);
+    float      lat = static_cast<float>(dr_d(dr_lat));
+    float      lon = static_cast<float>(dr_d(dr_lon));
     XPLMNavRef ref = XPLMFindNavAid(nullptr, nullptr, &lat, &lon, nullptr, xplm_Nav_Airport);
     if (ref == XPLM_NAV_NOT_FOUND)
     {
@@ -295,7 +295,7 @@ static bool s_landing_popup_enabled = true;
 static double monotonic_clock()
 {
     static XPLMDataRef dr = XPLMFindDataRef("sim/time/total_running_time_sec");
-    return (double)XPLMGetDataf(dr);
+    return static_cast<double>(XPLMGetDataf(dr));
 }
 
 static void show_overlay(const std::string &text, float sec, float r = 1.f, float g = 1.f, float b = 1.f)
@@ -334,7 +334,7 @@ void FlightLogger::draw_overlay()
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
     float c[4] = {s_overlay_r, s_overlay_g, s_overlay_b, 1.0f};
     int   x    = sw / 2 - 150;
-    int   y    = (int)((float)sh * 0.12f);
+    int   y    = static_cast<int>(static_cast<float>(sh) * 0.12f);
     XPLMDrawString(c, x, y, const_cast<char *>(s_overlay_text.c_str()), nullptr, xplmFont_Proportional);
 }
 
@@ -379,7 +379,7 @@ void FlightLogger::draw_popup()
     };
 
     const float popup_w = 430.f;
-    ImGui::SetNextWindowPos(ImVec2(((float)sw - popup_w) * 0.5f, (float)sh * 0.12f), ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - popup_w) * 0.5f, static_cast<float>(sh) * 0.12f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
 
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.38f, 0.42f, 0.48f, 0.95f));
@@ -462,7 +462,7 @@ struct RingBuf
     {
         vals.push_front(v);
         times.push_front(t);
-        while ((int)vals.size() > size)
+        while (static_cast<int>(vals.size()) > size)
         {
             vals.pop_back();
             times.pop_back();
@@ -475,7 +475,7 @@ struct RingBuf
         float s = 0.f;
         for (auto v : vals)
             s += v;
-        return s / (float)vals.size();
+        return s / static_cast<float>(vals.size());
     }
     float tspan() const
     {
@@ -535,20 +535,20 @@ static std::string eval_rating(float fpm, float crosswind_kts, const std::string
     }
     float xw_factor = 1.f + (xw_abs / 30.f) * 0.4f * scale;
     float eff_fpm   = fpm / xw_factor;
-    if (eff_fpm >= (float)p[0] && eff_fpm <= 0.f)
+    if (eff_fpm >= static_cast<float>(p[0]) && eff_fpm <= 0.f)
         return "BUTTER!";
-    if (eff_fpm >= (float)p[1] && eff_fpm < (float)p[0])
+    if (eff_fpm >= static_cast<float>(p[1]) && eff_fpm < static_cast<float>(p[0]))
         return "GREAT LANDING!";
-    if (eff_fpm >= (float)p[2] && eff_fpm < (float)p[1])
+    if (eff_fpm >= static_cast<float>(p[2]) && eff_fpm < static_cast<float>(p[1]))
         return "ACCEPTABLE";
-    if (eff_fpm >= (float)p[3] && eff_fpm < (float)p[2])
+    if (eff_fpm >= static_cast<float>(p[3]) && eff_fpm < static_cast<float>(p[2]))
         return "HARD LANDING!";
     return "WASTED!";
 }
 
 static void calc_wind(float spd, float wind_dir, float hdg, float &hw_out, float &xw_out)
 {
-    float angle = (wind_dir - hdg) * (float)M_PI / 180.f;
+    float angle = (wind_dir - hdg) * static_cast<float>(M_PI) / 180.f;
     hw_out      = spd * std::cos(angle);
     xw_out      = spd * std::sin(angle);
 }
@@ -629,13 +629,13 @@ static void session_reset()
 
 // Block time is the accumulated active (unpaused) flight time; the pause total is
 // what the wall clock ran beyond it.
-static int block_time_seconds() { return (int)std::lround(s_active_seconds); }
-static int block_time_minutes() { return (int)(s_active_seconds / 60.0); }
+static int block_time_seconds() { return static_cast<int>(std::lround(s_active_seconds)); }
+static int block_time_minutes() { return static_cast<int>(s_active_seconds / 60.0); }
 
 static int paused_seconds()
 {
-    const double paused = (double)(s_end_time - s_start_time) - s_active_seconds;
-    return paused > 0.0 ? (int)std::lround(paused) : 0;
+    const double paused = static_cast<double>(s_end_time - s_start_time) - s_active_seconds;
+    return paused > 0.0 ? static_cast<int>(std::lround(paused)) : 0;
 }
 
 static void finalize_flight();
@@ -766,9 +766,9 @@ static void update_track_sample()
 
     s_last_sample_active = s_active_seconds;
     time_t     now       = std::time(nullptr);
-    int        alt_ft    = (int)(dr_d(dr_elevation) * 3.28084);
-    int        spd_kts = (int)(dr_f(dr_ias) * 1.94384f);
-    int        vs      = (int)dr_f(dr_vertfpm);
+    int        alt_ft    = static_cast<int>(dr_d(dr_elevation) * 3.28084);
+    int        spd_kts = static_cast<int>(dr_f(dr_ias) * 1.94384f);
+    int        vs      = static_cast<int>(dr_f(dr_vertfpm));
     TrackPoint tp;
     tp.t       = now;
     tp.lat     = dr_d(dr_lat);
@@ -806,11 +806,11 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
     ld.fpm            = gVS;
     ld.g_force        = s_g_buf.avg();
     ld.agl_ft         = f.agl * 3.28084f;
-    ld.wind_speed_kts = (int)std::lround(wind_spd);
-    ld.wind_dir_mag   = (int)std::lround(wind_dir);
+    ld.wind_speed_kts = static_cast<int>(std::lround(wind_spd));
+    ld.wind_dir_mag   = static_cast<int>(std::lround(wind_dir));
     ld.wind_status    = wind_condition_to_string(wcond);
-    ld.headwind_kts   = (int)std::lround(hw);
-    ld.crosswind_kts  = (int)std::lround(xw);
+    ld.headwind_kts   = static_cast<int>(std::lround(hw));
+    ld.crosswind_kts  = static_cast<int>(std::lround(xw));
     ld.crosswind_side = (xw >= 0.f) ? "R" : "L";
 }
 
@@ -843,7 +843,7 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     const float Q    = dr_f(dr_Q);
     const float Qrad = dr_f(dr_Qrad);
     if (s_float_timer > 0.f && s_float_final == 0.f)
-        s_float_final = (float)monotonic_clock() - s_float_timer;
+        s_float_final = static_cast<float>(monotonic_clock()) - s_float_timer;
     candidate.pitch_deg  = Q;
     candidate.pitch_rate = Qrad;
     candidate.float_time = s_float_final;
@@ -875,7 +875,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
     auto pthresh = FlightLogger::get_profile_thresholds(pname);
     s_ld_captured.rating =
-        eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts, s_ld_captured.wind_status, pthresh);
+        eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts), s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
     s_landings.push_back(s_ld_captured);
@@ -899,7 +899,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
 
     auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
     auto pthresh = FlightLogger::get_profile_thresholds(pname);
-    s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, (float)s_ld_captured.crosswind_kts,
+    s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts),
                                              s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = 0;
@@ -935,7 +935,7 @@ static void handle_airborne_state(const Frame &f)
     }
 
     if (s_ld_armed && f.agl <= 15.f && s_float_timer == 0.f)
-        s_float_timer = (float)monotonic_clock();
+        s_float_timer = static_cast<float>(monotonic_clock());
 
     capture_main_gear_touchdown(f, on_any);
 
@@ -1017,7 +1017,7 @@ static void record_pause_release(const Frame &f)
         }
         else if (f.paused == 0 && prev_paused != 0 && pending.t != 0)
         {
-            pending.sec = (int)(std::time(nullptr) - pending.t);
+            pending.sec = static_cast<int>(std::time(nullptr) - pending.t);
             s_pauses.push_back(pending);
             pending = PauseEvent{};
 

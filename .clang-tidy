@@ -4,7 +4,8 @@ Checks: >-
   -bugprone-easily-swappable-parameters,
   -bugprone-throwing-static-initialization,
   performance-*,
-  -performance-avoid-endl
+  -performance-avoid-endl,
+  -performance-no-int-to-ptr
 
 # Belt-and-suspenders: only report diagnostics from our headers.
 # External deps are already SYSTEM includes in CMake (skipped by default).

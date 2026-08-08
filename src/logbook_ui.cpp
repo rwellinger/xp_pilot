@@ -34,10 +34,8 @@
 #include <GL/gl.h>
 #endif
 #include <algorithm>
-#include <cmath>
-#include <cstdio>
-#include <cstring>
-#include <ctime>
+// Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
+#include <cstdio> // snprintf
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -90,7 +88,7 @@ static double get_xp_time()
     static XPLMDataRef dr = nullptr;
     if (!dr)
         dr = XPLMFindDataRef("sim/time/total_running_time_sec");
-    return dr ? (double)XPLMGetDataf(dr) : 0.0;
+    return dr ? static_cast<double>(XPLMGetDataf(dr)) : 0.0;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -445,8 +443,8 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
 
         auto to_px = [&](double lat, double lon, float &px, float &py)
         {
-            px = (float)((lon - lon_min) / (lon_max - lon_min) * cw);
-            py = (float)((1.0 - (lat - lat_min) / (lat_max - lat_min)) * ch);
+            px = static_cast<float>((lon - lon_min) / (lon_max - lon_min) * cw);
+            py = static_cast<float>((1.0 - (lat - lat_min) / (lat_max - lat_min)) * ch);
         };
 
         ImVec2 org = ImGui::GetCursorScreenPos();
@@ -600,7 +598,7 @@ static void draw_logbook()
             ImGui::SameLine();
             if (ImGui::Button("Yes, archive"))
             {
-                for (int i = 0; i < (int)s_entries.size(); ++i)
+                for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
                     if (s_active_checked[i])
                         archive_flight(s_entries[i].filename);
                 HtmlReport::generate_index(FlightLogger::output_dir());
@@ -619,7 +617,7 @@ static void draw_logbook()
             ImGui::SameLine();
             if (ImGui::Button("Yes, delete"))
             {
-                for (int i = 0; i < (int)s_entries.size(); ++i)
+                for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
                     if (s_active_checked[i])
                         delete_flight_files(s_entries[i].filename, "");
                 HtmlReport::generate_index(FlightLogger::output_dir());
@@ -649,7 +647,7 @@ static void draw_logbook()
     }
     else
     {
-        for (int i = 0; i < (int)s_entries.size(); ++i)
+        for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
         {
             auto &e = s_entries[i];
             ImGui::PushID(i);
@@ -687,7 +685,7 @@ static void draw_logbook()
     // ── Right: detail ──────────────────────────────────────────────────────────
     ImGui::BeginChild("lb_detail", ImVec2(right_w, panel_h), true);
 
-    if (!s_detail_loaded || s_selected < 0 || s_selected >= (int)s_entries.size())
+    if (!s_detail_loaded || s_selected < 0 || s_selected >= static_cast<int>(s_entries.size()))
     {
         ImGui::TextUnformatted("Select a flight...");
     }
@@ -797,7 +795,7 @@ static void draw_archive()
             ImGui::SameLine();
             if (ImGui::Button("Yes, delete"))
             {
-                for (int i = 0; i < (int)s_arch_entries.size(); ++i)
+                for (int i = 0; i < static_cast<int>(s_arch_entries.size()); ++i)
                     if (s_arch_checked[i])
                         delete_flight_files(s_arch_entries[i].filename, "archived/");
                 load_archived_entries();
@@ -826,7 +824,7 @@ static void draw_archive()
     }
     else
     {
-        for (int i = 0; i < (int)s_arch_entries.size(); ++i)
+        for (int i = 0; i < static_cast<int>(s_arch_entries.size()); ++i)
         {
             auto &e = s_arch_entries[i];
             ImGui::PushID(i);
@@ -863,7 +861,7 @@ static void draw_archive()
     // ── Right: detail ──────────────────────────────────────────────────────────
     ImGui::BeginChild("arch_detail", ImVec2(right_w, panel_h), true);
 
-    if (!s_arch_detail_loaded || s_arch_selected < 0 || s_arch_selected >= (int)s_arch_entries.size())
+    if (!s_arch_detail_loaded || s_arch_selected < 0 || s_arch_selected >= static_cast<int>(s_arch_entries.size()))
     {
         ImGui::TextUnformatted("Select an archived flight...");
     }
@@ -926,8 +924,8 @@ static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status,
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
     ImGuiIO &io = ImGui::GetIO();
 
-    float mx = (float)(x - left);
-    float my = (float)(top - y);
+    float mx = static_cast<float>(x - left);
+    float my = static_cast<float>(top - y);
 
     // DEBUG: log first few mouse events so we can verify delivery on Linux
     if (s_mouse_dbg_count < 20)
@@ -951,8 +949,8 @@ static int ScrollCallback(XPLMWindowID wnd, int x, int y, int, int clicks, void 
 {
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGui::GetIO().AddMousePosEvent((float)(x - left), (float)(top - y));
-    ImGui::GetIO().AddMouseWheelEvent(0.f, (float)clicks);
+    ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
+    ImGui::GetIO().AddMouseWheelEvent(0.f, static_cast<float>(clicks));
     return 1;
 }
 
@@ -961,7 +959,7 @@ static int RightClickCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus st
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
     ImGuiIO &io = ImGui::GetIO();
-    io.AddMousePosEvent((float)(x - left), (float)(top - y));
+    io.AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
     if (status == xplm_MouseDown)
         io.AddMouseButtonEvent(1, true);
     if (status == xplm_MouseUp)
@@ -973,7 +971,7 @@ static XPLMCursorStatus CursorCallback(XPLMWindowID wnd, int x, int y, void *)
 {
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGui::GetIO().AddMousePosEvent((float)(x - left), (float)(top - y));
+    ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
     return xplm_CursorDefault;
 }
 
@@ -986,7 +984,7 @@ static void KeyCallback(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, v
     if (!(flags & xplm_DownFlag))
         return;
     if (key >= 32 && key < 127)
-        io.AddInputCharacter((unsigned)key);
+        io.AddInputCharacter(static_cast<unsigned>(key));
     // Basic special keys
     if (vkey == XPLM_VK_BACK)
         io.AddKeyEvent(ImGuiKey_Backspace, true);
@@ -1082,7 +1080,7 @@ void LogbookUI::draw()
     {
         char dbg[192];
         snprintf(dbg, sizeof(dbg), "[xp_pilot] Framebuffer: viewport(%d,%d) logical(%d,%d) scale(%.2f,%.2f)\n", fb_w,
-                 fb_h, sw, sh, (float)fb_w / (float)sw, (float)fb_h / (float)sh);
+                 fb_h, sw, sh, static_cast<float>(fb_w) / static_cast<float>(sw), static_cast<float>(fb_h) / static_cast<float>(sh));
         XPLMDebugString(dbg);
         s_fb_logged = true;
     }
@@ -1096,10 +1094,10 @@ void LogbookUI::draw()
 
     ImGuiIO &io                = ImGui::GetIO();
     double   now               = get_xp_time();
-    io.DeltaTime               = (float)std::max(now - s_last_frame_time, 0.001);
+    io.DeltaTime               = static_cast<float>(std::max(now - s_last_frame_time, 0.001));
     s_last_frame_time          = now;
-    io.DisplaySize             = ImVec2((float)sw, (float)sh);
-    io.DisplayFramebufferScale = ImVec2((float)fb_w / (float)sw, (float)fb_h / (float)sh);
+    io.DisplaySize             = ImVec2(static_cast<float>(sw), static_cast<float>(sh));
+    io.DisplayFramebufferScale = ImVec2(static_cast<float>(fb_w) / static_cast<float>(sw), static_cast<float>(fb_h) / static_cast<float>(sh));
 
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
@@ -1109,7 +1107,7 @@ void LogbookUI::draw()
     if (s_logbook_open)
     {
         float win_w = 1020.f, win_h = 700.f;
-        ImGui::SetNextWindowPos(ImVec2(((float)sw - win_w) * 0.5f, ((float)sh - win_h) * 0.5f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - win_w) * 0.5f, (static_cast<float>(sh) - win_h) * 0.5f), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
 

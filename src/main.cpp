@@ -25,9 +25,9 @@
 #include <XPLM/XPLMMenus.h>
 #include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMUtilities.h>
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
+// Keep these explicit: MSVC needs them; Clang often pulls them in transitively and flags them unused.
+#include <cstdio>  // snprintf
+#include <cstring> // strncpy
 #include <fstream>
 #include <json.hpp>
 
@@ -89,15 +89,12 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
 
 static XPLMCommandRef s_cmd_logbook = nullptr;
 
-static XPLMMenuID s_plugin_menu  = 0;
+static XPLMMenuID s_plugin_menu  = nullptr;
 static int        s_logbook_item = -1;
 
-static void PluginMenuHandler(void *, void *item_ref)
+static void PluginMenuHandler(void *, void *)
 {
-    if ((intptr_t)item_ref == 1)
-    {
-        LogbookUI::toggle();
-    }
+    LogbookUI::toggle();
 }
 
 static int CmdLogbook(XPLMCommandRef, XPLMCommandPhase phase, void *)
@@ -147,7 +144,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
         int        sub          = XPLMAppendMenuItem(plugins_menu, "XP Pilot Suite", nullptr, 0);
         s_plugin_menu           = XPLMCreateMenu("XP Pilot Suite", plugins_menu, sub, PluginMenuHandler, nullptr);
-        s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", (void *)1, 0);
+        s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", nullptr, 0);
 
         char banner[128];
         snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);

@@ -19,8 +19,8 @@
 #include "html_report.hpp"
 #include <algorithm>
 #include <array>
-#include <cstdio>
-#include <ctime>
+// Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
+#include <cstdio> // snprintf
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>
@@ -73,7 +73,7 @@ std::vector<PauseEvent> pauses_from_track_gaps(const std::vector<TrackPoint> &tr
             continue;
         PauseEvent p;
         p.t   = track[i - 1].t;
-        p.sec = (int)(gap - TRACK_SAMPLE_SEC);
+        p.sec = static_cast<int>(gap - TRACK_SAMPLE_SEC);
         p.lat = track[i - 1].lat;
         p.lon = track[i - 1].lon;
         out.push_back(p);
@@ -315,106 +315,171 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
 
 // ── Report generation ─────────────────────────────────────────────────────────
 
-std::string HtmlReport::generate(const FlightData &fd, const std::string &data_dir, const std::string &json_filename,
-                                 const std::string &profile_name, const std::array<int, 4> &thresholds)
+namespace
 {
-    // Build JS arrays for map + charts
-    std::string js_lats, js_lons, js_alts, js_spds;
-    double      clat = 0, clon = 0;
-    if (!fd.track.empty())
-    {
-        for (size_t i = 0; i < fd.track.size(); ++i)
-        {
-            char b[32];
-            if (i)
-            {
-                js_lats += ',';
-                js_lons += ',';
-                js_alts += ',';
-                js_spds += ',';
-            }
-            snprintf(b, sizeof(b), "%.6f", fd.track[i].lat);
-            js_lats += b;
-            snprintf(b, sizeof(b), "%.6f", fd.track[i].lon);
-            js_lons += b;
-            snprintf(b, sizeof(b), "%d", fd.track[i].alt_ft);
-            js_alts += b;
-            snprintf(b, sizeof(b), "%d", fd.track[i].spd_kts);
-            js_spds += b;
-        }
-        auto mid = fd.track[fd.track.size() / 2];
-        clat     = mid.lat;
-        clon     = mid.lon;
-    }
-    js_lats = "[" + js_lats + "]";
-    js_lons = "[" + js_lons + "]";
-    js_alts = "[" + js_alts + "]";
-    js_spds = "[" + js_spds + "]";
+struct TrackJsArrays
+{
+    std::string lats = "[]";
+    std::string lons = "[]";
+    std::string alts = "[]";
+    std::string spds = "[]";
+    double      center_lat = 0;
+    double      center_lon = 0;
+};
 
-    // Pause markers: [lat, lon, "50s"] per pause, dropped on the route by the map script
-    const std::vector<PauseEvent> pauses = resolve_pauses(fd);
-    std::string                   js_pauses;
+TrackJsArrays track_js_arrays(const std::vector<TrackPoint> &track)
+{
+    TrackJsArrays out;
+    if (track.empty())
+        return out;
+
+    std::string lats, lons, alts, spds;
+    for (size_t i = 0; i < track.size(); ++i)
+    {
+        char b[32];
+        if (i)
+        {
+            lats += ',';
+            lons += ',';
+            alts += ',';
+            spds += ',';
+        }
+        snprintf(b, sizeof(b), "%.6f", track[i].lat);
+        lats += b;
+        snprintf(b, sizeof(b), "%.6f", track[i].lon);
+        lons += b;
+        snprintf(b, sizeof(b), "%d", track[i].alt_ft);
+        alts += b;
+        snprintf(b, sizeof(b), "%d", track[i].spd_kts);
+        spds += b;
+    }
+
+    const TrackPoint &mid = track[track.size() / 2];
+    out.lats              = "[" + lats + "]";
+    out.lons              = "[" + lons + "]";
+    out.alts              = "[" + alts + "]";
+    out.spds              = "[" + spds + "]";
+    out.center_lat        = mid.lat;
+    out.center_lon        = mid.lon;
+    return out;
+}
+
+std::string pauses_js_array(const std::vector<PauseEvent> &pauses)
+{
+    std::string js;
     for (const auto &p : pauses)
     {
         if (p.lat == 0.0 && p.lon == 0.0)
             continue; // no position recorded — nothing to mark on the map
         char b[96];
-        snprintf(b, sizeof(b), "%s[%.6f,%.6f,\"%s\"]", js_pauses.empty() ? "" : ",", p.lat, p.lon,
-                 fmt_dur_sec(p.sec).c_str());
-        js_pauses += b;
+        snprintf(b, sizeof(b), "%s[%.6f,%.6f,\"%s\"]", js.empty() ? "" : ",", p.lat, p.lon, fmt_dur_sec(p.sec).c_str());
+        js += b;
     }
-    js_pauses = "[" + js_pauses + "]";
+    return "[" + js + "]";
+}
 
-    // Landing cards
-    std::string lcards;
+std::string landing_cards_html(const FlightData &fd, const std::string &profile_name,
+                               const std::array<int, 4> &thresholds)
+{
     if (fd.landings.empty())
-    {
-        lcards = "<p style='color:#888'>No landing recorded.</p>";
-    }
-    else
-    {
-        for (size_t i = 0; i < fd.landings.size(); ++i)
-        {
-            if (fd.landings.size() > 1)
-            {
-                char h[64];
-                snprintf(h, sizeof(h), "<h3>Landing %zu</h3>\n", i + 1);
-                lcards += h;
-            }
-            lcards += landing_card(fd.landings[i], profile_name, thresholds);
-        }
-    }
+        return "<p style='color:#888'>No landing recorded.</p>";
 
+    std::string out;
+    for (size_t i = 0; i < fd.landings.size(); ++i)
+    {
+        if (fd.landings.size() > 1)
+        {
+            char h[64];
+            snprintf(h, sizeof(h), "<h3>Landing %zu</h3>\n", i + 1);
+            out += h;
+        }
+        out += landing_card(fd.landings[i], profile_name, thresholds);
+    }
+    return out;
+}
+
+constexpr const char *REPORT_CDN_HEAD =
+    "<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>"
+    "<script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>"
+    "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js\"></script>";
+
+std::string line_chart_js(const char *canvas_id, const char *label, const char *data_var, const char *border_color,
+                          const char *fill_color, const char *unit)
+{
+    std::ostringstream js;
+    js << "new Chart(document.getElementById('" << canvas_id << "'),{type:'line',data:{labels:lb,datasets:[{label:'"
+       << label << "',data:" << data_var << ",borderColor:'" << border_color << "',backgroundColor:'" << fill_color
+       << "',tension:.3,pointRadius:0,fill:true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'"
+          "#e0e0e0',font:{size:13}}}},scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#"
+          "333'}},y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' "
+       << unit << "'}},grid:{color:'#333'}}}}});";
+    return js.str();
+}
+
+std::string map_and_charts_script(const TrackJsArrays &track, const std::string &js_pauses, const char *time_fmt)
+{
     char clat_s[32], clon_s[32];
-    snprintf(clat_s, sizeof(clat_s), "%.6f", clat);
-    snprintf(clon_s, sizeof(clon_s), "%.6f", clon);
+    snprintf(clat_s, sizeof(clat_s), "%.6f", track.center_lat);
+    snprintf(clon_s, sizeof(clon_s), "%.6f", track.center_lon);
+
+    std::ostringstream js;
+    js << "<script>"
+       << "var lats=" << track.lats << ",lons=" << track.lons << ",alts=" << track.alts << ",spds=" << track.spds
+       << ",pauses=" << js_pauses << ";"
+       << "var map=L.map('map');"
+       << "L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',"
+       << "{maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd'}).addTo(map);"
+       << "if(lats.length>0){"
+       << "var coords=lats.map(function(la,i){return[la,lons[i]];});"
+       << "var poly=L.polyline(coords,{color:'#00d4ff',weight:2}).addTo(map);"
+       << "L.circleMarker(coords[0],{radius:6,color:'#00ff80',fillOpacity:1}).bindTooltip('Departure').addTo(map);"
+       << "L.circleMarker(coords[coords.length-1],{radius:6,color:'#ff4040',fillOpacity:1}).bindTooltip('Arrival')."
+          "addTo(map);"
+       << "pauses.forEach(function(p){L.circleMarker([p[0],p[1]],{radius:6,color:'#ffcc00',fillColor:'#ffcc00',"
+          "fillOpacity:.9}).bindTooltip('Pause '+p[2]).addTo(map);});"
+       << "map.fitBounds(poly.getBounds(),{padding:[20,20]});"
+       << "}else{map.setView([" << clat_s << "," << clon_s << "],8);}"
+       << "var fmt='" << time_fmt << "';"
+       << "var lb=alts.map(function(_,i){var s=i*10;"
+          "if(fmt==='ms'){var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}"
+          "var h=Math.floor(s/3600),mm=Math.floor((s%3600)/60);return h+':'+(mm<10?'0':'')+mm;});"
+       << line_chart_js("ac", "Altitude (ft)", "alts", "#00d4ff", "rgba(0,212,255,.08)", "ft")
+       << line_chart_js("sc", "IAS (kts)", "spds", "#ff9900", "rgba(255,153,0,.08)", "kts")
+       << "</script>";
+    return js.str();
+}
+
+std::string flight_header_html(const FlightData &fd)
+{
+    std::ostringstream html;
+    html << "<h1>" << esc(fd.departure_icao) << " &rarr; " << esc(fd.arrival_icao) << "</h1>"
+         << "<h2>" << esc(fd.date) << " " << esc(fd.start_utc) << "&ndash;" << esc(fd.end_utc) << " UTC &bull; "
+         << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail)
+         << (fd.aircraft_category == "rotorcraft" ? "<span class=\"badge-heli\">Helicopter</span>" : "") << "</h2>"
+         << "<div class=\"stats\">" << time_stat_tiles(fd) << stat_tile(std::to_string(fd.max_altitude_ft) + " ft", "Max Altitude")
+         << stat_tile(std::to_string(fd.max_speed_kts) + " kts", "Max Speed")
+         << stat_tile(std::to_string(fd.track.size()), "Track Points") << "</div>";
+    return html.str();
+}
+} // namespace
+
+std::string HtmlReport::generate(const FlightData &fd, const std::string &data_dir, const std::string &json_filename,
+                                 const std::string &profile_name, const std::array<int, 4> &thresholds)
+{
+    const TrackJsArrays           track   = track_js_arrays(fd.track);
+    const std::vector<PauseEvent> pauses  = resolve_pauses(fd);
+    const std::string             js_pauses = pauses_js_array(pauses);
+    const std::string             lcards  = landing_cards_html(fd, profile_name, thresholds);
 
     const bool  is_short_flight = fd.block_time_min < 30;
     const int   ac_height       = is_short_flight ? 180 : 240;
     const int   sc_height       = is_short_flight ? 140 : 180;
     const char *time_fmt        = is_short_flight ? "ms" : "hm";
 
-    // HTML template
     std::ostringstream html;
     html << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>" << esc(fd.departure_icao) << " to "
-         << esc(fd.arrival_icao) << "</title>"
-         << "<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>"
-         << "<script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>"
-         << "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js\"></script>" << FL_CSS
-         << "</head><body>"
-         << "<h1>" << esc(fd.departure_icao) << " &rarr; " << esc(fd.arrival_icao) << "</h1>"
-         << "<h2>" << esc(fd.date) << " " << esc(fd.start_utc) << "&ndash;" << esc(fd.end_utc) << " UTC &bull; "
-         << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail)
-         << (fd.aircraft_category == "rotorcraft" ? "<span class=\"badge-heli\">Helicopter</span>" : "") << "</h2>"
-         << "<div class=\"stats\">" << time_stat_tiles(fd)
-         << "<div class=\"stat\"><div class=\"val\">" << fd.max_altitude_ft
-         << " ft</div><div class=\"lbl\">Max Altitude</div></div>"
-         << "<div class=\"stat\"><div class=\"val\">" << fd.max_speed_kts
-         << " kts</div><div class=\"lbl\">Max Speed</div></div>"
-         << "<div class=\"stat\"><div class=\"val\">" << fd.track.size()
-         << "</div><div class=\"lbl\">Track Points</div></div>"
-         << "</div>"
-         << "<div id=\"map\"></div>"
+         << esc(fd.arrival_icao) << "</title>" << REPORT_CDN_HEAD << FL_CSS << "</head><body>"
+         << flight_header_html(fd) << "<div id=\"map\"></div>"
          << (pauses.empty() ? ""
                             : "<p class=\"legend\"><span class=\"dot dot-pause\"></span>Pause &mdash; sim was "
                               "paused here; the time is not part of the block time</p>")
@@ -422,46 +487,10 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "<div class=\"chart-box\" style=\"height:" << sc_height << "px\"><canvas id=\"sc\"></canvas></div>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
-         << "<script>"
-         << "var lats=" << js_lats << ",lons=" << js_lons << ",alts=" << js_alts << ",spds=" << js_spds
-         << ",pauses=" << js_pauses << ";"
-         << "var map=L.map('map');"
-         << "L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',"
-         << "{maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd'}).addTo(map);"
-         << "if(lats.length>0){"
-         << "var coords=lats.map(function(la,i){return[la,lons[i]];});"
-         << "var poly=L.polyline(coords,{color:'#00d4ff',weight:2}).addTo(map);"
-         << "L.circleMarker(coords[0],{radius:6,color:'#00ff80',fillOpacity:1}).bindTooltip('Departure').addTo(map);"
-         << "L.circleMarker(coords[coords.length-1],{radius:6,color:'#ff4040',fillOpacity:1}).bindTooltip('Arrival')."
-            "addTo(map);"
-         << "pauses.forEach(function(p){L.circleMarker([p[0],p[1]],{radius:6,color:'#ffcc00',fillColor:'#ffcc00',"
-            "fillOpacity:.9}).bindTooltip('Pause '+p[2]).addTo(map);});"
-         << "map.fitBounds(poly.getBounds(),{padding:[20,20]});"
-         << "}else{map.setView([" << clat_s << "," << clon_s << "],8);}"
-         << "var fmt='" << time_fmt << "';"
-         << "var lb=alts.map(function(_,i){var s=i*10;"
-            "if(fmt==='ms'){var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}"
-            "var h=Math.floor(s/3600),mm=Math.floor((s%3600)/60);return h+':'+(mm<10?'0':'')+mm;});"
-         << "new Chart(document.getElementById('ac'),{type:'line',data:{labels:lb,datasets:[{label:'Altitude "
-            "(ft)',data:alts,borderColor:'#00d4ff',backgroundColor:'rgba(0,212,255,.08)',tension:.3,pointRadius:0,fill:"
-            "true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0',font:{size:13}}}},"
-            "scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#333'}},"
-            "y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' ft'}},"
-            "grid:{color:'#333'}}}}});"
-         << "new Chart(document.getElementById('sc'),{type:'line',data:{labels:lb,datasets:[{label:'IAS "
-            "(kts)',data:spds,borderColor:'#ff9900',backgroundColor:'rgba(255,153,0,.08)',tension:.3,pointRadius:0,"
-            "fill:true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'#e0e0e0',font:{size:13}}}},"
-            "scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#333'}},"
-            "y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' kts'}},"
-            "grid:{color:'#333'}}}}});"
-         << "</script></body></html>";
+         << map_and_charts_script(track, js_pauses, time_fmt) << "</body></html>";
 
-    // Write to file
-    std::string rdir  = data_dir + "reports/";
-    std::string rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";
-    std::string rpath = rdir + rname;
-
-    std::ofstream f(rpath);
+    const std::string rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";
+    std::ofstream     f(data_dir + "reports/" + rname);
     if (!f.is_open())
         return "";
     f << html.str();
@@ -568,8 +597,8 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.aircraft_icao     = j.value("aircraft_icao", "");
         fd.aircraft_tail     = j.value("aircraft_tail", "");
         fd.aircraft_category = j.value("aircraft_category", "fixed_wing");
-        fd.start_time        = j.value("start_time", (time_t)0);
-        fd.end_time        = j.value("end_time", (time_t)0);
+        fd.start_time        = j.value("start_time", static_cast<time_t>(0));
+        fd.end_time        = j.value("end_time", static_cast<time_t>(0));
         fd.block_time_min  = j.value("block_time_min", 0);
         fd.paused_sec      = j.value("paused_sec", 0);
         fd.block_time_sec  = j.value("block_time_sec", fd.block_time_min * 60);
@@ -581,7 +610,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
             for (auto &tp : j["track"])
             {
                 TrackPoint p;
-                p.t       = tp.value("t", (time_t)0);
+                p.t       = tp.value("t", static_cast<time_t>(0));
                 p.lat     = tp.value("lat", 0.0);
                 p.lon     = tp.value("lon", 0.0);
                 p.alt_ft  = tp.value("alt", 0);
@@ -596,7 +625,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
             for (auto &pj : j["pauses"])
             {
                 PauseEvent p;
-                p.t   = pj.value("t", (time_t)0);
+                p.t   = pj.value("t", static_cast<time_t>(0));
                 p.sec = pj.value("sec", 0);
                 p.lat = pj.value("lat", 0.0);
                 p.lon = pj.value("lon", 0.0);
@@ -615,7 +644,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.pitch_rate     = lj.value("pitch_rate", 0.0f);
                 ld.agl_ft         = lj.value("agl_ft", 0.0f);
                 ld.float_time     = lj.value("float_time", 0.0f);
-                ld.time           = lj.value("time", (time_t)0);
+                ld.time           = lj.value("time", static_cast<time_t>(0));
                 ld.wind_speed_kts = lj.value("wind_speed_kts", 0);
                 ld.wind_dir_mag   = lj.value("wind_dir_mag", 0);
                 ld.headwind_kts   = lj.value("headwind_kts", 0);

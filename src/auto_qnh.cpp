@@ -19,14 +19,10 @@
 #include "auto_qnh.hpp"
 #include "auto_qnh_logic.hpp"
 #include <XPLM/XPLMDataAccess.h>
-#include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
-#include <XPLM/XPLMMenus.h>
-#include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMProcessing.h>
 #include <XPLM/XPLMUtilities.h>
 #include <cmath>
-#include <cstring>
 
 using AutoQnhLogic::next_above_ta;
 using AutoQnhLogic::next_qnh_warning_state;
@@ -91,17 +87,15 @@ static void set_both_baros(float inhg)
 
 static int CmdSetQNH(XPLMCommandRef, XPLMCommandPhase phase, void *)
 {
-    if (phase != xplm_CommandBegin)
-        return 1;
-    set_both_baros(actual_qnh_inhg());
+    if (phase == xplm_CommandBegin)
+        set_both_baros(actual_qnh_inhg());
     return 1;
 }
 
 static int CmdSetFL(XPLMCommandRef, XPLMCommandPhase phase, void *)
 {
-    if (phase != xplm_CommandBegin)
-        return 1;
-    set_both_baros(FLIGHTLEVEL);
+    if (phase == xplm_CommandBegin)
+        set_both_baros(FLIGHTLEVEL);
     return 1;
 }
 
@@ -109,24 +103,22 @@ static int CmdSetFL(XPLMCommandRef, XPLMCommandPhase phase, void *)
 
 static float FlightLoopCB(float, float, int, void *)
 {
-    if (!s_enabled)
-        return 2.0f;
-
-    s_above_ta = next_above_ta(pilot_altitude_ft(), s_transition_altitude, s_above_ta);
-
-    // Above transition altitude the pilot is responsible for setting STD 29.92.
-    // Auto-correcting back to local QNH up here would fight the pilot.
-    if (s_above_ta)
-        return 2.0f;
-
-    const float qnh       = actual_qnh_inhg();
-    const float pqnh      = pilot_qnh();
-    const bool  on_fl     = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
-    const bool  big_drift = (std::fabs(pqnh - qnh) > THRESHOLD_ON);
-
-    if (!on_fl && big_drift)
+    if (s_enabled)
     {
-        set_both_baros(qnh);
+        s_above_ta = next_above_ta(pilot_altitude_ft(), s_transition_altitude, s_above_ta);
+
+        // Above transition altitude the pilot is responsible for setting STD 29.92.
+        // Auto-correcting back to local QNH up here would fight the pilot.
+        if (!s_above_ta)
+        {
+            const float qnh       = actual_qnh_inhg();
+            const float pqnh      = pilot_qnh();
+            const bool  on_fl     = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
+            const bool  big_drift = (std::fabs(pqnh - qnh) > THRESHOLD_ON);
+
+            if (!on_fl && big_drift)
+                set_both_baros(qnh);
+        }
     }
 
     return 2.0f;
