@@ -2,12 +2,30 @@
 
 ![Build](https://github.com/rwellinger/xp_pilot/actions/workflows/build.yml/badge.svg)
 
-A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows** that combines two quality-of-life features for general aviation and jet simulation:
+Native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux**, and **Windows**.
 
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
 - **Auto QNH** — automatically keeps the altimeter in sync with actual sea-level pressure
 
----
+## Contents
+
+- [Quick start](#quick-start)
+- [Why xp_pilot?](#why-xp_pilot)
+- [Installation](#installation)
+- [Where your data lives](#where-your-data-lives)
+- [Features](#features)
+- [Using the plugin](#using-the-plugin)
+- [Aircraft profiles](#aircraft-profiles)
+- [FAQ](#faq)
+- [For developers](#for-developers)
+
+## Quick start
+
+1. Download `xp_pilot.zip` from the [releases page](../../releases) and copy the `xp_pilot` folder into your X-Plane 12 plugins directory (see [Installation](#installation)).
+2. In X-Plane, open **Plugins → xp_pilot → Open / Close Logbook**.
+3. Optional: open the **Settings** tab in the Logbook window to toggle disk logging, Auto QNH, and on-screen messages.
+
+No FlyWithLua required. No account or subscription.
 
 ## Why xp_pilot?
 
@@ -15,56 +33,6 @@ A native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux** and **Windows*
 - **No login, no subscription, no telemetry.** Install it and it works. You own your logbook.
 - **First-class native builds for macOS, Linux and Windows.** Universal binary on Apple Silicon and Intel Macs — a platform most X-Plane tools treat as an afterthought.
 - **Flight recording runs offline.** No internet needed while flying. Only the map tiles in the HTML reports are fetched from OpenStreetMap when you open a report.
-
----
-
-## What's New in v1.3.2
-
-- **External volume support on macOS** — flight logs and HTML reports now write correctly when X-Plane is installed on an external disk under `/Volumes/`. Previous versions silently dropped the volume mount prefix and tried to write to the read-only system root.
-
----
-
-## Features
-
-### Flight Logger
-
-Records a complete flight from engine start to shutdown and saves it as JSON plus an HTML report.
-
-- Detects takeoff, airborne phase, landing, and shutdown automatically via a state machine
-- Samples track points every 10 seconds (lat/lon, altitude, speed, vertical speed)
-- Captures landing data at touchdown: descent rate (fpm), G-force, pitch, float time, flare quality, wind (headwind/crosswind)
-- Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
-- **Bounce detection** — counts bounced touchdowns and rates the landing by the *hardest* impact, not the cushioned final settle. A low-altitude rebound (AGL < 5 ft) counts as a bounce; a higher climb still triggers a separate Touch-and-Go.
-- Thresholds are profile-based per aircraft category (see [Aircraft Profiles](#aircraft-profiles))
-- **Pause-aware block time** — time spent with the sim paused is excluded from the block time. Whenever a flight was paused, the report and the logbook show the full calculation: total time, pause total, and net block time.
-  - Each pause is marked in yellow on the route — in the HTML report's map (hover for its duration) and in the logbook window's track view.
-  - The clock starts with the takeoff roll, not with engine start. Pausing *before* that — sitting on the runway ready for departure — happens outside the block time and is therefore not recorded as a pause; there is nothing yet to subtract it from.
-- HTML reports include a mini route map and charts; an `index.html` lists all flights
-- Reports are stored next to the plugin: `data/flights/` and `data/reports/`
-
-![Logbook Window](logbook.jpg)
-
-### Auto QNH
-
-- Monitors the difference between actual QNH and the pilot's altimeter setting
-- Shows an on-screen warning when the drift exceeds ~1.7 hPa
-- Optional auto mode (toggle via menu) silently syncs both pilot and copilot baro to actual QNH
-- Shows a second warning if pilot and copilot altimeters disagree by more than 0.01 inHg
-
-| Command | Description |
-|---|---|
-| `xp_pilot/qnh/set_qnh` | One-shot: set both baros to current QNH |
-| `xp_pilot/qnh/set_flightlevel` | One-shot: set both baros to 29.92 inHg |
-
-### A note on the "Star Wars" rain effect
-
-Earlier versions of xp_pilot tried to hide X-Plane's 3D rain particles at high speed — the so-called "Star Wars" streaks. We've now removed this feature, because **it never actually worked reliably from a plugin, on any operating system.**
-
-The reason is that X-Plane's rain system is an internal setting that Laminar Research does not expose to regular plugins. The popular Lua script that many pilots use for this effect only works because **FlyWithLua (Complete Edition)** has special permission to reach into those internal settings. A normal X-Plane plugin like xp_pilot does not — our attempts to switch the rain off were silently ignored by the sim.
-
-If you want the effect, install [FlyWithLua NG (Complete Edition)](https://forums.x-plane.org/index.php?/files/file/38445-flywithlua-ng-next-generation-edition-for-x-plane-11-win-lin-mac/) and drop a copy of `no_starwars_rain.lua` into its scripts folder. We'd rather ship something that works than ship a placebo.
-
----
 
 ## Installation
 
@@ -76,33 +44,81 @@ X-Plane 12/Resources/plugins/xp_pilot/
 ├── lin_x64/xp_pilot.xpl   ← Linux (x86_64)
 ├── win_x64/xp_pilot.xpl   ← Windows
 └── data/
-    └── flight_logger_profiles.json
+    └── flight_logger_profiles.json   ← bundled config (read-only)
 ```
 
-Flight records and HTML reports are stored next to the plugin at runtime:
+X-Plane loads the correct platform binary automatically. No license needed for OpenStreetMap usage in reports.
+
+**Requirements:** macOS 12.0+ (arm64 / x86_64), Linux (x86_64), or Windows · X-Plane 12
+
+## Where your data lives
+
+Flight records, HTML reports, settings, and the flight index are stored under X-Plane's Output directory so they survive plugin updates:
+
 ```
-data/
-├── flights/        ← JSON flight records
-└── reports/        ← HTML reports + index.html
-```
-
-No FlyWithLua required. No license needed for OpenStreetMap usage in reports.
-
----
-
-## Building from Source
-
-**Prerequisites:** CMake 3.21+, Xcode Command Line Tools (macOS), GCC/Clang + libGL-dev (Linux) or MSVC (Windows)
-
-```bash
-make setup    # Download X-Plane SDK, Dear ImGui, nlohmann/json
-make build    # Build the plugin (universal binary on macOS)
-make install  # Install + code-sign to X-Plane (macOS only)
+<X-Plane>/Output/x_pilot_reports/
+├── flights/              ← JSON flight records
+│   └── archived/
+├── reports/              ← HTML reports (one per flight)
+│   └── archived/
+├── index.html            ← list of all flights
+└── settings.json         ← feature toggles from the Logbook window
 ```
 
----
+On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker). The only bundled, read-only config remains `data/flight_logger_profiles.json` inside the plugin folder.
 
-## Plugin Menu
+## Features
+
+### Flight Logger
+
+Records a complete flight from engine start to shutdown and saves it as JSON plus an HTML report.
+
+**Capabilities**
+
+- Detects takeoff, airborne phase, landing, and shutdown automatically via a state machine
+- Samples track points every 10 seconds (lat/lon, altitude, speed, vertical speed)
+- Captures landing data at touchdown: descent rate (fpm), G-force, pitch, float time, flare quality, wind (headwind/crosswind)
+- Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
+- Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
+- HTML reports include a mini route map and charts; `index.html` lists all flights
+
+![Logbook Window](logbook.jpg)
+
+<details>
+<summary><strong>Pause-aware block time</strong></summary>
+
+Time spent with the sim paused is excluded from block time. When a flight was paused, the report and logbook show the full calculation: total time, pause total, and net block time.
+
+- Each pause is marked in yellow on the route — in the HTML report's map (hover for its duration) and in the logbook window's track view.
+- The clock starts with the takeoff roll, not with engine start. Pausing *before* that — sitting on the runway ready for departure — happens outside the block time and is therefore not recorded as a pause; there is nothing yet to subtract it from.
+
+</details>
+
+<details>
+<summary><strong>Bounce detection</strong></summary>
+
+When the main gear touches down, lifts off, and touches again before settling, each additional touchdown counts as a bounce. The landing rating reflects the **hardest** impact, not the cushioned final settle.
+
+- A low-altitude rebound (AGL &lt; 5 ft) counts as a bounce.
+- A higher climb still triggers a separate Touch-and-Go entry as before.
+
+</details>
+
+### Auto QNH
+
+- Monitors the difference between actual QNH and the pilot's altimeter setting
+- Shows an on-screen warning when the drift exceeds ~1.7 hPa
+- Optional auto mode (toggle in Settings) silently syncs both pilot and copilot baro to actual QNH
+- Shows a second warning if pilot and copilot altimeters disagree by more than 0.01 inHg
+
+| Command | Description |
+|---|---|
+| `xp_pilot/qnh/set_qnh` | One-shot: set both baros to current QNH |
+| `xp_pilot/qnh/set_flightlevel` | One-shot: set both baros to 29.92 inHg |
+
+## Using the plugin
+
+### Plugin menu
 
 Under **Plugins → xp_pilot**:
 
@@ -110,11 +126,9 @@ Under **Plugins → xp_pilot**:
 |---|---|
 | Open / Close Logbook | Open the in-sim flight logbook window (contains all settings) |
 
----
+### Settings
 
-## Settings
-
-All feature toggles live in the **Settings** tab of the Logbook window. Changes are saved immediately to `settings.json` and persist across sessions.
+All feature toggles live in the **Settings** tab of the Logbook window. Changes are saved immediately to `settings.json` under [Where your data lives](#where-your-data-lives) and persist across sessions.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -126,57 +140,53 @@ All feature toggles live in the **Settings** tab of the Logbook window. Changes 
 
 Each toggle is independent, so combinations like "no disk logs but still show the landing rating" are supported for pilots who use external flight-reporting tools.
 
----
+## Aircraft profiles
 
-## Aircraft Profiles
-
-Landing quality thresholds are configured per aircraft category in `data/flight_logger_profiles.json`. The plugin matches the aircraft's ICAO type code against the `match` strings in order.
+Landing quality thresholds are configured per aircraft category in `data/flight_logger_profiles.json` (inside the plugin folder). The plugin matches the aircraft's ICAO type code against the `match` strings in order.
 
 | Profile | Butter | Great | Acceptable | Hard |
 |---|---|---|---|---|
-| `ultra_light` | < 75 fpm | < 150 fpm | < 250 fpm | < 400 fpm |
-| `light_ga` | < 100 fpm | < 200 fpm | < 300 fpm | < 500 fpm |
-| `medium_ga` | < 125 fpm | < 250 fpm | < 350 fpm | < 600 fpm |
-| `turboprop` | < 150 fpm | < 275 fpm | < 400 fpm | < 650 fpm |
-| `vlj` | < 200 fpm | < 350 fpm | < 500 fpm | < 750 fpm |
-| `heavy_jet` | < 250 fpm | < 400 fpm | < 600 fpm | < 850 fpm |
+| `ultra_light` | &lt; 75 fpm | &lt; 150 fpm | &lt; 250 fpm | &lt; 400 fpm |
+| `light_ga` | &lt; 100 fpm | &lt; 200 fpm | &lt; 300 fpm | &lt; 500 fpm |
+| `medium_ga` | &lt; 125 fpm | &lt; 250 fpm | &lt; 350 fpm | &lt; 600 fpm |
+| `turboprop` | &lt; 150 fpm | &lt; 275 fpm | &lt; 400 fpm | &lt; 650 fpm |
+| `vlj` | &lt; 200 fpm | &lt; 350 fpm | &lt; 500 fpm | &lt; 750 fpm |
+| `heavy_jet` | &lt; 250 fpm | &lt; 400 fpm | &lt; 600 fpm | &lt; 850 fpm |
 
 The `shutdown_trigger` setting controls when a flight is finalised: `engine` (all engines off), `beacon` (beacon light off), or `nav_light` (nav lights off). Default is `engine`; can be overridden per aircraft entry.
 
+## FAQ
+
+### Star Wars rain effect
+
+Earlier versions of xp_pilot tried to hide X-Plane's 3D rain particles at high speed — the so-called "Star Wars" streaks. We removed this feature because **it never worked reliably from a plugin, on any operating system.**
+
+X-Plane's rain system is an internal setting that Laminar Research does not expose to regular plugins. The popular Lua script many pilots use only works because **FlyWithLua (Complete Edition)** has special permission to reach into those internal settings. A normal X-Plane plugin like xp_pilot does not — attempts to switch the rain off were silently ignored by the sim.
+
+If you want the effect, install [FlyWithLua NG (Complete Edition)](https://forums.x-plane.org/index.php?/files/file/38445-flywithlua-ng-next-generation-edition-for-x-plane-11-win-lin-mac/) and drop a copy of `no_starwars_rain.lua` into its scripts folder.
+
+### Release notes
+
+Version history and detailed changelogs: [RELEASE.md](RELEASE.md) and the [GitHub releases page](../../releases).
+
 ---
 
-## Releasing
+## For developers
 
-### Versioning
+See [CLAUDE.md](CLAUDE.md) for architecture, module layout, and coding conventions. See [RELEASE.md](RELEASE.md) for the release process and changelog.
 
-Dev builds (`make build`) embed `SNAPSHOT` as the version string. Only release builds show the real version number from `VERSION.txt`.
+### Build from source
 
-### Release process
+**Prerequisites:** CMake 3.21+, Xcode Command Line Tools (macOS), GCC/Clang + libGL-dev (Linux), or MSVC (Windows)
 
-1. Ensure all changes are committed and pushed to `main`
-2. Run the release command:
-   ```bash
-   make release VERSION=1.3.0
-   ```
-   This will:
-   - Write the version to `VERSION.txt`
-   - Create a commit (`release 1.3.0`)
-   - Create an annotated git tag (`v1.3.0`)
-   - Push the tag to origin
-3. On GitHub, [create a release](../../releases/new) from the pushed tag
-4. The CI pipeline detects the `release` event and builds all three platforms with the real version number
-5. The resulting `xp_pilot.zip` (containing macOS, Linux, and Windows binaries) is automatically attached to the GitHub release
-
-### Local release build
-
-To build locally with the real version (e.g. for testing before release):
 ```bash
-make release-build
+make setup    # Download X-Plane SDK, Dear ImGui, nlohmann/json, Catch2
+make build    # Build the plugin (universal binary on macOS)
+make test     # Run Catch2 unit tests
+make install  # Install + code-sign to X-Plane (macOS only)
 ```
 
----
-
-## Development
+### Project layout
 
 ```
 src/
@@ -188,9 +198,3 @@ src/
 ```
 
 `sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.
-
----
-
-## Platform
-
-macOS 12+ (arm64 + x86_64 universal binary) · Linux (x86_64) · Windows · X-Plane 12

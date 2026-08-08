@@ -31,19 +31,19 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 ### Features
 
   - Automatic flight tracking with state machine (Idle → Rolling → Airborne → Landed → Shutdown)
-  - Flight data stored as JSON in `~/X-Plane 12/Output/FlightLogger/flights/`
+  - Flight data stored as JSON in `<X-Plane>/Output/x_pilot_reports/flights/`
   - HTML logbook reports with track map, landing details, wind, and block time
   - Landing quality rating with aircraft-profile-specific thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
   - Bounce detection — bounced landings are counted and the rating reflects the hardest touchdown
   - Touch-and-go support
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
-  - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the new Settings tab
+  - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the Settings tab
 
 
 ### Installation
 
-  Download the `xp_pilot.zip` from the release assets, unzip it, and copy the `xp_pilot` folder into your X-Plane `Resources/plugins/` directory. The ZIP contains all three platform binaries (`mac_x64/`, `lin_x64/`, `win_x64/`) — X-Plane 12 will load the right one automatically. See the README for setup.
+  Download the `xp_pilot.zip` from the release assets, unzip it, and copy the `xp_pilot` folder into your X-Plane `Resources/plugins/` directory. The ZIP contains all three platform binaries (`mac_x64/`, `lin_x64/`, `win_x64/`) — X-Plane 12 will load the right one automatically. See the [README](README.md) for setup.
 
 
 ### Requirements
@@ -54,7 +54,30 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 
 ### Known Limitations
 
-  - No automated tests — the plugin must be validated in X-Plane 12
+  - The plugin must be validated in X-Plane 12; unit tests cover logic and parsing only
   - Flight data JSON format may change between minor versions; regenerate reports after upgrades if needed
 
-  Full Changelog: https://github.com/thWelly/xp_pilot/compare/v1.3.0...v1.3.2
+
+### Release process
+
+**Versioning:** Dev builds (`make build`) embed `SNAPSHOT` as the version string. Only release builds show the real version number from `VERSION.txt`.
+
+1. Ensure all changes are committed and pushed to `main`
+2. Run the release command:
+   ```bash
+   make release VERSION=1.3.0
+   ```
+   This will:
+   - Write the version to `VERSION.txt`
+   - Create a commit (`release 1.3.0`)
+   - Create an annotated git tag (`v1.3.0`)
+   - Push the tag to origin
+3. On GitHub, [create a release](../../releases/new) from the pushed tag
+4. The CI pipeline detects the `release` event and builds all three platforms with the real version number
+5. The resulting `xp_pilot.zip` (containing macOS, Linux, and Windows binaries) is automatically attached to the GitHub release
+
+**Local release build** (e.g. for testing before release):
+
+```bash
+make release-build
+```
