@@ -1,6 +1,6 @@
 /*
  * xp_pilot - Flight Logger and Auto QNH plugin for X-Plane 12
- * Copyright (C) 2026 thWelly & Claude (Anthropic)
+ * Copyright (C) 2026 thWelly
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
