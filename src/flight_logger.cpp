@@ -298,7 +298,8 @@ static bool s_write_enabled         = true;
 static bool s_html_report_enabled   = true;
 static bool s_messages_enabled      = true;
 static bool s_landing_popup_enabled = true;
-static bool s_runway_analysis_enabled = true;
+static bool          s_runway_analysis_enabled = true;
+static PopupPosition s_popup_position          = POPUP_POSITION_DEFAULT;
 
 static double monotonic_clock()
 {
@@ -327,6 +328,8 @@ void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled 
 bool FlightLogger::landing_popup_enabled() { return s_landing_popup_enabled; }
 void FlightLogger::set_runway_analysis_enabled(bool on) { s_runway_analysis_enabled = on; }
 bool FlightLogger::runway_analysis_enabled() { return s_runway_analysis_enabled; }
+void          FlightLogger::set_popup_position(PopupPosition p) { s_popup_position = p; }
+PopupPosition FlightLogger::popup_position() { return s_popup_position; }
 
 void FlightLogger::draw_overlay()
 {
@@ -361,6 +364,57 @@ bool FlightLogger::popup_active()
     if (s_popup_active && monotonic_clock() > s_popup_until)
         s_popup_active = false;
     return s_popup_active;
+}
+
+// Screen point the popup is pinned to, paired with the pivot below. The top row keeps
+// the 12% inset the popup always had; the other edges use a flat margin.
+static ImVec2 popup_anchor(float screen_w, float screen_h)
+{
+    constexpr float EDGE_MARGIN_PX = 40.f;
+    const float     top_y          = screen_h * 0.12f;
+    const float     bottom_y       = screen_h - EDGE_MARGIN_PX;
+
+    switch (s_popup_position)
+    {
+    case PopupPosition::TopLeft:
+        return {EDGE_MARGIN_PX, top_y};
+    case PopupPosition::TopRight:
+        return {screen_w - EDGE_MARGIN_PX, top_y};
+    case PopupPosition::Center:
+        return {screen_w * 0.5f, screen_h * 0.5f};
+    case PopupPosition::BottomLeft:
+        return {EDGE_MARGIN_PX, bottom_y};
+    case PopupPosition::BottomCenter:
+        return {screen_w * 0.5f, bottom_y};
+    case PopupPosition::BottomRight:
+        return {screen_w - EDGE_MARGIN_PX, bottom_y};
+    case PopupPosition::TopCenter:
+        break;
+    }
+    return {screen_w * 0.5f, top_y};
+}
+
+// Which corner of the window sits on the anchor: 0 = left/top, 1 = right/bottom.
+static ImVec2 popup_pivot()
+{
+    switch (s_popup_position)
+    {
+    case PopupPosition::TopLeft:
+        return {0.f, 0.f};
+    case PopupPosition::TopRight:
+        return {1.f, 0.f};
+    case PopupPosition::Center:
+        return {0.5f, 0.5f};
+    case PopupPosition::BottomLeft:
+        return {0.f, 1.f};
+    case PopupPosition::BottomCenter:
+        return {0.5f, 1.f};
+    case PopupPosition::BottomRight:
+        return {1.f, 1.f};
+    case PopupPosition::TopCenter:
+        break;
+    }
+    return {0.5f, 0.f};
 }
 
 static ImVec4 rating_col(const std::string &r)
@@ -540,15 +594,16 @@ void FlightLogger::draw_popup()
 {
     if (!popup_active())
         return;
-    if (!s_landing_popup_enabled)
-        return;
 
     int sw = 0, sh = 0;
     XPLMGetScreenSize(&sw, &sh);
 
-    const float popup_w = 470.f;
-    ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - popup_w) * 0.5f, static_cast<float>(sh) * 0.12f),
-                            ImGuiCond_Always);
+    const float  popup_w = 470.f;
+    const ImVec2 anchor  = popup_anchor(static_cast<float>(sw), static_cast<float>(sh));
+    const ImVec2 pivot   = popup_pivot();
+    // Positioning by pivot lets the bottom and centre placements work without knowing
+    // the auto-sized window height in advance.
+    ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, pivot);
     ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
 
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.11f, 0.18f, 0.94f));
@@ -577,11 +632,77 @@ void FlightLogger::draw_popup()
     ImGui::PopStyleColor(2);
 }
 
-static void show_popup(const LandingData &ld)
+static void arm_popup(const LandingData &ld)
 {
     s_popup_ld     = ld;
     s_popup_active = true;
     s_popup_until  = monotonic_clock() + 15.0;
+}
+
+// Automatic popup after touchdown. When the user turned it off the landing is still
+// remembered, so the replay command can summon it on demand.
+static void show_popup(const LandingData &ld)
+{
+    if (!s_landing_popup_enabled)
+    {
+        s_popup_ld = ld;
+        return;
+    }
+    arm_popup(ld);
+}
+
+// Newest logged flight that actually contains a landing, so the popup can be replayed
+// in a fresh X-Plane session. Filenames start with the date, so descending name order
+// visits the most recent flights first.
+static bool load_last_logged_landing(LandingData &out)
+{
+    const std::string        fdir = s_output_dir + "flights/";
+    std::vector<std::string> fnames;
+
+    std::error_code ec;
+    auto            dit = std::filesystem::directory_iterator(fdir, ec);
+    if (ec)
+        return false;
+    for (const auto &entry : dit)
+    {
+        const std::string name = entry.path().filename().string();
+        if (entry.is_regular_file() && name.size() > 5 && name.substr(name.size() - 5) == ".json")
+            fnames.push_back(name);
+    }
+    std::sort(fnames.rbegin(), fnames.rend());
+
+    for (const auto &fname : fnames)
+    {
+        std::ifstream f(fdir + fname);
+        if (!f.is_open())
+            continue;
+        const std::string content((std::istreambuf_iterator<char>(f)), {});
+        const FlightData  fd = parse_flight_json(content, fname);
+        if (!fd.landings.empty())
+        {
+            out = fd.landings.back();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool FlightLogger::replay_last_landing_popup()
+{
+    if (!s_popup_ld.rating.empty())
+    {
+        arm_popup(s_popup_ld);
+        return true;
+    }
+
+    LandingData last;
+    if (!load_last_logged_landing(last))
+    {
+        show_overlay("No landing recorded yet", 5.f, 1.f, 0.8f, 0.2f);
+        return false;
+    }
+    arm_popup(last);
+    return true;
 }
 
 // ════════════════════════════════════════════════════════════════

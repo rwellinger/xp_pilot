@@ -13,6 +13,7 @@ add_executable(xp_pilot_tests
     test_html_report.cpp
     test_auto_qnh_logic.cpp
     test_runway.cpp
+    test_popup_position.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE

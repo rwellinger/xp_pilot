@@ -368,6 +368,23 @@ static void draw_settings()
         Settings::save();
     }
 
+    int position = static_cast<int>(FlightLogger::popup_position());
+    ImGui::SetNextItemWidth(180.f);
+    if (ImGui::Combo("Popup position", &position, popup_position_labels().data(),
+                     static_cast<int>(popup_position_labels().size())))
+    {
+        FlightLogger::set_popup_position(static_cast<PopupPosition>(position));
+        Settings::save();
+    }
+
+    if (ImGui::Button("Show last landing popup"))
+        FlightLogger::replay_last_landing_popup();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Also available as the command \"xp_pilot/logbook/show_last_landing\",\n"
+                          "which can be bound to a key in X-Plane's keyboard settings.");
+
     v = FlightLogger::runway_analysis_enabled();
     if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &v))
     {

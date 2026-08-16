@@ -54,6 +54,8 @@ static void load_settings()
         FlightLogger::set_messages_enabled(j.value("log_messages", true));
         FlightLogger::set_landing_popup_enabled(j.value("landing_popup", true));
         FlightLogger::set_runway_analysis_enabled(j.value("runway_analysis", true));
+        FlightLogger::set_popup_position(
+            popup_position_from_string(j.value("popup_position", popup_position_to_string(POPUP_POSITION_DEFAULT))));
     }
     catch (...)
     {
@@ -72,6 +74,7 @@ void Settings::save()
     j["log_messages"]               = FlightLogger::messages_enabled();
     j["landing_popup"]              = FlightLogger::landing_popup_enabled();
     j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
+    j["popup_position"]             = popup_position_to_string(FlightLogger::popup_position());
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);
@@ -89,20 +92,32 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
 
 // ── Menu + Commands ──────────────────────────────────────────────────────────
 
-static XPLMCommandRef s_cmd_logbook = nullptr;
+static XPLMCommandRef s_cmd_logbook     = nullptr;
+static XPLMCommandRef s_cmd_show_landing = nullptr;
 
-static XPLMMenuID s_plugin_menu  = nullptr;
-static int        s_logbook_item = -1;
+static XPLMMenuID s_plugin_menu       = nullptr;
+static int        s_logbook_item      = -1;
+static int        s_show_landing_item = -1;
 
-static void PluginMenuHandler(void *, void *)
+static void PluginMenuHandler(void *, void *item_ref)
 {
-    LogbookUI::toggle();
+    if (item_ref == &s_show_landing_item)
+        FlightLogger::replay_last_landing_popup();
+    else
+        LogbookUI::toggle();
 }
 
 static int CmdLogbook(XPLMCommandRef, XPLMCommandPhase phase, void *)
 {
     if (phase == xplm_CommandBegin)
         LogbookUI::toggle();
+    return 1;
+}
+
+static int CmdShowLanding(XPLMCommandRef, XPLMCommandPhase phase, void *)
+{
+    if (phase == xplm_CommandBegin)
+        FlightLogger::replay_last_landing_popup();
     return 1;
 }
 
@@ -142,11 +157,16 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
         s_cmd_logbook = XPLMCreateCommand("xp_pilot/logbook/toggle", "Toggle Flight Logbook");
         XPLMRegisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
+        s_cmd_show_landing =
+            XPLMCreateCommand("xp_pilot/logbook/show_last_landing", "Show last landing rating popup");
+        XPLMRegisterCommandHandler(s_cmd_show_landing, CmdShowLanding, 1, nullptr);
 
         XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
         int        sub          = XPLMAppendMenuItem(plugins_menu, "XP Pilot Suite", nullptr, 0);
         s_plugin_menu           = XPLMCreateMenu("XP Pilot Suite", plugins_menu, sub, PluginMenuHandler, nullptr);
-        s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", nullptr, 0);
+        s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", &s_logbook_item, 0);
+        s_show_landing_item =
+            XPLMAppendMenuItem(s_plugin_menu, "Show Last Landing Rating", &s_show_landing_item, 0);
 
         char banner[128];
         snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
@@ -172,6 +192,8 @@ PLUGIN_API void XPluginStop()
     AutoQNH::stop();
     if (s_cmd_logbook)
         XPLMUnregisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
+    if (s_cmd_show_landing)
+        XPLMUnregisterCommandHandler(s_cmd_show_landing, CmdShowLanding, 1, nullptr);
     XPLMUnregisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
     XPLMDebugString("[xp_pilot] Plugin unloaded.\n");
 }

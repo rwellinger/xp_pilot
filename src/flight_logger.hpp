@@ -23,6 +23,52 @@
 #include <string>
 #include <vector>
 
+// Where the landing popup appears on screen. Stored in settings.json by name so the
+// file stays readable and an unknown value degrades to the default.
+enum class PopupPosition
+{
+    TopLeft,
+    TopCenter,
+    TopRight,
+    Center,
+    BottomLeft,
+    BottomCenter,
+    BottomRight
+};
+
+inline constexpr PopupPosition POPUP_POSITION_DEFAULT = PopupPosition::TopCenter;
+
+// Order matches the enum; also drives the settings dropdown.
+inline const std::array<const char *, 7> &popup_position_keys()
+{
+    static const std::array<const char *, 7> keys{"top_left",    "top_center",    "top_right",  "center",
+                                                  "bottom_left", "bottom_center", "bottom_right"};
+    return keys;
+}
+
+inline const std::array<const char *, 7> &popup_position_labels()
+{
+    static const std::array<const char *, 7> labels{"Top left",    "Top center",    "Top right",  "Center",
+                                                    "Bottom left", "Bottom center", "Bottom right"};
+    return labels;
+}
+
+inline const char *popup_position_to_string(PopupPosition p)
+{
+    const auto  &keys  = popup_position_keys();
+    const size_t index = static_cast<size_t>(p);
+    return keys[index < keys.size() ? index : static_cast<size_t>(POPUP_POSITION_DEFAULT)];
+}
+
+inline PopupPosition popup_position_from_string(const std::string &s)
+{
+    const auto &keys = popup_position_keys();
+    for (size_t i = 0; i < keys.size(); ++i)
+        if (s == keys[i])
+            return static_cast<PopupPosition>(i);
+    return POPUP_POSITION_DEFAULT;
+}
+
 namespace FlightLogger
 {
 
@@ -34,6 +80,11 @@ void stop();
 void draw_overlay();
 void draw_popup();
 bool popup_active();
+
+// Re-show the most recent landing popup — bound to a command so it can be summoned
+// for screenshots. Falls back to the newest logged flight when this X-Plane session
+// has no landing yet. Returns false when there is nothing to show.
+bool replay_last_landing_popup();
 
 // ── Logbook access ────────────────────────────────────────────────────────────
 // User data root (flights, reports, index, settings) under X-Plane's Output dir.
@@ -52,6 +103,8 @@ void set_landing_popup_enabled(bool on);
 bool landing_popup_enabled();
 void set_runway_analysis_enabled(bool on);
 bool runway_analysis_enabled();
+void          set_popup_position(PopupPosition p);
+PopupPosition popup_position();
 
 // ── Profile access (for HTML report generation) ───────────────────────────────
 std::string        get_profile_name(const std::string &plane_icao);
