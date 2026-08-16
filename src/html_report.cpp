@@ -684,6 +684,11 @@ static float legacy_ias_scale(int schema_version)
     return (schema_version <= 3) ? 1.f / 1.94384f : 1.f;
 }
 
+static int scaled_kts(int stored_kts, float scale)
+{
+    return static_cast<int>(std::lround(static_cast<float>(stored_kts) * scale));
+}
+
 FlightData parse_flight_json(const std::string &content, const std::string &filename)
 {
     FlightData fd;
@@ -707,7 +712,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.paused_sec      = j.value("paused_sec", 0);
         fd.block_time_sec  = j.value("block_time_sec", fd.block_time_min * 60);
         fd.max_altitude_ft = j.value("max_altitude_ft", 0);
-        fd.max_speed_kts   = static_cast<int>(std::lround(j.value("max_speed_kts", 0) * ias_scale));
+        fd.max_speed_kts   = scaled_kts(j.value("max_speed_kts", 0), ias_scale);
 
         if (j.contains("track") && j["track"].is_array())
         {
@@ -718,7 +723,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 p.lat     = tp.value("lat", 0.0);
                 p.lon     = tp.value("lon", 0.0);
                 p.alt_ft  = tp.value("alt", 0);
-                p.spd_kts = static_cast<int>(std::lround(tp.value("spd", 0) * ias_scale));
+                p.spd_kts = scaled_kts(tp.value("spd", 0), ias_scale);
                 p.vs_fpm  = tp.value("vs", 0);
                 fd.track.push_back(p);
             }
