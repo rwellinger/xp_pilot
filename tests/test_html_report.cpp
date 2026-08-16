@@ -146,7 +146,7 @@ TEST_CASE("parse_flight_json: parses landings array", "[parse]")
     REQUIRE(ld.fpm == Catch::Approx(-180.0f));
     REQUIRE(ld.g_force == Catch::Approx(1.25f));
     REQUIRE(ld.pitch_deg == Catch::Approx(4.5f));
-    REQUIRE(ld.agl_ft == Catch::Approx(51.0f));
+    REQUIRE(ld.agl_ft == Catch::Approx(1.6f));
     REQUIRE(ld.headwind_kts == 6);
     REQUIRE(ld.crosswind_kts == -4);
     REQUIRE(ld.rating == "GREAT LANDING!");
@@ -423,6 +423,7 @@ std::string runway_flight_json()
       "departure_icao":"LSGG","arrival_icao":"LSZB","aircraft_icao":"DA42",
       "start_time":1755334800,"end_time":1755337200,"block_time_min":40,
       "landings":[{"fpm":-180.0,"g_force":1.25,"ias_kts":62.4,"ground_speed_kts":58.1,
+        "gate_ias_kts":68.0,"gate_fpm":-420.0,
         "lat":46.9151789,"lon":7.4958682,"heading_true":140.2,"airport_icao":"LSZB",
         "runway_ident":"14","runway_offset_m":-3.2,"runway_distance_m":400.0,
         "runway_length_m":1527.0,"rating":"GREAT LANDING!","flare":"smooth",
@@ -452,6 +453,17 @@ TEST_CASE("parse_flight_json: reads touchdown speed and runway placement", "[par
     CHECK(ld.runway_offset_m == Catch::Approx(-3.2f));
     CHECK(ld.runway_distance_m == Catch::Approx(400.0f));
     CHECK(ld.runway_length_m == Catch::Approx(1527.0f));
+    CHECK(ld.gate_ias_kts == Catch::Approx(68.0f));
+    CHECK(ld.gate_fpm == Catch::Approx(-420.0f));
+}
+
+TEST_CASE("parse_flight_json: flights logged before the 50-ft gate leave it at zero", "[parse]")
+{
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
+
+    REQUIRE(fd.landings.size() == 1);
+    CHECK(fd.landings[0].gate_ias_kts == Catch::Approx(0.0f));
+    CHECK(fd.landings[0].gate_fpm == Catch::Approx(0.0f));
 }
 
 TEST_CASE("parse_flight_json: schema v3 and older have their inflated IAS scaled back", "[parse]")
@@ -510,6 +522,8 @@ TEST_CASE("HtmlReport::generate: renders touchdown speed and the runway diagram"
     CHECK(html.find("1127 m") != std::string::npos);
     CHECK(html.find("<tr><td>Centerline</td><td><b>3 m left</b>") != std::string::npos);
     CHECK(html.find("<svg class=\"rwy\"") != std::string::npos);
+    CHECK(html.find("Speed at 50ft gate") != std::string::npos);
+    CHECK(html.find("68 kts IAS</b> &mdash; -420 fpm") != std::string::npos);
 
     fs::remove_all(root);
 }
@@ -525,6 +539,7 @@ TEST_CASE("HtmlReport::generate: a pre-v3 flight shows no speed or runway rows",
     CHECK(html.find("Touchdown point") == std::string::npos);
     CHECK(html.find("Centerline") == std::string::npos);
     CHECK(html.find("<svg class=\"rwy\"") == std::string::npos);
+    CHECK(html.find("50ft gate") == std::string::npos);
 
     fs::remove_all(root);
 }

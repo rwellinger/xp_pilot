@@ -23,7 +23,7 @@
       "g_force": 1.25,
       "pitch_deg": 4.5,
       "pitch_rate": 0.2,
-      "agl_ft": 51.0,
+      "agl_ft": 1.6,
       "float_time": 2.4,
       "time": 1745921040,
       "wind_speed_kts": 8,

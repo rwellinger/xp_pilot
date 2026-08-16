@@ -762,6 +762,15 @@ static float       s_worst_fpm_mag     = 0.f;   // |fpm| des bisher schlechteste
 static bool        s_main_gear_lifted  = false; // wahr, sobald Hauptfahrwerk nach erstem Touchdown abgehoben hat
 static float       s_max_agl_since_td  = 0.f;   // [ft] max. AGL seit letztem Hauptfahrwerk-Touchdown
 
+// 50-ft-Gate: Zustand des Anflugs beim Kreuzen von 50 ft AGL im Sinkflug.
+static constexpr float GATE_AGL_M = 15.24f; // 50 ft
+static bool            s_gate_captured = false;
+static float           s_gate_ias_kts  = 0.f;
+static float           s_gate_fpm      = 0.f;
+static float           s_prev_agl_m    = 0.f; // Vorframe-Werte für die Gate-Interpolation
+static float           s_prev_ias_kts  = 0.f;
+static float           s_prev_vs_fpm   = 0.f;
+
 static std::string eval_flare(float Q, float Qrad)
 {
     float qrate = std::abs(Q);
@@ -826,6 +835,12 @@ static void landing_arm()
     s_worst_fpm_mag     = 0.f;
     s_main_gear_lifted  = false;
     s_max_agl_since_td  = 0.f;
+    s_gate_captured     = false;
+    s_gate_ias_kts      = 0.f;
+    s_gate_fpm          = 0.f;
+    s_prev_agl_m        = 0.f;
+    s_prev_ias_kts      = 0.f;
+    s_prev_vs_fpm       = 0.f;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1116,19 +1131,25 @@ static void apply_runway_fix(LandingData &ld)
     ld.runway_length_m   = fix.runway_length_m;
 }
 
+// Vertical speed derived from the AGL ring buffer — smoother than the raw dataref,
+// which spikes on gear compression. Falls back to the dataref while the buffer fills.
+static float smoothed_vertical_speed_fpm(float agl_m)
+{
+    const float tspan = s_agl_buf.tspan();
+    if (tspan <= 0.f)
+        return dr_f(dr_vertfpm);
+    return ((agl_m - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
+}
+
 // Fill the airframe-agnostic landing metrics (vertical speed, G, wind). Fixed-wing
 // callers layer pitch/flare/float on top; rotorcraft callers don't.
 static void fill_landing_metrics(LandingData &ld, const Frame &f)
 {
-    const float vertfpm  = dr_f(dr_vertfpm);
     const float wind_spd = dr_f(dr_wind_spd);
     const float wind_dir = dr_f(dr_wind_dir);
     const float magpsi   = dr_f(dr_magpsi);
 
-    const float tspan = s_agl_buf.tspan();
-    float       gVS   = vertfpm;
-    if (tspan > 0.f)
-        gVS = ((f.agl - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
+    const float gVS = smoothed_vertical_speed_fpm(f.agl);
 
     float hw = 0.f, xw = 0.f;
     calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
@@ -1182,10 +1203,12 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     const float Qrad = dr_f(dr_Qrad);
     if (s_float_timer > 0.f && s_float_final == 0.f)
         s_float_final = static_cast<float>(monotonic_clock()) - s_float_timer;
-    candidate.pitch_deg  = Q;
-    candidate.pitch_rate = Qrad;
-    candidate.float_time = s_float_final;
-    candidate.flare      = eval_flare(Q, Qrad);
+    candidate.pitch_deg    = Q;
+    candidate.pitch_rate   = Qrad;
+    candidate.float_time   = s_float_final;
+    candidate.flare        = eval_flare(Q, Qrad);
+    candidate.gate_ias_kts = s_gate_ias_kts;
+    candidate.gate_fpm     = s_gate_fpm;
 
     const float fpm_mag = std::abs(candidate.fpm);
 
@@ -1255,6 +1278,24 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     XPLMDebugString("[xp_pilot] State: Airborne -> Landed (rotorcraft)\n");
 }
 
+// Snapshot speed and descent rate at the 50-ft gate — the point a landing is actually
+// flown against. Interpolated between the two frames straddling the gate: at 20 fps and
+// 700 fpm a single frame spans roughly 3 ft, enough to skew the reading.
+static void capture_fifty_foot_gate(const Frame &f, float ias_kts, float vs_fpm)
+{
+    if (s_gate_captured || !s_ld_armed)
+        return;
+    if (s_prev_agl_m <= GATE_AGL_M || f.agl > GATE_AGL_M)
+        return;
+
+    const float descent = s_prev_agl_m - f.agl;
+    const float ratio   = (descent > 0.f) ? (s_prev_agl_m - GATE_AGL_M) / descent : 0.f;
+
+    s_gate_ias_kts  = s_prev_ias_kts + (ias_kts - s_prev_ias_kts) * ratio;
+    s_gate_fpm      = s_prev_vs_fpm + (vs_fpm - s_prev_vs_fpm) * ratio;
+    s_gate_captured = true;
+}
+
 static void handle_airborne_state(const Frame &f)
 {
     update_track_sample();
@@ -1282,7 +1323,14 @@ static void handle_airborne_state(const Frame &f)
         return;
     }
 
-    if (s_ld_armed && f.agl <= 15.f && s_float_timer == 0.f)
+    const float ias_kts = dr_f(dr_ias);
+    const float vs_fpm  = smoothed_vertical_speed_fpm(f.agl);
+    capture_fifty_foot_gate(f, ias_kts, vs_fpm);
+    s_prev_agl_m   = f.agl;
+    s_prev_ias_kts = ias_kts;
+    s_prev_vs_fpm  = vs_fpm;
+
+    if (s_ld_armed && f.agl <= GATE_AGL_M && s_float_timer == 0.f)
         s_float_timer = static_cast<float>(monotonic_clock());
 
     capture_main_gear_touchdown(f, on_any);
@@ -1535,6 +1583,8 @@ static std::string save_flight()
                            {"pitch_deg", ld.pitch_deg},
                            {"pitch_rate", ld.pitch_rate},
                            {"agl_ft", ld.agl_ft},
+                           {"gate_ias_kts", ld.gate_ias_kts},
+                           {"gate_fpm", ld.gate_fpm},
                            {"float_time", ld.float_time},
                            {"ias_kts", ld.ias_kts},
                            {"ground_speed_kts", ld.ground_speed_kts},

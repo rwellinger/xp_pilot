@@ -58,7 +58,9 @@ struct LandingData
     float       g_force          = 0;
     float       pitch_deg        = 0;
     float       pitch_rate       = 0;
-    float       agl_ft           = 0;
+    float       agl_ft           = 0; // AGL at touchdown — kept for older flight files
+    float       gate_ias_kts     = 0; // 0 for flights logged before the 50-ft gate existed
+    float       gate_fpm         = 0;
     float       float_time       = 0;
     float       ias_kts          = 0; // 0 for flights logged before v3
     float       ground_speed_kts = 0;

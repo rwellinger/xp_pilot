@@ -350,8 +350,12 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
         std::string pitch_label = pitch_label_for(ld.pitch_deg);
         snprintf(b, sizeof(b), "<tr><td>Float time</td><td><b>%.1f s</b></td></tr>", ld.float_time);
         out += b;
-        snprintf(b, sizeof(b), "<tr><td>AGL at 50ft gate</td><td><b>%.0f ft</b></td></tr>", ld.agl_ft);
-        out += b;
+        if (ld.gate_ias_kts > 0.f)
+        {
+            snprintf(b, sizeof(b), "<tr><td>Speed at 50ft gate</td><td><b>%.0f kts IAS</b> &mdash; %.0f fpm</td></tr>",
+                     ld.gate_ias_kts, ld.gate_fpm);
+            out += b;
+        }
         snprintf(b, sizeof(b), "<tr><td>Pitch at TD</td><td><b>%.2f deg/s</b> &mdash; %s</td></tr>", ld.pitch_deg,
                  pitch_label.c_str());
         out += b;
@@ -752,6 +756,8 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.pitch_deg      = lj.value("pitch_deg", 0.0f);
                 ld.pitch_rate     = lj.value("pitch_rate", 0.0f);
                 ld.agl_ft         = lj.value("agl_ft", 0.0f);
+                ld.gate_ias_kts   = lj.value("gate_ias_kts", 0.0f);
+                ld.gate_fpm       = lj.value("gate_fpm", 0.0f);
                 ld.float_time       = lj.value("float_time", 0.0f);
                 ld.ias_kts          = lj.value("ias_kts", 0.0f) * ias_scale;
                 ld.ground_speed_kts = lj.value("ground_speed_kts", 0.0f);
