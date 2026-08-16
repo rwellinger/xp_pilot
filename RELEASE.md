@@ -3,6 +3,14 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### What's New in v1.6.2
+
+  - **Fixed: the landing card's "AGL at 50ft gate" row never showed a 50 ft gate** — it always read 1–2 ft, and rightly so: the value was sampled in the touchdown frame, so it showed the height of the aircraft datum above ground at the moment the gear touched, not the height on approach. The gate itself was never recorded — only the label claimed it. The row has been present since the first release.
+  - **The 50 ft gate is now real** — the flight logger detects the crossing of 50 ft AGL on descent and records the approach state there, interpolated between the two frames that straddle the gate so the reading does not depend on the frame rate. The landing card shows it as **Speed at 50ft gate** with indicated airspeed and descent rate — the numbers a landing is actually flown against, and a useful comparison with the **Touchdown Speed** row just above it: crossing the gate fast is what turns into float.
+  - **Float time now starts at the same gate** — its timer used to trip at 15.0 m (49.2 ft); it now uses the exact 50 ft (15.24 m), so float time and gate reading describe the same segment of the approach.
+  - Stored as `gate_ias_kts` and `gate_fpm` in the flight JSON. The file format stays at `version: 4` — the fields are purely additive. Existing flight logs stay readable and simply omit the gate row when their reports are regenerated; the old `agl_ft` field is still written and parsed, it is no longer displayed.
+
+
 ### What's New in v1.6.1
 
   - **Fixed: indicated airspeed was recorded about 1.94× too high** — the flight logger treated X-Plane's `indicated_airspeed` dataref as metres per second and converted it to knots, but the dataref already reports knots. Every IAS-derived value was therefore inflated: the **Max Speed** tile, the **IAS** chart in the HTML report, the **Touchdown Speed** row, and the landing popup's **TOUCHDOWN IAS** cell — which is why indicated airspeed read far above ground speed. Ground speed and all wind figures were never affected.
@@ -58,6 +66,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - HTML logbook reports with track map, landing details, wind, and block time
   - Landing quality rating with aircraft-profile-specific thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
   - Touchdown speed (IAS and ground speed) and runway placement — runway identifier, distance past the threshold, runway remaining, centerline deviation
+  - 50 ft gate — indicated airspeed and descent rate recorded as the approach crosses 50 ft AGL
   - Bounce detection — bounced landings are counted and the rating reflects the hardest touchdown
   - Touch-and-go support
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
