@@ -3,6 +3,13 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### What's New in v1.6.1
+
+  - **Fixed: indicated airspeed was recorded about 1.94× too high** — the flight logger treated X-Plane's `indicated_airspeed` dataref as metres per second and converted it to knots, but the dataref already reports knots. Every IAS-derived value was therefore inflated: the **Max Speed** tile, the **IAS** chart in the HTML report, the **Touchdown Speed** row, and the landing popup's **TOUCHDOWN IAS** cell — which is why indicated airspeed read far above ground speed. Ground speed and all wind figures were never affected.
+  - **Existing flights are corrected on read** — flight logs written by earlier versions keep their stored values, but their inflated speeds are scaled back when the file is parsed. Regenerating an older report from the Logbook window makes it show the correct speeds. No migration and no manual steps are required.
+  - Flight logs written by this release use `version: 4`, marking the corrected airspeed scale.
+
+
 ### What's New in v1.6.0
 
   - **Touchdown speed** — every landing now records the airspeed at the moment the gear touches: indicated airspeed and ground speed. Shown in the landing popup, the Logbook detail view and the HTML report. Stored as `ias_kts` and `ground_speed_kts` in the flight JSON.

@@ -101,7 +101,9 @@ TEST_CASE("parse_flight_json: populates all top-level fields", "[parse]")
     REQUIRE(fd.aircraft_tail == "HB-LXY");
     REQUIRE(fd.block_time_min == 75);
     REQUIRE(fd.max_altitude_ft == 9500);
-    REQUIRE(fd.max_speed_kts == 165);
+    // The fixture predates schema v4, so its stored 165 is scaled back off the legacy
+    // m/s→kt factor the logger used to apply to an already-in-knots dataref.
+    REQUIRE(fd.max_speed_kts == 85);
 }
 
 TEST_CASE("parse_flight_json: reads the pause total of a v2 flight", "[parse]")
@@ -414,10 +416,10 @@ TEST_CASE("generate_index: ignores non-JSON files in flights/", "[report][index]
 
 namespace
 {
-// A v3 flight: one landing carrying speed and runway placement.
+// A v4 flight: one landing carrying speed and runway placement.
 std::string runway_flight_json()
 {
-    return R"({"version":3,"date":"2026-08-16","start_utc":"09:00","end_utc":"09:40",
+    return R"({"version":4,"date":"2026-08-16","start_utc":"09:00","end_utc":"09:40",
       "departure_icao":"LSGG","arrival_icao":"LSZB","aircraft_icao":"DA42",
       "start_time":1755334800,"end_time":1755337200,"block_time_min":40,
       "landings":[{"fpm":-180.0,"g_force":1.25,"ias_kts":62.4,"ground_speed_kts":58.1,
@@ -450,6 +452,35 @@ TEST_CASE("parse_flight_json: reads touchdown speed and runway placement", "[par
     CHECK(ld.runway_offset_m == Catch::Approx(-3.2f));
     CHECK(ld.runway_distance_m == Catch::Approx(400.0f));
     CHECK(ld.runway_length_m == Catch::Approx(1527.0f));
+}
+
+TEST_CASE("parse_flight_json: schema v3 and older have their inflated IAS scaled back", "[parse]")
+{
+    // Up to v3 the logger multiplied an already-in-knots dataref by 1.94384. Ground speed
+    // came from a genuine m/s dataref and must stay untouched.
+    std::string legacy = R"({"version":3,"date":"2026-08-16","aircraft_icao":"DA42",
+      "max_speed_kts":321,
+      "track":[{"t":1755334800,"lat":46.9,"lon":7.5,"alt":3000,"spd":214,"vs":700}],
+      "landings":[{"fpm":-180.0,"ias_kts":121.31,"ground_speed_kts":58.1,
+        "wind_speed_kts":12,"rating":"GREAT LANDING!"}]})";
+
+    FlightData fd = parse_flight_json(legacy, "x.json");
+
+    CHECK(fd.max_speed_kts == 165);
+    REQUIRE(fd.track.size() == 1);
+    CHECK(fd.track[0].spd_kts == 110);
+    REQUIRE(fd.landings.size() == 1);
+    CHECK(fd.landings[0].ias_kts == Catch::Approx(62.4f).margin(0.1f));
+    CHECK(fd.landings[0].ground_speed_kts == Catch::Approx(58.1f));
+    CHECK(fd.landings[0].wind_speed_kts == 12);
+}
+
+TEST_CASE("parse_flight_json: schema v4 speeds pass through unscaled", "[parse]")
+{
+    FlightData fd = parse_flight_json(runway_flight_json(), "x.json");
+
+    REQUIRE(fd.landings.size() == 1);
+    CHECK(fd.landings[0].ias_kts == Catch::Approx(62.4f));
 }
 
 TEST_CASE("parse_flight_json: flights logged before v3 have no speed or runway", "[parse]")

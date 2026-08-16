@@ -171,7 +171,7 @@ static XPLMDataRef dr_onground     = nullptr; // any gear
 static XPLMDataRef dr_onground_all = nullptr; // all gear
 static XPLMDataRef dr_agl          = nullptr; // m
 static XPLMDataRef dr_beacon       = nullptr;
-static XPLMDataRef dr_ias          = nullptr; // m/s
+static XPLMDataRef dr_ias          = nullptr; // kts (KIAS)
 static XPLMDataRef dr_vertfpm      = nullptr; // fpm
 static XPLMDataRef dr_gforce       = nullptr;
 static XPLMDataRef dr_Q            = nullptr; // pitch rate deg/s
@@ -1025,7 +1025,7 @@ static void update_track_sample()
     s_last_sample_active = s_active_seconds;
     time_t     now       = std::time(nullptr);
     int        alt_ft    = static_cast<int>(dr_d(dr_elevation) * 3.28084);
-    int        spd_kts = static_cast<int>(dr_f(dr_ias) * 1.94384f);
+    int        spd_kts = static_cast<int>(std::lround(dr_f(dr_ias)));
     int        vs      = static_cast<int>(dr_f(dr_vertfpm));
     TrackPoint tp;
     tp.t       = now;
@@ -1139,7 +1139,7 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
     ld.fpm              = gVS;
     ld.g_force          = s_g_buf.avg();
     ld.agl_ft           = f.agl * 3.28084f;
-    ld.ias_kts          = dr_f(dr_ias) * 1.94384f;
+    ld.ias_kts          = dr_f(dr_ias);
     ld.ground_speed_kts = dr_f(dr_gs) * 1.94384f;
     ld.lat              = dr_d(dr_lat);
     ld.lon              = dr_d(dr_lon);
@@ -1490,7 +1490,7 @@ static std::string save_flight()
     }
 
     json obj;
-    obj["version"]         = 3;
+    obj["version"]         = 4;
     obj["date"]            = date_buf;
     obj["start_utc"]       = sut;
     obj["end_utc"]         = eut;
