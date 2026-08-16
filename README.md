@@ -78,6 +78,8 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Detects takeoff, airborne phase, landing, and shutdown automatically via a state machine
 - Samples track points every 10 seconds (lat/lon, altitude, speed, vertical speed)
 - Captures landing data at touchdown: descent rate (fpm), G-force, pitch, float time, flare quality, wind (headwind/crosswind)
+- Records the **touchdown speed** — indicated airspeed and ground speed at the moment the gear touches
+- Places the touchdown **on the runway**: runway identifier, distance past the threshold, runway remaining, and centerline deviation
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
 - Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; `index.html` lists all flights
@@ -104,6 +106,24 @@ When the main gear touches down, lifts off, and touches again before settling, e
 
 </details>
 
+<details>
+<summary><strong>Runway analysis</strong></summary>
+
+Each landing is placed on the runway it was actually made on, so you can see *where* you touched down — not just how hard.
+
+- **Runway identifier** — picked from the airport layout by touchdown position and heading, so parallel runways are told apart correctly.
+- **Touchdown point** — distance past the threshold in metres and feet, plus how much of the runway you used.
+- **Runway remaining** — how much pavement was left ahead of you.
+- **Centerline deviation** — how far left or right of the centerline you put it down.
+
+Displaced thresholds are taken into account, so the distance is measured from the actual landing threshold rather than the start of the pavement.
+
+The runway layout is read from X-Plane's global airport database. The lookup runs on a background thread during the approach, so there is no frame hitch at touchdown. It can be switched off in the Settings tab.
+
+Landings that cannot be matched to a runway — grass strips, water landings, helicopter set-downs, or airports missing from the database — simply omit the runway rows. Airports supplied by Custom Scenery add-ons fall back to the global layout, which may differ slightly for heavily modified airfields.
+
+</details>
+
 ### Auto QNH
 
 - Monitors the difference between actual QNH and the pilot's altimeter setting
@@ -125,6 +145,18 @@ Under **Plugins → xp_pilot**:
 | Item | Description |
 |---|---|
 | Open / Close Logbook | Open the in-sim flight logbook window (contains all settings) |
+| Show Last Landing Rating | Re-open the landing popup for the most recent landing |
+
+### Commands
+
+Both can be bound to a key or joystick button in X-Plane's control settings.
+
+| Command | Description |
+|---|---|
+| `xp_pilot/logbook/toggle` | Open / close the Logbook window |
+| `xp_pilot/logbook/show_last_landing` | Show the landing popup for the most recent landing |
+
+`show_last_landing` replays the last landing of the current session. After restarting the sim it falls back to the newest landing in your logbook, so a landing can be reviewed — or captured for a screenshot — at any time. It works even when the automatic post-touchdown popup is switched off.
 
 ### Settings
 
@@ -137,6 +169,8 @@ All feature toggles live in the **Settings** tab of the Logbook window. Changes 
 | Show QNH warning messages | on | Gates the on-screen *CHECK ALTIMETER* and *ALTIMETER DISAGREE* warnings. Independent of Auto QNH. |
 | Show flight logger status messages | on | Gates the on-screen overlays (*DEP cached*, *REC Flight recording started*, *Touch-and-Go*, *Flight saved*, etc.). |
 | Show landing rating popup | on | Gates the post-touchdown popup with landing quality (BUTTER! / GREAT / ACCEPTABLE / HARD / WASTED) and metrics. Independent of the log-writing toggle. |
+| Popup position | Top center | Where the landing popup appears: any of the four corners, top or bottom centre, or dead centre. |
+| Analyze touchdown point | on | Locates each touchdown on its runway (identifier, distance past threshold, centerline deviation). Reads X-Plane's airport database once per flight. |
 
 Each toggle is independent, so combinations like "no disk logs but still show the landing rating" are supported for pilots who use external flight-reporting tools.
 
@@ -194,6 +228,8 @@ src/
 ├── flight_logger.*     State machine, data acquisition, JSON save
 ├── html_report.*       HTML/index generation, JSON parsing
 ├── logbook_ui.*        Dear ImGui logbook window
+├── runway_data.*       apt.dat parsing (runway thresholds and widths)
+├── runway_geometry.hpp Touchdown-to-runway placement math (header-only)
 └── auto_qnh.*          Altimeter monitoring and auto-sync
 ```
 

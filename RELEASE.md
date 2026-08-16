@@ -3,6 +3,22 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### What's New in v1.6.0
+
+  - **Touchdown speed** — every landing now records the airspeed at the moment the gear touches: indicated airspeed and ground speed. Shown in the landing popup, the Logbook detail view and the HTML report. Stored as `ias_kts` and `ground_speed_kts` in the flight JSON.
+  - **Runway analysis** — xp_pilot now knows *where* on the runway you touched down, not just how hard.
+    - **Runway identifier**, **touchdown point** (distance past the threshold in metres and feet, plus the percentage of runway used), **runway remaining**, and **centerline deviation** (how far left or right of the centerline).
+    - The runway is picked from the airport layout by touchdown position and true heading, so parallel runways are told apart correctly — verified against EDDF and KJFK. Displaced thresholds are honoured, so the distance is measured from the actual landing threshold rather than the start of the pavement.
+    - The layout is read from X-Plane's global airport database. The lookup runs on a background thread during the approach, so there is no frame hitch in the touchdown frame.
+    - Landings that cannot be matched — grass strips, water landings, helicopter set-downs, or airports missing from the database — simply omit the runway rows. Airports supplied by Custom Scenery add-ons fall back to the global layout, which may differ slightly for heavily modified airfields.
+    - Can be switched off with the *Analyze touchdown point* toggle in the Settings tab.
+    - Stored as `runway_ident`, `runway_distance_m`, `runway_offset_m` and `runway_length_m` in the flight JSON, alongside the touchdown position (`lat`, `lon`, `heading_true`) and the airport of that landing (`airport_icao`).
+  - **Redesigned landing popup** — a colour-coded rating banner, metrics laid out in labelled columns, and a plan view of the runway showing exactly where you touched down relative to threshold and centerline. The same runway diagram appears in the HTML flight report's landing card.
+  - **Replay the landing popup** — the popup can now be summoned at any time via the new command `xp_pilot/logbook/show_last_landing`, which can be bound to a key or joystick button in X-Plane's control settings. Also available from **Plugins → xp_pilot → Show Last Landing Rating** and from a button in the Settings tab. If the current session has no landing yet, the most recent landing from the logbook is shown — useful for reviewing or capturing a landing after restarting the sim. It works even when the automatic post-touchdown popup is switched off.
+  - **Configurable popup position** — the landing popup can be placed in any of seven screen positions (the four corners, top or bottom centre, or dead centre) via a new dropdown in the Settings tab. The default placement is unchanged. Stored as `popup_position` in `settings.json`.
+  - Flight logs written by this release use `version: 3`. Existing flight logs stay readable and their reports render exactly as before — the new fields simply stay hidden for landings recorded with earlier versions. No migration and no manual steps are required.
+
+
 ### What's New in v1.5.5
 
   - **Sim pauses no longer count as flight time** ([#3](https://github.com/rwellinger/xp_pilot/issues/3)) — pausing a flight and picking it up later used to produce impossible block times, because the block time was a plain wall-clock difference between takeoff roll and shutdown. The flight logger now accumulates only unpaused simulation time (`sim/time/paused`), so the block time reflects what was actually flown.
@@ -34,10 +50,12 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Flight data stored as JSON in `<X-Plane>/Output/x_pilot_reports/flights/`
   - HTML logbook reports with track map, landing details, wind, and block time
   - Landing quality rating with aircraft-profile-specific thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
+  - Touchdown speed (IAS and ground speed) and runway placement — runway identifier, distance past the threshold, runway remaining, centerline deviation
   - Bounce detection — bounced landings are counted and the rating reflects the hardest touchdown
   - Touch-and-go support
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
+  - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
   - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the Settings tab
 
 
