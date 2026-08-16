@@ -54,23 +54,34 @@ struct PauseEvent
 
 struct LandingData
 {
-    float       fpm            = 0;
-    float       g_force        = 0;
-    float       pitch_deg      = 0;
-    float       pitch_rate     = 0;
-    float       agl_ft         = 0;
-    float       float_time     = 0;
-    time_t      time           = 0;
-    int         wind_speed_kts = 0;
-    int         wind_dir_mag   = 0;
-    int         headwind_kts   = 0;
-    int         crosswind_kts  = 0;
-    int         bounce_count   = 0;
-    bool        is_rotorcraft  = false;
+    float       fpm              = 0;
+    float       g_force          = 0;
+    float       pitch_deg        = 0;
+    float       pitch_rate       = 0;
+    float       agl_ft           = 0;
+    float       float_time       = 0;
+    float       ias_kts          = 0; // 0 for flights logged before v3
+    float       ground_speed_kts = 0;
+    double      lat = 0, lon = 0; // touchdown position
+    float       heading_true     = 0;
+    time_t      time             = 0;
+    int         wind_speed_kts   = 0;
+    int         wind_dir_mag     = 0;
+    int         headwind_kts     = 0;
+    int         crosswind_kts    = 0;
+    int         bounce_count     = 0;
+    bool        is_rotorcraft    = false;
     std::string flare;
     std::string rating;
     std::string wind_status;
     std::string crosswind_side;
+    std::string airport_icao; // where THIS landing happened — a touch-and-go en route
+                              // is not the flight's arrival airport
+    // Runway placement; runway_ident is empty when no runway could be matched.
+    std::string runway_ident;
+    float       runway_offset_m   = 0; // + = right of centerline
+    float       runway_distance_m = 0; // from the displaced threshold
+    float       runway_length_m   = 0;
 };
 
 struct FlightData

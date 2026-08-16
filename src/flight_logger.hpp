@@ -50,6 +50,8 @@ void set_messages_enabled(bool on);
 bool messages_enabled();
 void set_landing_popup_enabled(bool on);
 bool landing_popup_enabled();
+void set_runway_analysis_enabled(bool on);
+bool runway_analysis_enabled();
 
 // ── Profile access (for HTML report generation) ───────────────────────────────
 std::string        get_profile_name(const std::string &plane_icao);

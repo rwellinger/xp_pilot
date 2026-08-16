@@ -18,6 +18,8 @@
 
 #include "flight_logger.hpp"
 #include "html_report.hpp"
+#include "runway_data.hpp"
+#include "runway_geometry.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -35,7 +37,9 @@
 #include <fstream>
 #include <imgui.h>
 #include <json.hpp>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 using json = nlohmann::json;
 
@@ -54,6 +58,7 @@ static std::vector<ProfileEntry>                 s_icao_map;
 static std::string                               s_default_shutdown = "engine";
 static std::string                               s_config_dir; // bundled config (landing profiles), next to the plugin
 static std::string                               s_output_dir; // user data (flights, reports, index, settings) in Output
+static std::string                               s_apt_dat_path; // X-Plane's global airport database
 static bool                                      s_lb_needs_refresh = true;
 
 static void load_profiles()
@@ -177,6 +182,7 @@ static XPLMDataRef dr_in_replay    = nullptr;
 static XPLMDataRef dr_wind_spd     = nullptr; // kts
 static XPLMDataRef dr_wind_dir     = nullptr; // deg mag
 static XPLMDataRef dr_magpsi       = nullptr;
+static XPLMDataRef dr_truepsi      = nullptr; // apt.dat is true-north referenced
 static XPLMDataRef dr_lat          = nullptr; // double
 static XPLMDataRef dr_lon          = nullptr; // double
 static XPLMDataRef dr_elevation    = nullptr; // double, meters
@@ -203,6 +209,7 @@ static void find_datarefs()
     dr_wind_spd     = XPLMFindDataRef("sim/cockpit2/gauges/indicators/wind_speed_kts");
     dr_wind_dir     = XPLMFindDataRef("sim/cockpit2/gauges/indicators/wind_heading_deg_mag");
     dr_magpsi       = XPLMFindDataRef("sim/flightmodel/position/mag_psi");
+    dr_truepsi      = XPLMFindDataRef("sim/flightmodel/position/true_psi");
     dr_lat          = XPLMFindDataRef("sim/flightmodel/position/latitude");
     dr_lon          = XPLMFindDataRef("sim/flightmodel/position/longitude");
     dr_elevation    = XPLMFindDataRef("sim/flightmodel/position/elevation");
@@ -291,6 +298,7 @@ static bool s_write_enabled         = true;
 static bool s_html_report_enabled   = true;
 static bool s_messages_enabled      = true;
 static bool s_landing_popup_enabled = true;
+static bool s_runway_analysis_enabled = true;
 
 static double monotonic_clock()
 {
@@ -317,6 +325,8 @@ void FlightLogger::set_messages_enabled(bool on) { s_messages_enabled = on; }
 bool FlightLogger::messages_enabled() { return s_messages_enabled; }
 void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled = on; }
 bool FlightLogger::landing_popup_enabled() { return s_landing_popup_enabled; }
+void FlightLogger::set_runway_analysis_enabled(bool on) { s_runway_analysis_enabled = on; }
+bool FlightLogger::runway_analysis_enabled() { return s_runway_analysis_enabled; }
 
 void FlightLogger::draw_overlay()
 {
@@ -353,6 +363,179 @@ bool FlightLogger::popup_active()
     return s_popup_active;
 }
 
+static ImVec4 rating_col(const std::string &r)
+{
+    if (r == "BUTTER!")
+        return {1.00f, 1.00f, 0.00f, 1.0f};
+    if (r == "GREAT LANDING!")
+        return {0.25f, 1.00f, 0.25f, 1.0f};
+    if (r == "ACCEPTABLE")
+        return {0.00f, 0.80f, 0.00f, 1.0f};
+    if (r == "HARD LANDING!")
+        return {1.00f, 0.50f, 0.00f, 1.0f};
+    if (r == "WASTED!")
+        return {1.00f, 0.13f, 0.13f, 1.0f};
+    return {1.0f, 1.0f, 1.0f, 1.0f};
+}
+
+// The rating headline on a tinted bar in its own colour.
+static void draw_popup_rating_banner(const ImVec4 &col, float content_w)
+{
+    constexpr float BANNER_H = 40.f;
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList  *dl     = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(origin, ImVec2(origin.x + content_w, origin.y + BANNER_H),
+                      ImGui::GetColorU32(ImVec4(col.x, col.y, col.z, 0.16f)), 6.f);
+    dl->AddRectFilled(origin, ImVec2(origin.x + 5.f, origin.y + BANNER_H), ImGui::GetColorU32(col), 6.f);
+
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::SetWindowFontScale(1.45f);
+    const float text_w = ImGui::CalcTextSize(s_popup_ld.rating.c_str()).x;
+    const float text_h = ImGui::GetTextLineHeight();
+    ImGui::SetCursorScreenPos(
+        ImVec2(origin.x + (content_w - text_w) * 0.5f, origin.y + (BANNER_H - text_h) * 0.5f));
+    ImGui::TextUnformatted(s_popup_ld.rating.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + BANNER_H));
+}
+
+// One metric as a dim label above its value, laid out in a row of equal columns.
+static void draw_popup_metric_cell(const char *label, const char *value, const ImVec4 &value_col, float cell_w)
+{
+    const ImVec2 origin = ImGui::GetCursorPos();
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorPosX(origin.x);
+    ImGui::PushStyleColor(ImGuiCol_Text, value_col);
+    ImGui::TextUnformatted(value);
+    ImGui::PopStyleColor();
+
+    ImGui::SetCursorPos(ImVec2(origin.x + cell_w, origin.y));
+}
+
+static void draw_popup_metrics(float content_w)
+{
+    const ImVec4 white{0.92f, 0.94f, 0.98f, 1.f};
+    const int    columns = s_popup_ld.is_rotorcraft ? 2 : 3;
+    const float  cell_w  = content_w / static_cast<float>(columns);
+    char         value[64];
+
+    const ImVec2 row_origin = ImGui::GetCursorPos();
+
+    snprintf(value, sizeof(value), "%.0f fpm", s_popup_ld.fpm);
+    draw_popup_metric_cell("VERTICAL SPEED", value, rating_col(s_popup_ld.rating), cell_w);
+
+    snprintf(value, sizeof(value), "%.2f G", s_popup_ld.g_force);
+    draw_popup_metric_cell("G-FORCE", value, white, cell_w);
+
+    if (!s_popup_ld.is_rotorcraft)
+    {
+        snprintf(value, sizeof(value), "%.1f s", s_popup_ld.float_time);
+        draw_popup_metric_cell("FLOAT", value, white, cell_w);
+    }
+
+    // Two stacked rows of cells; the helper only advances horizontally.
+    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 2.2f));
+
+    if (s_popup_ld.ias_kts > 0.f)
+    {
+        snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ias_kts);
+        draw_popup_metric_cell("TOUCHDOWN IAS", value, white, cell_w);
+
+        snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ground_speed_kts);
+        draw_popup_metric_cell("GROUND SPEED", value, white, cell_w);
+    }
+
+    if (s_popup_ld.bounce_count > 0)
+    {
+        snprintf(value, sizeof(value), "%d", s_popup_ld.bounce_count);
+        draw_popup_metric_cell("BOUNCES", value, ImVec4(1.f, 0.5f, 0.2f, 1.f), cell_w);
+    }
+    else if (!s_popup_ld.is_rotorcraft)
+    {
+        snprintf(value, sizeof(value), "%d kts %s", std::abs(s_popup_ld.crosswind_kts),
+                 s_popup_ld.crosswind_side.c_str());
+        draw_popup_metric_cell("CROSSWIND", value, white, cell_w);
+    }
+
+    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 4.4f));
+
+    if (!s_popup_ld.is_rotorcraft && !s_popup_ld.flare.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.80f, 0.88f, 1.f));
+        ImGui::TextUnformatted(s_popup_ld.flare.c_str());
+        ImGui::PopStyleColor();
+    }
+}
+
+// Plan view of the runway with the touchdown marked. Same idea as the HTML report:
+// along-track to scale, lateral deviation exaggerated so metres stay visible.
+static void draw_popup_runway_diagram(float content_w)
+{
+    constexpr float STRIP_H        = 46.f;
+    constexpr float LATERAL_SPAN_M = 20.f;
+    constexpr float TOUCHDOWN_ZONE_M = 300.f;
+
+    if (s_popup_ld.runway_length_m <= 0.f)
+        return;
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
+    char header[96];
+    snprintf(header, sizeof(header), "RUNWAY %s  --  %.0f m usable", s_popup_ld.runway_ident.c_str(),
+             s_popup_ld.runway_length_m);
+    ImGui::TextUnformatted(header);
+    ImGui::PopStyleColor();
+
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList  *dl     = ImGui::GetWindowDrawList();
+    const float  mid_y  = origin.y + STRIP_H * 0.5f;
+    const float  half_h = STRIP_H * 0.5f;
+
+    dl->AddRectFilled(origin, ImVec2(origin.x + content_w, origin.y + STRIP_H), IM_COL32(48, 48, 52, 255), 3.f);
+
+    const float zone_w =
+        std::min(content_w, TOUCHDOWN_ZONE_M / s_popup_ld.runway_length_m * content_w);
+    dl->AddRectFilled(origin, ImVec2(origin.x + zone_w, origin.y + STRIP_H), IM_COL32(80, 78, 50, 255), 3.f);
+
+    constexpr float DASH_PITCH_PX = 26.f;
+    constexpr float DASH_LEN_PX   = 14.f;
+    const float     dash_end_x    = origin.x + content_w - 12.f;
+    const int       dash_count    = static_cast<int>((content_w - 24.f) / DASH_PITCH_PX);
+    for (int i = 0; i < dash_count; ++i)
+    {
+        const float x = origin.x + 12.f + static_cast<float>(i) * DASH_PITCH_PX;
+        dl->AddLine(ImVec2(x, mid_y), ImVec2(std::min(x + DASH_LEN_PX, dash_end_x), mid_y),
+                    IM_COL32(215, 215, 215, 255), 1.5f);
+    }
+
+    dl->AddRectFilled(origin, ImVec2(origin.x + 4.f, origin.y + STRIP_H), IM_COL32(255, 255, 255, 255));
+
+    const float along_pct =
+        std::min(1.f, std::max(0.f, s_popup_ld.runway_distance_m / s_popup_ld.runway_length_m));
+    const float offset_clamped =
+        std::min(LATERAL_SPAN_M, std::max(-LATERAL_SPAN_M, s_popup_ld.runway_offset_m));
+    const ImVec2 marker(origin.x + along_pct * content_w, mid_y + (offset_clamped / LATERAL_SPAN_M) * half_h);
+
+    dl->AddCircleFilled(marker, 6.f, IM_COL32(224, 122, 60, 255));
+    dl->AddCircle(marker, 6.f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
+
+    ImGui::Dummy(ImVec2(content_w, STRIP_H + 2.f));
+
+    char caption[128];
+    snprintf(caption, sizeof(caption), "%.0f m past threshold  |  %.0f m %s of centerline",
+             s_popup_ld.runway_distance_m, std::abs(s_popup_ld.runway_offset_m),
+             s_popup_ld.runway_offset_m > 0 ? "right" : "left");
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
+    ImGui::TextUnformatted(caption);
+    ImGui::PopStyleColor();
+}
+
 void FlightLogger::draw_popup()
 {
     if (!popup_active())
@@ -363,77 +546,31 @@ void FlightLogger::draw_popup()
     int sw = 0, sh = 0;
     XPLMGetScreenSize(&sw, &sh);
 
-    static auto rating_col = [](const std::string &r) -> ImVec4
-    {
-        if (r == "BUTTER!")
-            return {1.00f, 1.00f, 0.00f, 1.0f};
-        if (r == "GREAT LANDING!")
-            return {0.25f, 1.00f, 0.25f, 1.0f};
-        if (r == "ACCEPTABLE")
-            return {0.00f, 0.80f, 0.00f, 1.0f};
-        if (r == "HARD LANDING!")
-            return {1.00f, 0.50f, 0.00f, 1.0f};
-        if (r == "WASTED!")
-            return {1.00f, 0.13f, 0.13f, 1.0f};
-        return {1.0f, 1.0f, 1.0f, 1.0f};
-    };
-
-    const float popup_w = 430.f;
-    ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - popup_w) * 0.5f, static_cast<float>(sh) * 0.12f), ImGuiCond_Always);
+    const float popup_w = 470.f;
+    ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - popup_w) * 0.5f, static_cast<float>(sh) * 0.12f),
+                            ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
 
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.38f, 0.42f, 0.48f, 0.95f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.70f, 0.80f, 0.90f, 1.00f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.11f, 0.18f, 0.94f));
+    ImGui::PushStyleColor(ImGuiCol_Border, rating_col(s_popup_ld.rating));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.f, 14.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.f, 14.f));
 
     ImGui::Begin("##landing_popup", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
 
     const float content_w = ImGui::GetContentRegionAvail().x;
-    char        buf[128];
 
-    auto center_text = [&](const char *txt)
-    {
-        float tw = ImGui::CalcTextSize(txt).x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (content_w - tw) * 0.5f);
-        ImGui::TextUnformatted(txt);
-    };
-
-    // Line 1: Vertical Speed + G-force
-    snprintf(buf, sizeof(buf), "Vertical Speed: %.2fFPM / %.2fG", s_popup_ld.fpm, s_popup_ld.g_force);
-    center_text(buf);
-
-    if (!s_popup_ld.is_rotorcraft)
-    {
-        // Line 2: Flare quality
-        center_text(s_popup_ld.flare.c_str());
-
-        // Line 3: Nose pitch rate + float time
-        snprintf(buf, sizeof(buf), "Nose: %.2f deg/sec | Float: %.2f secs", s_popup_ld.pitch_rate,
-                 s_popup_ld.float_time);
-        center_text(buf);
-    }
-
-    // Line 4 (optional): Bounce-Anzahl, falls aufgetreten
-    if (s_popup_ld.bounce_count > 0)
-    {
-        snprintf(buf, sizeof(buf), "Bounces: %d", s_popup_ld.bounce_count);
-        center_text(buf);
-    }
-
+    draw_popup_rating_banner(rating_col(s_popup_ld.rating), content_w);
     ImGui::Spacing();
-
-    // Line 5: Rating (colored, slightly larger)
-    ImGui::PushStyleColor(ImGuiCol_Text, rating_col(s_popup_ld.rating));
-    ImGui::SetWindowFontScale(1.2f);
-    float tw = ImGui::CalcTextSize(s_popup_ld.rating.c_str()).x;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (content_w - tw) * 0.5f);
-    ImGui::TextUnformatted(s_popup_ld.rating.c_str());
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopStyleColor();
+    draw_popup_metrics(content_w);
+    if (!s_popup_ld.runway_ident.empty())
+    {
+        ImGui::Spacing();
+        draw_popup_runway_diagram(content_w);
+    }
 
     ImGui::End();
     ImGui::PopStyleVar(3);
@@ -783,6 +920,81 @@ static void update_track_sample()
         s_max_speed_kts = spd_kts;
 }
 
+// ── Runway preload ───────────────────────────────────────────────────────────
+// Scanning apt.dat costs ~100 ms, far too much for the frame in which the aircraft
+// touches down. So the destination's runways are fetched on a worker thread during
+// the approach; the touchdown itself then only does arithmetic on the cached data.
+
+static std::mutex          s_runway_cache_mutex;
+static std::string         s_runway_cache_icao;  // guarded by s_runway_cache_mutex
+static std::vector<Runway> s_runway_cache;       // guarded by s_runway_cache_mutex
+static std::thread         s_runway_loader;
+static std::string         s_runway_loader_icao; // flight-loop thread only
+
+static void request_runway_preload(const std::string &icao)
+{
+    if (!s_runway_analysis_enabled || icao.empty() || icao == s_runway_loader_icao)
+        return;
+    if (s_runway_loader.joinable())
+        return; // a load is still in flight; the next approach will pick this one up
+
+    // The worker reads s_runway_loader_icao and s_apt_dat_path rather than capturing
+    // them: constructing captures could throw, and an exception escaping a thread
+    // entry point terminates X-Plane. Both are written before the thread starts and
+    // only rewritten after it has been joined.
+    s_runway_loader_icao = icao;
+    s_runway_loader      = std::thread(
+        []() noexcept
+        {
+            try
+            {
+                const std::string &wanted = s_runway_loader_icao;
+                auto               found  = RunwayData::load_runways(s_apt_dat_path, {wanted});
+                auto               it     = found.find(wanted);
+
+                std::lock_guard<std::mutex> lock(s_runway_cache_mutex);
+                s_runway_cache_icao = wanted;
+                s_runway_cache      = (it != found.end()) ? it->second : std::vector<Runway>();
+            }
+            catch (...)
+            {
+                XPLMDebugString("[xp_pilot] Runway preload failed\n");
+            }
+        });
+}
+
+// Wait for a pending preload so the cache is complete. Called off the flight loop.
+static void join_runway_loader()
+{
+    if (s_runway_loader.joinable())
+        s_runway_loader.join();
+    s_runway_loader_icao.clear();
+}
+
+static std::vector<Runway> cached_runways_for(const std::string &icao)
+{
+    std::lock_guard<std::mutex> lock(s_runway_cache_mutex);
+    return (icao == s_runway_cache_icao) ? s_runway_cache : std::vector<Runway>();
+}
+
+// Place a touchdown on its runway. Leaves the landing untouched when the airport is
+// not in the cache — the shutdown pass fills those in.
+static void apply_runway_fix(LandingData &ld)
+{
+    if (!s_runway_analysis_enabled || ld.is_rotorcraft || ld.airport_icao.empty())
+        return;
+
+    const std::vector<Runway> runways = cached_runways_for(ld.airport_icao);
+    if (runways.empty())
+        return;
+
+    const RunwayFix fix  = RunwayGeometry::locate_touchdown(runways, ld.lat, ld.lon, ld.heading_true);
+    ld.runway_ident      = fix.runway_ident;
+    ld.runway_offset_m   = fix.centerline_offset_m;
+    ld.runway_distance_m = fix.distance_from_thr_m;
+    ld.runway_length_m   = fix.runway_length_m;
+}
+
 // Fill the airframe-agnostic landing metrics (vertical speed, G, wind). Fixed-wing
 // callers layer pitch/flare/float on top; rotorcraft callers don't.
 static void fill_landing_metrics(LandingData &ld, const Frame &f)
@@ -803,9 +1015,14 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
                           : (wind_spd < 6.f) ? WindCondition::Light
                                              : WindCondition::Steady;
 
-    ld.fpm            = gVS;
-    ld.g_force        = s_g_buf.avg();
-    ld.agl_ft         = f.agl * 3.28084f;
+    ld.fpm              = gVS;
+    ld.g_force          = s_g_buf.avg();
+    ld.agl_ft           = f.agl * 3.28084f;
+    ld.ias_kts          = dr_f(dr_ias) * 1.94384f;
+    ld.ground_speed_kts = dr_f(dr_gs) * 1.94384f;
+    ld.lat              = dr_d(dr_lat);
+    ld.lon              = dr_d(dr_lon);
+    ld.heading_true     = dr_f(dr_truepsi);
     ld.wind_speed_kts = static_cast<int>(std::lround(wind_spd));
     ld.wind_dir_mag   = static_cast<int>(std::lround(wind_dir));
     ld.wind_status    = wind_condition_to_string(wcond);
@@ -878,8 +1095,10 @@ static void finalize_landing_on_nose_gear(bool on_all)
         eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts), s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
+    s_ld_captured.airport_icao = get_airport_id();
+    apply_runway_fix(s_ld_captured);
     s_landings.push_back(s_ld_captured);
-    s_arrival_icao = get_airport_id();
+    s_arrival_icao = s_ld_captured.airport_icao;
     s_state        = State::Landed;
     show_popup(s_ld_captured);
     landing_arm();
@@ -903,10 +1122,12 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
                                              s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = 0;
+    s_ld_captured.airport_icao = get_airport_id();
     s_ld_captured_valid        = true;
+    apply_runway_fix(s_ld_captured);
 
     s_landings.push_back(s_ld_captured);
-    s_arrival_icao = get_airport_id();
+    s_arrival_icao = s_ld_captured.airport_icao;
     s_state        = State::Landed;
     show_popup(s_ld_captured);
     landing_arm();
@@ -925,6 +1146,12 @@ static void handle_airborne_state(const Frame &f)
         s_agl_buf.push(f.agl, f.localtime);
         s_g_buf.push(f.gforce, f.localtime);
     }
+
+    // Fetch the destination's runways early enough that the touchdown frame finds
+    // them cached. ~2000 ft AGL leaves roughly a minute of margin.
+    constexpr float APPROACH_PRELOAD_AGL_M = 610.f;
+    if (f.agl < APPROACH_PRELOAD_AGL_M)
+        request_runway_preload(get_airport_id());
 
     if (s_is_rotorcraft)
     {
@@ -1070,6 +1297,50 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
 }
 
 // ════════════════════════════════════════════════════════════════
+// RUNWAY ANALYSIS
+// ════════════════════════════════════════════════════════════════
+
+// Catch the touchdowns the approach preload didn't cover — a touch-and-go at a field
+// the aircraft descended into too quickly, or a second airport later in the flight.
+// Runs at shutdown, where a file scan costs nothing.
+static void resolve_runways_for_landings()
+{
+    join_runway_loader();
+    if (!s_runway_analysis_enabled || s_landings.empty())
+        return;
+
+    std::set<std::string> icaos;
+    for (const auto &ld : s_landings)
+    {
+        // A rotorcraft set-down has no runway to be measured against.
+        if (!ld.is_rotorcraft && ld.runway_ident.empty() && !ld.airport_icao.empty())
+            icaos.insert(ld.airport_icao);
+    }
+    if (icaos.empty())
+        return;
+
+    const auto runways_by_airport = RunwayData::load_runways(s_apt_dat_path, icaos);
+    if (runways_by_airport.empty())
+    {
+        XPLMDebugString("[xp_pilot] Runway analysis: no airport data found\n");
+        return;
+    }
+
+    for (auto &ld : s_landings)
+    {
+        auto it = runways_by_airport.find(ld.airport_icao);
+        if (ld.is_rotorcraft || !ld.runway_ident.empty() || it == runways_by_airport.end())
+            continue;
+
+        const RunwayFix fix = RunwayGeometry::locate_touchdown(it->second, ld.lat, ld.lon, ld.heading_true);
+        ld.runway_ident      = fix.runway_ident;
+        ld.runway_offset_m   = fix.centerline_offset_m;
+        ld.runway_distance_m = fix.distance_from_thr_m;
+        ld.runway_length_m   = fix.runway_length_m;
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
 // JSON SAVE + FINALIZE
 // ════════════════════════════════════════════════════════════════
 
@@ -1098,7 +1369,7 @@ static std::string save_flight()
     }
 
     json obj;
-    obj["version"]         = 2;
+    obj["version"]         = 3;
     obj["date"]            = date_buf;
     obj["start_utc"]       = sut;
     obj["end_utc"]         = eut;
@@ -1144,6 +1415,16 @@ static std::string save_flight()
                            {"pitch_rate", ld.pitch_rate},
                            {"agl_ft", ld.agl_ft},
                            {"float_time", ld.float_time},
+                           {"ias_kts", ld.ias_kts},
+                           {"ground_speed_kts", ld.ground_speed_kts},
+                           {"lat", ld.lat},
+                           {"lon", ld.lon},
+                           {"heading_true", ld.heading_true},
+                           {"airport_icao", ld.airport_icao},
+                           {"runway_ident", ld.runway_ident},
+                           {"runway_offset_m", ld.runway_offset_m},
+                           {"runway_distance_m", ld.runway_distance_m},
+                           {"runway_length_m", ld.runway_length_m},
                            {"time", (long long)ld.time},
                            {"wind_speed_kts", ld.wind_speed_kts},
                            {"wind_dir_mag", ld.wind_dir_mag},
@@ -1182,6 +1463,8 @@ static void finalize_flight()
     }
     if (s_arrival_icao.empty() && !s_last_gnd_apt.empty())
         s_arrival_icao = s_last_gnd_apt;
+
+    resolve_runways_for_landings();
 
     auto filename = save_flight();
     if (filename.empty())
@@ -1366,6 +1649,9 @@ void FlightLogger::init()
     XPLMGetSystemPath(systemPathRaw);
     std::filesystem::path outputPath = std::filesystem::path(systemPathRaw) / "Output" / "x_pilot_reports";
     s_output_dir                     = outputPath.generic_string() + "/";
+    s_apt_dat_path = (std::filesystem::path(systemPathRaw) / "Global Scenery" / "Global Airports" / "Earth nav data" /
+                      "apt.dat")
+                         .generic_string();
     XPLMDebugString(("[xp_pilot] config_dir: " + s_config_dir + "\n").c_str());
     XPLMDebugString(("[xp_pilot] output_dir: " + s_output_dir + "\n").c_str());
 
@@ -1390,4 +1676,9 @@ void FlightLogger::init()
     XPLMDebugString("[xp_pilot] FlightLogger initialized\n");
 }
 
-void FlightLogger::stop() { XPLMUnregisterFlightLoopCallback(triggers_cb, nullptr); }
+void FlightLogger::stop()
+{
+    XPLMUnregisterFlightLoopCallback(triggers_cb, nullptr);
+    // The worker touches statics of this translation unit — it must not outlive unload.
+    join_runway_loader();
+}

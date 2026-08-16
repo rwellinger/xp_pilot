@@ -8,9 +8,11 @@ set(CATCH2_DIR ${CMAKE_SOURCE_DIR}/vendor/catch2)
 add_executable(xp_pilot_tests
     ${CATCH2_DIR}/catch_amalgamated.cpp
     ${CMAKE_SOURCE_DIR}/src/html_report.cpp
+    ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
     test_smoke.cpp
     test_html_report.cpp
     test_auto_qnh_logic.cpp
+    test_runway.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE

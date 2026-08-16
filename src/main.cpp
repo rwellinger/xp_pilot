@@ -53,6 +53,7 @@ static void load_settings()
         FlightLogger::set_html_report_enabled(j.value("html_report", true));
         FlightLogger::set_messages_enabled(j.value("log_messages", true));
         FlightLogger::set_landing_popup_enabled(j.value("landing_popup", true));
+        FlightLogger::set_runway_analysis_enabled(j.value("runway_analysis", true));
     }
     catch (...)
     {
@@ -70,6 +71,7 @@ void Settings::save()
     j["html_report"]                = FlightLogger::html_report_enabled();
     j["log_messages"]               = FlightLogger::messages_enabled();
     j["landing_popup"]              = FlightLogger::landing_popup_enabled();
+    j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);

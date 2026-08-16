@@ -41,6 +41,7 @@ add_library(xp_pilot MODULE
     src/auto_qnh.cpp
     src/flight_logger.cpp
     src/html_report.cpp
+    src/runway_data.cpp
     src/logbook_ui.cpp
     ${IMGUI_SOURCES}
 )

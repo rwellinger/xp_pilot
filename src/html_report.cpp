@@ -188,6 +188,7 @@ canvas{background:#16213e;border-radius:8px}
 .lcard{background:#16213e;border-radius:8px;padding:14px 18px;margin-bottom:12px;display:inline-block;min-width:300px}
 .lcard .rat{font-size:1.4em;font-weight:bold;margin-bottom:8px}
 .lcard table{border-collapse:collapse}.lcard td{padding:2px 10px 2px 0}
+.lcard .rwy{width:560px;max-width:100%;height:auto;display:block;margin-top:10px}
 a{color:#00d4ff}table{width:100%;border-collapse:collapse}
 thead tr{color:#888;border-bottom:1px solid #333}
 .badge-heli{background:#3a5;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;margin-left:6px;vertical-align:middle}
@@ -205,6 +206,69 @@ std::string pitch_label_for(float pitch_deg)
     if (qa <= 2.0f)
         return (pitch_deg < 0) ? "late" : "early";
     return (pitch_deg < 0) ? "too late" : "too early";
+}
+
+std::string centerline_label_for(float offset_m)
+{
+    char b[64];
+    if (std::abs(offset_m) < 1.f)
+        return "on centerline";
+    snprintf(b, sizeof(b), "%.0f m %s", std::abs(offset_m), offset_m > 0 ? "right" : "left");
+    return b;
+}
+
+// A scale drawing would render a 3 m deviation as a fraction of a pixel against a
+// 1700 m runway, so the lateral axis is exaggerated and labelled as such.
+std::string runway_diagram_svg(const LandingData &ld)
+{
+    if (ld.runway_length_m <= 0.f)
+        return {};
+
+    constexpr float WIDTH_PX      = 560.f;
+    constexpr float HEIGHT_PX     = 90.f;
+    constexpr float MARGIN_PX     = 20.f;
+    constexpr float HALF_WIDTH_PX = 26.f; // half the drawn runway body
+    constexpr float LATERAL_SPAN_M = 20.f; // deviation mapped onto the drawn half-width
+
+    const float strip_px  = WIDTH_PX - 2 * MARGIN_PX;
+    const float center_y  = HEIGHT_PX / 2.f;
+    const float along_pct = std::min(1.f, std::max(0.f, ld.runway_distance_m / ld.runway_length_m));
+    const float marker_x  = MARGIN_PX + along_pct * strip_px;
+
+    const float offset_clamped = std::min(LATERAL_SPAN_M, std::max(-LATERAL_SPAN_M, ld.runway_offset_m));
+    const float marker_y       = center_y + (offset_clamped / LATERAL_SPAN_M) * HALF_WIDTH_PX;
+
+    const float touchdown_zone_px = std::min(strip_px, (300.f / ld.runway_length_m) * strip_px);
+
+    char b[1600];
+    snprintf(b, sizeof(b),
+             "<svg class=\"rwy\" viewBox=\"0 0 %.0f %.0f\" width=\"100%%\" role=\"img\">"
+             "<rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\" fill=\"#3a3a3a\" rx=\"2\"/>"
+             "<rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\" fill=\"#4a4a3a\"/>"
+             "<line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#ddd\" stroke-width=\"1.5\" "
+             "stroke-dasharray=\"12 10\"/>"
+             "<line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#fff\" stroke-width=\"3\"/>"
+             "<circle cx=\"%.1f\" cy=\"%.1f\" r=\"6\" fill=\"#e07a3c\" stroke=\"#fff\" stroke-width=\"1.5\"/>"
+             "<text x=\"%.1f\" y=\"%.1f\" fill=\"#aaa\" font-size=\"11\">%s</text>"
+             "<text x=\"%.1f\" y=\"%.1f\" fill=\"#aaa\" font-size=\"11\" text-anchor=\"end\">%.0f m</text>"
+             "</svg>"
+             "<div style=\"color:#666;font-size:.75em;margin-top:2px\">Touchdown point &mdash; lateral scale "
+             "exaggerated</div>",
+             WIDTH_PX, HEIGHT_PX,
+             // runway body
+             MARGIN_PX, center_y - HALF_WIDTH_PX, strip_px, 2 * HALF_WIDTH_PX,
+             // touchdown zone shading over the first 300 m
+             MARGIN_PX, center_y - HALF_WIDTH_PX, touchdown_zone_px, 2 * HALF_WIDTH_PX,
+             // centerline
+             MARGIN_PX, center_y, WIDTH_PX - MARGIN_PX, center_y,
+             // threshold bar
+             MARGIN_PX, center_y - HALF_WIDTH_PX, MARGIN_PX, center_y + HALF_WIDTH_PX,
+             // touchdown marker
+             marker_x, marker_y,
+             // labels
+             MARGIN_PX + 4, HEIGHT_PX - 4, esc(ld.runway_ident).c_str(), WIDTH_PX - MARGIN_PX, HEIGHT_PX - 4,
+             ld.runway_length_m);
+    return b;
 }
 
 struct WindDisplay
@@ -272,6 +336,13 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
     snprintf(b, sizeof(b), "<tr><td>G-Force</td><td><b>%.2f G</b></td></tr>", ld.g_force);
     out += b;
 
+    if (ld.ias_kts > 0.f)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Touchdown Speed</td><td><b>%.0f kts IAS</b> &mdash; %.0f kts GS</td></tr>",
+                 ld.ias_kts, ld.ground_speed_kts);
+        out += b;
+    }
+
     // Pitch / flare / float / 50-ft-gate are flare-specific metrics — not meaningful for
     // a rotorcraft set-down, where descent rate alone defines the landing quality.
     if (!ld.is_rotorcraft)
@@ -296,6 +367,25 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
         out += b;
     }
 
+    if (!ld.runway_ident.empty())
+    {
+        snprintf(b, sizeof(b), "<tr><td>Runway</td><td><b>%s</b> &mdash; %.0f m usable</td></tr>",
+                 esc(ld.runway_ident).c_str(), ld.runway_length_m);
+        out += b;
+        const float pct       = (ld.runway_length_m > 0.f) ? ld.runway_distance_m / ld.runway_length_m * 100.f : 0.f;
+        const float remaining = ld.runway_length_m - ld.runway_distance_m;
+        snprintf(b, sizeof(b), "<tr><td>Touchdown point</td><td><b>%.0f m</b> / %.0f ft past threshold &mdash; %.0f%%"
+                               " of runway</td></tr>",
+                 ld.runway_distance_m, ld.runway_distance_m * 3.28084f, pct);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Runway remaining</td><td><b>%.0f m</b> / %.0f ft</td></tr>", remaining,
+                 remaining * 3.28084f);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Centerline</td><td><b>%s</b></td></tr>",
+                 centerline_label_for(ld.runway_offset_m).c_str());
+        out += b;
+    }
+
     snprintf(b, sizeof(b), "<tr><td>Wind</td><td><b>%s</b></td></tr>", w.src.c_str());
     out += b;
     snprintf(b, sizeof(b), "<tr><td>Headwind</td><td>%s</td></tr>", w.hw.c_str());
@@ -310,7 +400,10 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
              esc(profile_name).c_str(), thresh);
     out += b;
 
-    out += "</table></div>\n";
+    out += "</table>";
+    if (!ld.runway_ident.empty())
+        out += runway_diagram_svg(ld);
+    out += "</div>\n";
     return out;
 }
 
@@ -644,8 +737,13 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.pitch_deg      = lj.value("pitch_deg", 0.0f);
                 ld.pitch_rate     = lj.value("pitch_rate", 0.0f);
                 ld.agl_ft         = lj.value("agl_ft", 0.0f);
-                ld.float_time     = lj.value("float_time", 0.0f);
-                ld.time           = lj.value("time", static_cast<time_t>(0));
+                ld.float_time       = lj.value("float_time", 0.0f);
+                ld.ias_kts          = lj.value("ias_kts", 0.0f);
+                ld.ground_speed_kts = lj.value("ground_speed_kts", 0.0f);
+                ld.lat              = lj.value("lat", 0.0);
+                ld.lon              = lj.value("lon", 0.0);
+                ld.heading_true     = lj.value("heading_true", 0.0f);
+                ld.time             = lj.value("time", static_cast<time_t>(0));
                 ld.wind_speed_kts = lj.value("wind_speed_kts", 0);
                 ld.wind_dir_mag   = lj.value("wind_dir_mag", 0);
                 ld.headwind_kts   = lj.value("headwind_kts", 0);
@@ -656,6 +754,12 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.rating         = lj.value("rating", "");
                 ld.wind_status    = lj.value("wind_status", "STEADY");
                 ld.crosswind_side = lj.value("crosswind_side", "");
+                ld.airport_icao   = lj.value("airport_icao", "");
+
+                ld.runway_ident      = lj.value("runway_ident", "");
+                ld.runway_offset_m   = lj.value("runway_offset_m", 0.0f);
+                ld.runway_distance_m = lj.value("runway_distance_m", 0.0f);
+                ld.runway_length_m   = lj.value("runway_length_m", 0.0f);
                 fd.landings.push_back(ld);
             }
         }

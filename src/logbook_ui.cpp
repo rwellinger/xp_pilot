@@ -368,6 +368,19 @@ static void draw_settings()
         Settings::save();
     }
 
+    v = FlightLogger::runway_analysis_enabled();
+    if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &v))
+    {
+        FlightLogger::set_runway_analysis_enabled(v);
+        Settings::save();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Locates each touchdown on the runway it was made on.\n"
+                          "Reads X-Plane's global airport database once per flight,\n"
+                          "after the engines are shut down.");
+
     ImGui::SeparatorText("Auto QNH");
 
     v = AutoQNH::enabled();
@@ -531,6 +544,21 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
                 snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s", ld.fpm, ld.g_force,
                          ld.float_time);
             ImGui::TextUnformatted(stats);
+            if (ld.ias_kts > 0.f)
+            {
+                char speed[64];
+                snprintf(speed, sizeof(speed), "  Speed: %.0f kts IAS  |  %.0f kts GS", ld.ias_kts,
+                         ld.ground_speed_kts);
+                ImGui::TextUnformatted(speed);
+            }
+            if (!ld.runway_ident.empty())
+            {
+                char rwy[128];
+                snprintf(rwy, sizeof(rwy), "  RWY %s  --  %.0f m past threshold  |  %.0f m %s of centerline",
+                         ld.runway_ident.c_str(), ld.runway_distance_m, std::abs(ld.runway_offset_m),
+                         ld.runway_offset_m > 0 ? "right" : "left");
+                ImGui::TextUnformatted(rwy);
+            }
             if (!ld.is_rotorcraft)
                 ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
 

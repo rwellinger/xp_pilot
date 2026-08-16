@@ -409,3 +409,91 @@ TEST_CASE("generate_index: ignores non-JSON files in flights/", "[report][index]
 
     fs::remove_all(root);
 }
+
+// ── Touchdown speed and runway placement ─────────────────────────────────────
+
+namespace
+{
+// A v3 flight: one landing carrying speed and runway placement.
+std::string runway_flight_json()
+{
+    return R"({"version":3,"date":"2026-08-16","start_utc":"09:00","end_utc":"09:40",
+      "departure_icao":"LSGG","arrival_icao":"LSZB","aircraft_icao":"DA42",
+      "start_time":1755334800,"end_time":1755337200,"block_time_min":40,
+      "landings":[{"fpm":-180.0,"g_force":1.25,"ias_kts":62.4,"ground_speed_kts":58.1,
+        "lat":46.9151789,"lon":7.4958682,"heading_true":140.2,"airport_icao":"LSZB",
+        "runway_ident":"14","runway_offset_m":-3.2,"runway_distance_m":400.0,
+        "runway_length_m":1527.0,"rating":"GREAT LANDING!","flare":"smooth",
+        "wind_status":"STEADY","time":1755337100}]})";
+}
+
+std::string render_report(const FlightData &fd, const fs::path &root, const std::string &jname)
+{
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+    return slurp(root / "reports" / HtmlReport::generate(fd, root.string() + "/", jname, "medium_ga", thresholds));
+}
+} // namespace
+
+TEST_CASE("parse_flight_json: reads touchdown speed and runway placement", "[parse]")
+{
+    FlightData fd = parse_flight_json(runway_flight_json(), "x.json");
+
+    REQUIRE(fd.landings.size() == 1);
+    const LandingData &ld = fd.landings[0];
+    CHECK(ld.ias_kts == Catch::Approx(62.4f));
+    CHECK(ld.ground_speed_kts == Catch::Approx(58.1f));
+    CHECK(ld.lat == Catch::Approx(46.9151789));
+    CHECK(ld.lon == Catch::Approx(7.4958682));
+    CHECK(ld.heading_true == Catch::Approx(140.2f));
+    CHECK(ld.airport_icao == "LSZB");
+    CHECK(ld.runway_ident == "14");
+    CHECK(ld.runway_offset_m == Catch::Approx(-3.2f));
+    CHECK(ld.runway_distance_m == Catch::Approx(400.0f));
+    CHECK(ld.runway_length_m == Catch::Approx(1527.0f));
+}
+
+TEST_CASE("parse_flight_json: flights logged before v3 have no speed or runway", "[parse]")
+{
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
+
+    REQUIRE(fd.landings.size() == 1);
+    CHECK(fd.landings[0].ias_kts == 0.0f);
+    CHECK(fd.landings[0].ground_speed_kts == 0.0f);
+    CHECK(fd.landings[0].runway_ident.empty());
+    CHECK(fd.landings[0].runway_length_m == 0.0f);
+}
+
+TEST_CASE("HtmlReport::generate: renders touchdown speed and the runway diagram", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string jname = "2026-08-16_LSGG_LSZB_DA42.json";
+
+    std::string html = render_report(parse_flight_json(runway_flight_json(), jname), root, jname);
+
+    CHECK(html.find("Touchdown Speed") != std::string::npos);
+    CHECK(html.find("62 kts IAS") != std::string::npos);
+    CHECK(html.find("58 kts GS") != std::string::npos);
+    CHECK(html.find("Touchdown point") != std::string::npos);
+    CHECK(html.find("400 m") != std::string::npos);
+    // 1527 - 400, rendered in both units.
+    CHECK(html.find("1127 m") != std::string::npos);
+    CHECK(html.find("<tr><td>Centerline</td><td><b>3 m left</b>") != std::string::npos);
+    CHECK(html.find("<svg class=\"rwy\"") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: a pre-v3 flight shows no speed or runway rows", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    std::string html = render_report(parse_flight_json(read_fixture("sample_flight.json"), jname), root, jname);
+
+    CHECK(html.find("Touchdown Speed") == std::string::npos);
+    CHECK(html.find("Touchdown point") == std::string::npos);
+    CHECK(html.find("Centerline") == std::string::npos);
+    CHECK(html.find("<svg class=\"rwy\"") == std::string::npos);
+
+    fs::remove_all(root);
+}
