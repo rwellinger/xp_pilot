@@ -17,6 +17,7 @@
  */
 
 #include "flight_logger.hpp"
+#include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include "runway_data.hpp"
 #include "runway_geometry.hpp"
@@ -923,6 +924,7 @@ struct Frame
     float gforce    = 0;
     bool  on_gnd    = false;
     int   paused    = 0;
+    int   in_replay = 0;
 };
 
 static Frame read_frame()
@@ -934,6 +936,7 @@ static Frame read_frame()
     f.localtime = dr_f(dr_localtime);
     f.gforce    = dr_f(dr_gforce);
     f.paused    = dr_i(dr_paused);
+    f.in_replay = dr_i(dr_in_replay);
     return f;
 }
 
@@ -1042,6 +1045,15 @@ static void update_track_sample()
     int        alt_ft    = static_cast<int>(dr_d(dr_elevation) * 3.28084);
     int        spd_kts = static_cast<int>(std::lround(dr_f(dr_ias)));
     int        vs      = static_cast<int>(dr_f(dr_vertfpm));
+
+    // Dropping an implausible sample leaves a 10 s hole in the chart's time axis. That
+    // is the cheaper error: a garbage reading would otherwise stick in the maximum for
+    // the rest of the flight.
+    const bool has_previous = !s_track.empty();
+    if (!FlightLoggerLogic::is_plausible_speed_sample(spd_kts, has_previous ? s_track.back().spd_kts : 0,
+                                                      has_previous))
+        return;
+
     TrackPoint tp;
     tp.t       = now;
     tp.lat     = dr_d(dr_lat);
@@ -1386,11 +1398,13 @@ static bool flight_in_progress()
     return s_state == State::Rolling || s_state == State::Airborne || s_state == State::Landed;
 }
 
-// Flight-loop callbacks keep firing while the sim is paused, so gate the accumulator
-// on the pause dataref instead of trusting the wall clock.
+// Flight-loop callbacks keep firing while the sim is paused or in replay, so gate the
+// accumulator on those datarefs instead of trusting the wall clock. Freezing the
+// accumulator also freezes the track sampler, which keeps replayed frames out of the
+// track and out of the max altitude/speed statistics.
 static void accumulate_active_time(const Frame &f, float elapsed_real_sec)
 {
-    if (f.paused == 0 && flight_in_progress())
+    if (f.paused == 0 && f.in_replay == 0 && flight_in_progress())
         s_active_seconds += elapsed_real_sec;
 }
 

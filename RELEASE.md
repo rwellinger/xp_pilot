@@ -3,6 +3,13 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### Unreleased
+
+  - **Replay no longer pollutes the flight statistics** — entering X-Plane's replay mid-flight and leaving it again used to feed the replayed frames into the track and into the **Max Speed** and **Max Altitude** tiles. Replay time is now excluded from the active flight time, exactly like a sim pause, which also stops the track sampler for its duration. Flights ending in replay were already discarded and still are.
+  - **Implausible speed samples are discarded** — a repositioning, an aircraft reload or a single bad frame could hand the logger one garbage airspeed reading, and the running maximum kept it for the rest of the flight. Readings outside 0–1000 kts, or jumping more than 150 kts from the previous 10-second sample, are now dropped instead of recorded.
+  - No file format change; flight logs stay at `version: 4`.
+
+
 ### What's New in v1.6.2
 
   - **Fixed: the landing card's "AGL at 50ft gate" row never showed a 50 ft gate** — it always read 1–2 ft, and rightly so: the value was sampled in the touchdown frame, so it showed the height of the aircraft datum above ground at the moment the gear touched, not the height on approach. The gate itself was never recorded — only the label claimed it. The row has been present since the first release.

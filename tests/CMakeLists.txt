@@ -12,6 +12,7 @@ add_executable(xp_pilot_tests
     test_smoke.cpp
     test_html_report.cpp
     test_auto_qnh_logic.cpp
+    test_flight_logger_logic.cpp
     test_runway.cpp
     test_popup_position.cpp
 )
