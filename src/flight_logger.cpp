@@ -906,9 +906,9 @@ static void session_reset()
 static int block_time_seconds() { return static_cast<int>(std::lround(s_active_seconds)); }
 static int block_time_minutes() { return static_cast<int>(s_active_seconds / 60.0); }
 
-static int paused_seconds()
+static int paused_seconds(time_t end_time)
 {
-    const double paused = static_cast<double>(s_end_time - s_start_time) - s_active_seconds;
+    const double paused = static_cast<double>(end_time - s_start_time) - s_active_seconds;
     return paused > 0.0 ? static_cast<int>(std::lround(paused)) : 0;
 }
 
@@ -1565,7 +1565,7 @@ static std::string save_flight()
     obj["end_time"]        = (long long)s_end_time;
     obj["block_time_min"]  = block_time_minutes();
     obj["block_time_sec"]  = block_time_seconds();
-    obj["paused_sec"]      = paused_seconds();
+    obj["paused_sec"]      = paused_seconds(s_end_time);
     obj["max_altitude_ft"] = s_max_altitude_ft;
     obj["max_speed_kts"]   = s_max_speed_kts;
     obj["fuel_used_kg"]    = 0;
@@ -1632,6 +1632,38 @@ static std::string save_flight()
     return path.substr(path.rfind('/') + 1);
 }
 
+// Assemble the current session state into a FlightData. Used both for the finished
+// flight and — with end_time set to "now" — for the live in-progress snapshot.
+static FlightData build_flight_data(time_t end_time)
+{
+    FlightData fd;
+    char       buf[16];
+    struct tm *tm = gmtime(&s_start_time);
+    strftime(buf, sizeof(buf), "%Y-%m-%d", tm);
+    fd.date = buf;
+    strftime(buf, sizeof(buf), "%H:%M", tm);
+    fd.start_utc = buf;
+    tm           = gmtime(&end_time);
+    strftime(buf, sizeof(buf), "%H:%M", tm);
+    fd.end_utc           = buf;
+    fd.departure_icao    = s_departure_icao;
+    fd.arrival_icao      = s_arrival_icao;
+    fd.aircraft_icao     = s_aircraft_icao;
+    fd.aircraft_tail     = s_aircraft_tail;
+    fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
+    fd.start_time        = s_start_time;
+    fd.end_time          = end_time;
+    fd.block_time_min    = block_time_minutes();
+    fd.block_time_sec    = block_time_seconds();
+    fd.paused_sec        = paused_seconds(end_time);
+    fd.max_altitude_ft   = s_max_altitude_ft;
+    fd.max_speed_kts     = s_max_speed_kts;
+    fd.track             = s_track;
+    fd.landings          = s_landings;
+    fd.pauses            = s_pauses;
+    return fd;
+}
+
 static void finalize_flight()
 {
     if (dr_i(dr_in_replay))
@@ -1659,33 +1691,8 @@ static void finalize_flight()
         return;
     }
 
-    // Build FlightData for report
-    FlightData fd;
-    fd.filename = filename;
-    char       buf[16];
-    struct tm *tm = gmtime(&s_start_time);
-    strftime(buf, sizeof(buf), "%Y-%m-%d", tm);
-    fd.date = buf;
-    strftime(buf, sizeof(buf), "%H:%M", tm);
-    fd.start_utc = buf;
-    tm           = gmtime(&s_end_time);
-    strftime(buf, sizeof(buf), "%H:%M", tm);
-    fd.end_utc         = buf;
-    fd.departure_icao    = s_departure_icao;
-    fd.arrival_icao      = s_arrival_icao;
-    fd.aircraft_icao     = s_aircraft_icao;
-    fd.aircraft_tail     = s_aircraft_tail;
-    fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
-    fd.start_time        = s_start_time;
-    fd.end_time        = s_end_time;
-    fd.block_time_min  = block_time_minutes();
-    fd.block_time_sec  = block_time_seconds();
-    fd.paused_sec      = paused_seconds();
-    fd.max_altitude_ft = s_max_altitude_ft;
-    fd.max_speed_kts   = s_max_speed_kts;
-    fd.track           = s_track;
-    fd.landings        = s_landings;
-    fd.pauses          = s_pauses;
+    FlightData fd = build_flight_data(s_end_time);
+    fd.filename   = filename;
 
     if (s_html_report_enabled)
     {
@@ -1706,6 +1713,24 @@ static void finalize_flight()
 // ════════════════════════════════════════════════════════════════
 // PUBLIC API
 // ════════════════════════════════════════════════════════════════
+
+FlightLogger::LiveFlight FlightLogger::live_flight()
+{
+    LiveFlight live;
+    if (!flight_in_progress())
+        return live;
+
+    live.in_progress            = true;
+    live.flight                 = build_flight_data(std::time(nullptr));
+    live.latitude               = dr_d(dr_lat);
+    live.longitude              = dr_d(dr_lon);
+    live.altitude_ft            = static_cast<int>(dr_d(dr_elevation) * 3.28084);
+    live.indicated_airspeed_kts = static_cast<int>(std::lround(dr_f(dr_ias)));
+    live.vertical_speed_fpm     = static_cast<int>(dr_f(dr_vertfpm));
+    live.agl_ft                 = dr_f(dr_agl) * 3.28084f;
+    live.heading_true           = dr_f(dr_truepsi);
+    return live;
+}
 
 const std::string &FlightLogger::output_dir() { return s_output_dir; }
 bool              &FlightLogger::lb_needs_refresh() { return s_lb_needs_refresh; }

@@ -86,6 +86,22 @@ bool popup_active();
 // has no landing yet. Returns false when there is nothing to show.
 bool replay_last_landing_popup();
 
+// ── Live flight snapshot ──────────────────────────────────────────────────────
+// The flight as recorded so far, for display while it is still running. Returned by
+// value: session_reset() clears the underlying vectors the moment a flight ends.
+struct LiveFlight
+{
+    bool       in_progress = false;
+    FlightData flight; // everything known so far; end_time is "now"
+
+    // Instantaneous values, read straight from the datarefs on each call.
+    double latitude = 0, longitude = 0;
+    int    altitude_ft = 0, indicated_airspeed_kts = 0, vertical_speed_fpm = 0;
+    float  agl_ft = 0, heading_true = 0;
+};
+
+LiveFlight live_flight();
+
 // ── Logbook access ────────────────────────────────────────────────────────────
 // User data root (flights, reports, index, settings) under X-Plane's Output dir.
 const std::string &output_dir();

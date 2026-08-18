@@ -19,6 +19,7 @@
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include "settings.hpp"
 #include <XPLM/XPLMDataAccess.h>
@@ -429,96 +430,9 @@ static void draw_settings()
                           "see the approach chart for the destination.");
 }
 
-// Renders the read-only detail content (route, info, stats, track map, landings) for one flight.
-// Action buttons are caller-rendered so each tab can show its own actions.
-static void draw_flight_detail_block(const FlightData &fd, float right_w)
+// One block per recorded landing, with its rating, touchdown numbers and runway placement.
+static void draw_landings(const FlightData &fd)
 {
-    std::string route = (fd.departure_icao.empty() ? "?" : fd.departure_icao) + "  ->  " +
-                        (fd.arrival_icao.empty() ? "?" : fd.arrival_icao);
-    ImGui::TextUnformatted(route.c_str());
-
-    char info[256];
-    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
-    snprintf(info, sizeof(info), "%s  %s-%s UTC  |  %s  %s%s", fd.date.c_str(),
-             fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.end_utc.empty() ? "?" : fd.end_utc.c_str(),
-             fd.aircraft_icao.c_str(), fd.aircraft_tail.c_str(), heli_suffix);
-    ImGui::TextUnformatted(info);
-    ImGui::Separator();
-
-    draw_time_lines(fd);
-    ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
-    ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
-    ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());
-    ImGui::Separator();
-
-    if (fd.track.size() >= 2)
-    {
-        float cw = right_w - 20.f;
-        float ch = std::floor(cw * 0.27f);
-
-        double lat_min = fd.track[0].lat, lat_max = fd.track[0].lat;
-        double lon_min = fd.track[0].lon, lon_max = fd.track[0].lon;
-        for (auto &p : fd.track)
-        {
-            lat_min = std::min(lat_min, p.lat);
-            lat_max = std::max(lat_max, p.lat);
-            lon_min = std::min(lon_min, p.lon);
-            lon_max = std::max(lon_max, p.lon);
-        }
-        double dlat = (lat_max - lat_min) * 0.05 + 0.001;
-        double dlon = (lon_max - lon_min) * 0.05 + 0.001;
-        lat_min -= dlat;
-        lat_max += dlat;
-        lon_min -= dlon;
-        lon_max += dlon;
-
-        auto to_px = [&](double lat, double lon, float &px, float &py)
-        {
-            px = static_cast<float>((lon - lon_min) / (lon_max - lon_min) * cw);
-            py = static_cast<float>((1.0 - (lat - lat_min) / (lat_max - lat_min)) * ch);
-        };
-
-        ImVec2 org = ImGui::GetCursorScreenPos();
-        ImGui::Dummy(ImVec2(cw, ch));
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(org, ImVec2(org.x + cw, org.y + ch), IM_COL32(46, 26, 26, 255), 4.f);
-        for (size_t i = 1; i < fd.track.size(); ++i)
-        {
-            float x1, y1, x2, y2;
-            to_px(fd.track[i - 1].lat, fd.track[i - 1].lon, x1, y1);
-            to_px(fd.track[i].lat, fd.track[i].lon, x2, y2);
-            dl->AddLine(ImVec2(org.x + x1, org.y + y1), ImVec2(org.x + x2, org.y + y2), IM_COL32(212, 212, 0, 255),
-                        1.5f);
-        }
-        for (const auto &p : resolve_pauses(fd))
-        {
-            if (p.lat == 0.0 && p.lon == 0.0)
-                continue;
-            float px, py;
-            to_px(p.lat, p.lon, px, py);
-            dl->AddCircleFilled(ImVec2(org.x + px, org.y + py), 4.f, IM_COL32(255, 204, 0, 255));
-        }
-
-        float dx, dy, ax, ay;
-        to_px(fd.track.front().lat, fd.track.front().lon, dx, dy);
-        to_px(fd.track.back().lat, fd.track.back().lon, ax, ay);
-        dl->AddCircleFilled(ImVec2(org.x + dx, org.y + dy), 5.f, IM_COL32(64, 255, 0, 255));
-        dl->AddCircleFilled(ImVec2(org.x + ax, org.y + ay), 5.f, IM_COL32(0, 0, 255, 255));
-
-        // Legend for the yellow markers drawn above.
-        if (fd.paused_sec > 0)
-        {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pause");
-            ImGui::SameLine(0.f, 6.f);
-            ImGui::TextDisabled("= sim paused here, not counted as block time");
-        }
-    }
-    else
-    {
-        ImGui::TextUnformatted("(no track data)");
-    }
-    ImGui::Separator();
-
     if (fd.landings.empty())
     {
         ImGui::TextUnformatted("(no landing recorded)");
@@ -584,8 +498,146 @@ static void draw_flight_detail_block(const FlightData &fd, float right_w)
                 ImGui::Separator();
         }
     }
+}
+
+// Top-down view of the flown route. The end marker is the last recorded sample, which
+// for a flight still in progress is the aircraft's current position.
+static void draw_track_map(const FlightData &fd, float right_w)
+{
+    if (fd.track.size() < 2)
+    {
+        ImGui::TextUnformatted("(no track data)");
+        return;
+    }
+
+    const float cw = right_w - 20.f;
+    const float ch = std::floor(cw * 0.27f);
+
+    const auto bounds = FlightLoggerLogic::track_bounds(fd.track);
+    auto       to_px  = [&](double lat, double lon, float &px, float &py)
+    { FlightLoggerLogic::project_to_pixel(bounds, lat, lon, cw, ch, px, py); };
+
+    ImVec2 org = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(cw, ch));
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(org, ImVec2(org.x + cw, org.y + ch), IM_COL32(46, 26, 26, 255), 4.f);
+    for (size_t i = 1; i < fd.track.size(); ++i)
+    {
+        float x1, y1, x2, y2;
+        to_px(fd.track[i - 1].lat, fd.track[i - 1].lon, x1, y1);
+        to_px(fd.track[i].lat, fd.track[i].lon, x2, y2);
+        dl->AddLine(ImVec2(org.x + x1, org.y + y1), ImVec2(org.x + x2, org.y + y2), IM_COL32(212, 212, 0, 255),
+                    1.5f);
+    }
+    for (const auto &p : resolve_pauses(fd))
+    {
+        if (p.lat == 0.0 && p.lon == 0.0)
+            continue;
+        float px, py;
+        to_px(p.lat, p.lon, px, py);
+        dl->AddCircleFilled(ImVec2(org.x + px, org.y + py), 4.f, IM_COL32(255, 204, 0, 255));
+    }
+
+    float dx, dy, ax, ay;
+    to_px(fd.track.front().lat, fd.track.front().lon, dx, dy);
+    to_px(fd.track.back().lat, fd.track.back().lon, ax, ay);
+    dl->AddCircleFilled(ImVec2(org.x + dx, org.y + dy), 5.f, IM_COL32(64, 255, 0, 255));
+    dl->AddCircleFilled(ImVec2(org.x + ax, org.y + ay), 5.f, IM_COL32(0, 0, 255, 255));
+
+    // Legend for the yellow markers drawn above.
+    if (fd.paused_sec > 0)
+    {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pause");
+        ImGui::SameLine(0.f, 6.f);
+        ImGui::TextDisabled("= sim paused here, not counted as block time");
+    }
+}
+
+// Renders the read-only detail content (route, info, stats, track map, landings) for one flight.
+// Action buttons are caller-rendered so each tab can show its own actions.
+static void draw_flight_detail_block(const FlightData &fd, float right_w)
+{
+    std::string route = (fd.departure_icao.empty() ? "?" : fd.departure_icao) + "  ->  " +
+                        (fd.arrival_icao.empty() ? "?" : fd.arrival_icao);
+    ImGui::TextUnformatted(route.c_str());
+
+    char info[256];
+    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
+    snprintf(info, sizeof(info), "%s  %s-%s UTC  |  %s  %s%s", fd.date.c_str(),
+             fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.end_utc.empty() ? "?" : fd.end_utc.c_str(),
+             fd.aircraft_icao.c_str(), fd.aircraft_tail.c_str(), heli_suffix);
+    ImGui::TextUnformatted(info);
+    ImGui::Separator();
+
+    draw_time_lines(fd);
+    ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
+    ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
+    ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());
+    ImGui::Separator();
+
+    draw_track_map(fd, right_w);
+    ImGui::Separator();
+
+    draw_landings(fd);
 
     ImGui::Separator();
+}
+
+// Live view of the flight currently being recorded. Everything is read fresh each
+// frame — the snapshot is a copy, because the recorder clears its state the moment a
+// flight ends.
+static void draw_live()
+{
+    const FlightLogger::LiveFlight live = FlightLogger::live_flight();
+    if (!live.in_progress)
+    {
+        ImGui::TextDisabled("No flight in progress.");
+        ImGui::TextDisabled("Recording starts on the takeoff roll and ends after engine shutdown.");
+        return;
+    }
+
+    const FlightData &fd = live.flight;
+
+    ImGui::TextUnformatted(("Departure:    " + (fd.departure_icao.empty() ? "?" : fd.departure_icao)).c_str());
+
+    char info[256];
+    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
+    snprintf(info, sizeof(info), "%s  off blocks %s UTC  |  %s  %s%s", fd.date.c_str(),
+             fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.aircraft_icao.c_str(),
+             fd.aircraft_tail.c_str(), heli_suffix);
+    ImGui::TextUnformatted(info);
+    ImGui::Separator();
+
+    draw_time_lines(fd);
+    ImGui::Separator();
+
+    char position[128];
+    snprintf(position, sizeof(position), "Position:     %.5f, %.5f  |  HDG %03.0f", live.latitude, live.longitude,
+             live.heading_true);
+    ImGui::TextUnformatted(position);
+
+    char state[128];
+    snprintf(state, sizeof(state), "Altitude:     %d ft  (%.0f ft AGL)", live.altitude_ft, live.agl_ft);
+    ImGui::TextUnformatted(state);
+    snprintf(state, sizeof(state), "Speed:        %d kts IAS  |  V/S %+d fpm", live.indicated_airspeed_kts,
+             live.vertical_speed_fpm);
+    ImGui::TextUnformatted(state);
+    ImGui::Separator();
+
+    ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
+    ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
+    ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());
+    ImGui::Separator();
+
+    // The track is only sampled while log writing is on, so an empty map here usually
+    // means the setting is off rather than that nothing has happened yet.
+    if (!FlightLogger::write_enabled())
+        ImGui::TextDisabled("Track recording is off - enable \"Write flight logs\" in Settings.");
+    else
+        draw_track_map(fd, ImGui::GetContentRegionAvail().x);
+    ImGui::Separator();
+
+    draw_landings(fd);
 }
 
 static void draw_logbook()
@@ -1167,6 +1219,11 @@ void LogbookUI::draw()
         {
             if (ImGui::BeginTabBar("lb_tabs"))
             {
+                if (ImGui::BeginTabItem("Live"))
+                {
+                    draw_live();
+                    ImGui::EndTabItem();
+                }
                 if (ImGui::BeginTabItem("Logbook"))
                 {
                     draw_logbook();
