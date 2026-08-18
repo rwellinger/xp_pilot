@@ -28,6 +28,13 @@ constexpr float TILE_ICON_SIZE  = 46.f;
 constexpr float TILE_TITLE_SIZE = 20.f;
 constexpr float HEADER_SIZE     = 21.f;
 
+// Vertical placement inside a tile, as a fraction of its height. Icon, title and
+// subtitle have to read as one group, so the gaps between them stay smaller than
+// the margins above and below.
+constexpr float TILE_ICON_Y     = 0.24f;
+constexpr float TILE_TITLE_Y    = 0.55f;
+constexpr float TILE_SUBTITLE_Y = 0.71f;
+
 // Drawn straight into the draw list rather than as a widget: the tile's layout
 // footprint must stay exactly the InvisibleButton, so nothing here may emit items.
 void draw_centered_text(ImDrawList *dl, const ImVec2 &box_min, float box_width, float y, const char *text,
@@ -81,17 +88,17 @@ bool Ui::icon_tile(const char *icon, const char *title, const char *subtitle, co
     dl->AddRect(origin, max, ImGui::GetColorU32(hovered ? Theme::accent : Theme::border), Theme::scaled(12.f), 0,
                 hovered ? 2.f : 1.f);
 
-    // Vertical rhythm: icon on the upper third, title under it, subtitle at the foot.
     ImGui::PushFont(nullptr, TILE_ICON_SIZE);
-    draw_centered_text(dl, origin, size.x, origin.y + size.y * 0.20f, icon, hovered ? Theme::accent : Theme::text);
+    draw_centered_text(dl, origin, size.x, origin.y + size.y * TILE_ICON_Y, icon,
+                       hovered ? Theme::accent : Theme::text);
     ImGui::PopFont();
 
     ImGui::PushFont(nullptr, TILE_TITLE_SIZE);
-    draw_centered_text(dl, origin, size.x, origin.y + size.y * 0.60f, title, Theme::text);
+    draw_centered_text(dl, origin, size.x, origin.y + size.y * TILE_TITLE_Y, title, Theme::text);
     ImGui::PopFont();
 
     if (subtitle && subtitle[0])
-        draw_centered_text(dl, origin, size.x, origin.y + size.y * 0.76f, subtitle, Theme::text_dim);
+        draw_centered_text(dl, origin, size.x, origin.y + size.y * TILE_SUBTITLE_Y, subtitle, Theme::text_dim);
 
     ImGui::PopID();
     return pressed;
