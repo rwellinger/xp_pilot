@@ -34,6 +34,31 @@ TEST_CASE("load_airspaces keeps only what overlaps the bounds", "[airspace]")
     REQUIRE(find_named(airspaces, "SOUTHERN HEMISPHERE") == nullptr);
 }
 
+// The regression this guards: filtering on outline points alone drops any airspace that
+// surrounds the view. A CTR around the departure airport has all four corners outside a
+// short flight's bounds — EDNY showed no airspaces at all because of this, while nearby
+// LSZG happened to sit close enough to airspace edges to show some.
+TEST_CASE("load_airspaces keeps an airspace that surrounds the view", "[airspace][regression]")
+{
+    // A patch well inside SURROUNDING CTR, with none of its corners nearby.
+    const AirspaceBounds inside_ctr{46.9, 46.95, 7.4, 7.45};
+    const auto           airspaces = AirspaceData::load_airspaces(fixture_path(), inside_ctr);
+
+    REQUIRE(find_named(airspaces, "SURROUNDING CTR") != nullptr);
+}
+
+TEST_CASE("load_airspaces still rejects airspaces that only share a bounding box", "[airspace]")
+{
+    // Naively testing bounding-box overlap pulls in far-away airspaces whose outline
+    // spans a wide longitude range; the view centre must actually fall inside.
+    const AirspaceBounds pacific{-11.0, -9.0, -121.0, -119.0};
+    const auto           airspaces = AirspaceData::load_airspaces(fixture_path(), pacific);
+
+    REQUIRE(find_named(airspaces, "SURROUNDING CTR") == nullptr);
+    REQUIRE(find_named(airspaces, "BERN CTR") == nullptr);
+    CHECK(find_named(airspaces, "FAR AWAY RESTRICTED") != nullptr); // this one is genuinely there
+}
+
 TEST_CASE("load_airspaces reads class, name and altitude limits verbatim", "[airspace]")
 {
     const auto  airspaces = AirspaceData::load_airspaces(fixture_path(), SWITZERLAND);

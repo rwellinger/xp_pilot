@@ -1,5 +1,6 @@
 #include "airspace_data.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 
@@ -28,15 +29,48 @@ bool parse_point(const std::string &line, AirspacePoint &out)
     return true;
 }
 
+bool contains(const std::vector<AirspacePoint> &outline, double lat, double lon)
+{
+    // Ray casting: count crossings of a ray running east from the point.
+    bool inside = false;
+    for (size_t i = 0, previous = outline.size() - 1; i < outline.size(); previous = i++)
+    {
+        const AirspacePoint &a = outline[i];
+        const AirspacePoint &b = outline[previous];
+        if ((a.lat > lat) != (b.lat > lat) && lon < (b.lon - a.lon) * (lat - a.lat) / (b.lat - a.lat) + a.lon)
+            inside = !inside;
+    }
+    return inside;
+}
+
+// The regression this prevents: testing only whether an outline *point* falls inside the
+// view drops every airspace that surrounds it. A CTR around the airport you departed
+// from has all its corners outside a short flight's bounds, so EDNY showed no airspaces
+// at all while nearby LSZG — which sits closer to airspace edges — showed some.
 bool touches(const std::vector<AirspacePoint> &outline, const AirspaceBounds &bounds)
 {
+    double lat_min = outline.front().lat, lat_max = lat_min;
+    double lon_min = outline.front().lon, lon_max = lon_min;
     for (const auto &point : outline)
     {
+        lat_min = std::min(lat_min, point.lat);
+        lat_max = std::max(lat_max, point.lat);
+        lon_min = std::min(lon_min, point.lon);
+        lon_max = std::max(lon_max, point.lon);
+
         if (point.lat >= bounds.lat_min && point.lat <= bounds.lat_max && point.lon >= bounds.lon_min &&
             point.lon <= bounds.lon_max)
-            return true;
+            return true; // an edge runs through the view
     }
-    return false;
+
+    // Cheap reject before the ray cast. Without it, outlines spanning huge longitude
+    // ranges (an oceanic CTA on the far side of the world) would be tested in full.
+    if (lat_max < bounds.lat_min || lat_min > bounds.lat_max || lon_max < bounds.lon_min ||
+        lon_min > bounds.lon_max)
+        return false;
+
+    // The view sits entirely inside the airspace — the surrounding-CTR case.
+    return contains(outline, (bounds.lat_min + bounds.lat_max) / 2, (bounds.lon_min + bounds.lon_max) / 2);
 }
 
 std::string value_of(const std::string &line)

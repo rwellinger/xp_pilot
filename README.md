@@ -33,7 +33,7 @@ No FlyWithLua required. No account or subscription.
 - **Your data stays on your machine.** Flights, landings, and reports are plain JSON and HTML files in your X-Plane folder. No cloud, no server, no account — nothing to shut down, nothing to leak.
 - **No login, no subscription, no telemetry.** Install it and it works. You own your logbook.
 - **First-class native builds for macOS, Linux and Windows.** Universal binary on Apple Silicon and Intel Macs — a platform most X-Plane tools treat as an afterthought.
-- **Flight recording runs offline.** No internet needed while flying. The only outbound traffic is the map tiles the HTML reports fetch from OpenStreetMap when you open a report, and the SkyVector chart — opened in your browser only when you click a position link.
+- **Flight recording runs offline.** No internet needed while flying, and the in-sim track map draws entirely from local data — airspaces come from X-Plane's own database, coastlines ship with the plugin. The only outbound traffic is the map tiles an HTML report fetches from [OpenFreeMap](https://openfreemap.org/) when you open it in a browser, and the SkyVector chart when you click a position link. No API key is involved, so nothing personal is ever embedded in a report you share.
 
 ## Installation
 
@@ -45,10 +45,11 @@ X-Plane 12/Resources/plugins/xp_pilot/
 ├── lin_x64/xp_pilot.xpl   ← Linux (x86_64)
 ├── win_x64/xp_pilot.xpl   ← Windows
 └── data/
-    └── flight_logger_profiles.json   ← bundled config (read-only)
+    ├── flight_logger_profiles.json   ← bundled config (read-only)
+    └── coastlines.dat                ← coastlines and lakes for the track map (read-only)
 ```
 
-X-Plane loads the correct platform binary automatically. No license needed for OpenStreetMap usage in reports.
+X-Plane loads the correct platform binary automatically. Nothing here needs an API key or an account.
 
 **Requirements:** macOS 12.0+ (arm64 / x86_64), Linux (x86_64), or Windows · X-Plane 12
 
@@ -66,7 +67,9 @@ Flight records, HTML reports, settings, and the flight index are stored under X-
 └── settings.json         ← feature toggles from the logbook window
 ```
 
-On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker). The only bundled, read-only config remains `data/flight_logger_profiles.json` inside the plugin folder.
+On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker).
+
+**Why `settings.json` lives here and not next to the plugin.** It looks misplaced — the folder is named after the reports — but anything inside the plugin folder is owned by the updater. The SkunkCrafts updater synchronises that tree against its file list, so a settings file kept there would be overwritten or removed on every update, taking your toggles with it. Everything the plugin writes therefore lives outside the tree; the plugin folder holds only bundled, read-only files (`flight_logger_profiles.json` and `coastlines.dat`), which are meant to be replaced on update.
 
 ## Features
 
@@ -100,6 +103,22 @@ The **Live** screen of the logbook window shows the flight currently being recor
 - **What you have done** — the maxima reached so far, plus any landing already made during the flight (a touch-and-go en route) with its full rating.
 
 Nothing is written to disk — this is a read-only view of what the recorder already holds in memory. With *Write flight logs to disk* switched off no track is sampled, so the map is replaced by a note; all other live values still work.
+
+</details>
+
+<details>
+<summary><strong>The track map in the logbook window</strong></summary>
+
+The in-sim map draws the flown route over aeronautical context, all from local data — no network, no API key, and it works with the sim offline.
+
+- **The track itself** ramps from orange to near-white with altitude, so a climb reads at a glance. It is the only warm, saturated element on the map; everything else stays deliberately quiet.
+- **Airspaces** come from X-Plane's own database (`Resources/default data/airspaces/`). Violet outlines mark controlled airspace, red marks restricted, prohibited and danger areas. Airspaces that *surround* your route — the CTR around your departure airport — are included, not just those your track crosses.
+- **Water** is drawn from a Natural Earth extract bundled with the plugin: lakes as filled teal shapes, coastlines as teal lines.
+- **Scale bar and ICAO labels** for departure and arrival, plus pause markers in violet.
+
+The projection is Web Mercator with the aspect ratio preserved, so a north-south leg keeps its shape instead of being squashed. Loading runs on a background thread — the map appears without airspaces for a moment on a large route, rather than stalling the window.
+
+If X-Plane's airspace database is missing, or the bundled coastline file was not installed, that layer is simply left out.
 
 </details>
 
@@ -192,7 +211,7 @@ Each tile carries an icon — a departing aircraft for Live, a book for Logbook,
 | **Archive** | Flights moved out of the active logbook, same layout, delete only |
 | **Settings** | Every feature toggle, saved immediately to `settings.json` |
 
-**Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window itself can be moved and resized freely; the **UI scale** setting adjusts fonts and spacing for high-DPI displays.
+**Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge. The **UI scale** setting adjusts fonts and spacing in 5% steps; **Plugins → xp_pilot → Reset UI Scale & Window Size** restores the default from outside the window.
 
 ## Using the plugin
 
@@ -204,15 +223,17 @@ Under **Plugins → xp_pilot**:
 |---|---|
 | Open / Close Logbook | Open the in-sim logbook window (live view, flight history, archive, and all settings) |
 | Show Last Landing Rating | Re-open the landing popup for the most recent landing |
+| Reset UI Scale & Window Size | Back to 100% with a centred window. In the plugin menu on purpose: it stays reachable even if the window itself has been scaled out of reach |
 
 ### Commands
 
-Both can be bound to a key or joystick button in X-Plane's control settings.
+All three can be bound to a key or joystick button in X-Plane's control settings.
 
 | Command | Description |
 |---|---|
 | `xp_pilot/logbook/toggle` | Open / close the logbook window |
 | `xp_pilot/logbook/show_last_landing` | Show the landing popup for the most recent landing |
+| `xp_pilot/ui/reset_layout` | Reset UI scale to 100% and recentre the window |
 
 `show_last_landing` replays the last landing of the current session. After restarting the sim it falls back to the newest landing in your logbook, so a landing can be reviewed — or captured for a screenshot — at any time. It works even when the automatic post-touchdown popup is switched off.
 
@@ -229,7 +250,7 @@ All feature toggles live on the **Settings** screen of the logbook window. Chang
 | Show landing rating popup | on | Gates the post-touchdown popup with landing quality (BUTTER! / GREAT / ACCEPTABLE / HARD / WASTED) and metrics. Independent of the log-writing toggle. |
 | Popup position | Top center | Where the landing popup appears: any of the four corners, top or bottom centre, or dead centre. |
 | Analyze touchdown point | on | Locates each touchdown on its runway (identifier, distance past threshold, centerline deviation). Reads X-Plane's airport database once per flight. |
-| UI scale | 1.00x | Scales the logbook window's fonts and spacing between 0.8x and 2.0x. Useful on high-DPI displays. |
+| UI scale | 100% | Scales fonts and spacing from 80% to 200% in 5% steps, via **−** / **+** buttons. Useful on high-DPI displays and TV-distance setups. The window never grows beyond your screen, so a large scale shows less at once rather than becoming unreachable. **Reset** returns to 100% and recentres. |
 
 Each toggle is independent, so combinations like "no disk logs but still show the landing rating" are supported for pilots who use external flight-reporting tools.
 
@@ -295,8 +316,15 @@ src/
 ├── fonts/              Generated font headers (see tools/generate_fonts.sh)
 ├── runway_data.*       apt.dat parsing (runway thresholds and widths)
 ├── runway_geometry.hpp Touchdown-to-runway placement math (header-only)
+├── airspace_data.*     OpenAir parsing of X-Plane's airspace database
+├── coastline_data.*    Bundled coastline and lake outlines
+├── map_overlay_cache.* Background loading of both, off the draw thread
 └── auto_qnh.*          Altimeter monitoring and auto-sync
 ```
+
+`data/coastlines.dat` is generated from Natural Earth by `tools/build_coastlines.py`
+(coastlines at 1:50m, lakes at 1:10m). Re-run it only when the source data should be
+refreshed — the result is committed.
 
 `sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.
 
@@ -310,3 +338,12 @@ after changing the icon set:
 |---|---|---|
 | Roboto Medium (Latin-1 subset) | all UI text | Apache License 2.0 |
 | Font Awesome 6 Free Solid (18 glyphs) | icons | Font: SIL OFL 1.1 · Icons: CC BY 4.0 |
+
+### Bundled map data
+
+| Data | Use | License |
+|---|---|---|
+| Natural Earth (`data/coastlines.dat`) | coastlines and lakes on the track map | Public domain |
+| X-Plane airspace database | airspace outlines on the track map | Read from the user's own X-Plane install; nothing is copied or redistributed |
+
+Full third-party inventory: [3part-lizenz.md](3part-lizenz.md).
