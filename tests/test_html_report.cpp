@@ -250,6 +250,49 @@ TEST_CASE("HtmlReport::generate: writes a report file and returns its basename",
     fs::remove_all(root);
 }
 
+TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap by default", "[report][map]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string ddir  = root.string() + "/";
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    FlightData         fd = parse_flight_json(read_fixture("sample_flight.json"), jname);
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+
+    HtmlReport::set_maptiler_key("");
+    std::string html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "medium_ga", thresholds));
+
+    REQUIRE(html.find("maplibre-gl") != std::string::npos);
+    REQUIRE(html.find("tiles.openfreemap.org/styles/dark") != std::string::npos);
+    REQUIRE(html.find("OpenFreeMap") != std::string::npos);
+    REQUIRE(html.find("OpenMapTiles") != std::string::npos);
+    // CARTO was never licensed for this use and Leaflet cannot render vector tiles.
+    REQUIRE(html.find("cartocdn") == std::string::npos);
+    REQUIRE(html.find("leaflet") == std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: a MapTiler key swaps the style source", "[report][map]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string ddir  = root.string() + "/";
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    FlightData         fd = parse_flight_json(read_fixture("sample_flight.json"), jname);
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+
+    HtmlReport::set_maptiler_key("test-key-123");
+    std::string html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "medium_ga", thresholds));
+
+    REQUIRE(html.find("api.maptiler.com") != std::string::npos);
+    REQUIRE(html.find("test-key-123") != std::string::npos);
+    REQUIRE(html.find("tiles.openfreemap.org") == std::string::npos);
+
+    HtmlReport::set_maptiler_key(""); // leave the default in place for other tests
+    fs::remove_all(root);
+}
+
 TEST_CASE("HtmlReport::generate: a paused flight shows total, pause and net block time", "[report]")
 {
     fs::path    root  = make_tmp_data_dir();

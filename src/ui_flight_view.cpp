@@ -29,6 +29,59 @@
 namespace
 {
 
+// Blend two colours, t clamped to [0,1].
+ImU32 lerp_color(ImU32 low, ImU32 high, float t)
+{
+    t                  = std::clamp(t, 0.f, 1.f);
+    const auto channel = [&](int shift)
+    {
+        const float from = static_cast<float>((low >> shift) & 0xFF);
+        const float to   = static_cast<float>((high >> shift) & 0xFF);
+        return static_cast<ImU32>(from + (to - from) * t) << shift;
+    };
+    return channel(IM_COL32_R_SHIFT) | channel(IM_COL32_G_SHIFT) | channel(IM_COL32_B_SHIFT) |
+           (static_cast<ImU32>(0xFF) << IM_COL32_A_SHIFT);
+}
+
+// Largest round distance that still fits within the budget, for the scale bar.
+double round_scale_distance_km(double budget_km)
+{
+    static constexpr double STEPS[] = {1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500};
+    double                  chosen  = STEPS[0];
+    for (double step : STEPS)
+        if (step <= budget_km)
+            chosen = step;
+    return chosen;
+}
+
+// A bar of round length, sized from the map's own scale so distances stay readable
+// however far the flight ranged.
+void draw_scale_bar(ImDrawList *dl, const ImVec2 &origin, const FlightLoggerLogic::GeoBounds &bounds,
+                    const FlightLoggerLogic::MapViewport &viewport, float map_w, float map_h)
+{
+    const double km_per_px = FlightLoggerLogic::km_per_pixel(bounds, viewport);
+    if (km_per_px <= 0.0)
+        return;
+
+    const double distance_km = round_scale_distance_km(map_w * 0.3f * km_per_px);
+    const float  bar_px      = static_cast<float>(distance_km / km_per_px);
+    if (bar_px < 1.f || bar_px > map_w)
+        return;
+
+    const float margin = Theme::scaled(10.f);
+    const float x0     = origin.x + margin;
+    const float y      = origin.y + map_h - margin;
+    const float tick   = Theme::scaled(4.f);
+
+    dl->AddLine(ImVec2(x0, y), ImVec2(x0 + bar_px, y), Theme::map_scale, 1.5f);
+    dl->AddLine(ImVec2(x0, y - tick), ImVec2(x0, y + tick), Theme::map_scale, 1.5f);
+    dl->AddLine(ImVec2(x0 + bar_px, y - tick), ImVec2(x0 + bar_px, y + tick), Theme::map_scale, 1.5f);
+
+    char label[32];
+    snprintf(label, sizeof(label), "%.0f km", distance_km);
+    dl->AddText(ImVec2(x0, y - tick - ImGui::GetFontSize()), Theme::map_scale, label);
+}
+
 void draw_wind_status_line(const LandingData &landing)
 {
     const int crosswind = std::abs(landing.crosswind_kts);
@@ -141,23 +194,35 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     }
 
     const float map_w = width - Theme::scaled(20.f);
-    const float map_h = std::floor(map_w * 0.27f);
+    const float map_h = std::floor(map_w * 0.45f);
 
-    const auto bounds = FlightLoggerLogic::track_bounds(flight.track);
-    auto       to_px  = [&](double lat, double lon, float &px, float &py)
-    { FlightLoggerLogic::project_to_pixel(bounds, lat, lon, map_w, map_h, px, py); };
+    const auto bounds   = FlightLoggerLogic::track_bounds(flight.track);
+    const auto viewport = FlightLoggerLogic::make_viewport(bounds, map_w, map_h);
+    auto       to_px    = [&](double lat, double lon, float &px, float &py)
+    { FlightLoggerLogic::project_to_pixel(viewport, lat, lon, px, py); };
 
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(map_w, map_h));
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(origin, ImVec2(origin.x + map_w, origin.y + map_h), Theme::map_background, Theme::scaled(8.f));
 
+    int lowest_ft  = flight.track.front().alt_ft;
+    int highest_ft = lowest_ft;
+    for (const auto &point : flight.track)
+    {
+        lowest_ft  = std::min(lowest_ft, point.alt_ft);
+        highest_ft = std::max(highest_ft, point.alt_ft);
+    }
+    const float altitude_span = static_cast<float>(std::max(highest_ft - lowest_ft, 1));
+
     for (size_t i = 1; i < flight.track.size(); ++i)
     {
         float x1, y1, x2, y2;
         to_px(flight.track[i - 1].lat, flight.track[i - 1].lon, x1, y1);
         to_px(flight.track[i].lat, flight.track[i].lon, x2, y2);
-        dl->AddLine(ImVec2(origin.x + x1, origin.y + y1), ImVec2(origin.x + x2, origin.y + y2), Theme::map_track, 1.5f);
+        const float share = static_cast<float>(flight.track[i].alt_ft - lowest_ft) / altitude_span;
+        dl->AddLine(ImVec2(origin.x + x1, origin.y + y1), ImVec2(origin.x + x2, origin.y + y2),
+                    lerp_color(Theme::map_track_low, Theme::map_track_high, share), 1.5f);
     }
     for (const auto &pause : resolve_pauses(flight))
     {
@@ -173,6 +238,16 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     to_px(flight.track.back().lat, flight.track.back().lon, arr_x, arr_y);
     dl->AddCircleFilled(ImVec2(origin.x + dep_x, origin.y + dep_y), 5.f, Theme::map_departure);
     dl->AddCircleFilled(ImVec2(origin.x + arr_x, origin.y + arr_y), 5.f, Theme::map_arrival);
+
+    const float label_gap = Theme::scaled(8.f);
+    if (!flight.departure_icao.empty())
+        dl->AddText(ImVec2(origin.x + dep_x + label_gap, origin.y + dep_y - label_gap), Theme::map_departure,
+                    flight.departure_icao.c_str());
+    if (!flight.arrival_icao.empty())
+        dl->AddText(ImVec2(origin.x + arr_x + label_gap, origin.y + arr_y - label_gap), Theme::map_arrival,
+                    flight.arrival_icao.c_str());
+
+    draw_scale_bar(dl, origin, bounds, viewport, map_w, map_h);
 
     if (flight.paused_sec > 0)
     {

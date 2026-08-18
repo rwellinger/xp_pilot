@@ -19,6 +19,7 @@
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "html_report.hpp"
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
@@ -135,6 +136,30 @@ static void draw_live_screen(const FlightLogger::LiveFlight &live)
     FlightView::draw_landings(flight);
 }
 
+// The report map falls back to OpenFreeMap, which needs no key. A MapTiler key is
+// optional and only swaps the styling.
+static void draw_maptiler_key_field()
+{
+    static char key_buffer[128] = {};
+    static bool buffer_filled   = false;
+    if (!buffer_filled)
+    {
+        snprintf(key_buffer, sizeof(key_buffer), "%s", HtmlReport::maptiler_key().c_str());
+        buffer_filled = true;
+    }
+
+    ImGui::SetNextItemWidth(Theme::scaled(240.f));
+    if (ImGui::InputText("MapTiler API key", key_buffer, sizeof(key_buffer)))
+    {
+        HtmlReport::set_maptiler_key(key_buffer);
+        Settings::save();
+    }
+    Ui::help_marker("Optional. Without a key the map uses OpenFreeMap.\n"
+                    "A key only changes the map styling.\n"
+                    "Reports already written keep their map until you press\n"
+                    "\"Rebuild All Reports\" in the flight list.");
+}
+
 static void draw_settings_screen()
 {
     Ui::section_header(ICON_FA_FILE_LINES, "Flight Log Writer");
@@ -157,6 +182,7 @@ static void draw_settings_screen()
         FlightLogger::set_html_report_enabled(value);
         Settings::save();
     }
+    draw_maptiler_key_field();
     ImGui::Unindent();
     ImGui::EndDisabled();
 

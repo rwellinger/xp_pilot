@@ -64,10 +64,13 @@ inline constexpr ImVec4 recording{0.957f, 0.282f, 0.243f, 1.00f};
 
 // Track map
 inline constexpr ImU32 map_background = IM_COL32(24, 30, 40, 255);
-inline constexpr ImU32 map_track      = IM_COL32(212, 212, 0, 255);
+// Track colour ramps with altitude, from ground level to the flight's ceiling.
+inline constexpr ImU32 map_track_low  = IM_COL32(0, 110, 180, 255);
+inline constexpr ImU32 map_track_high = IM_COL32(130, 235, 255, 255);
 inline constexpr ImU32 map_pause      = IM_COL32(255, 204, 0, 255);
 inline constexpr ImU32 map_departure  = IM_COL32(64, 255, 0, 255);
 inline constexpr ImU32 map_arrival    = IM_COL32(80, 150, 255, 255);
+inline constexpr ImU32 map_scale      = IM_COL32(139, 153, 175, 255); // text_dim, as ImDrawList wants ImU32
 
 // Landing rating colours, shared by the logbook, the detail view and the popup.
 ImVec4 rating_color(const std::string &rating);

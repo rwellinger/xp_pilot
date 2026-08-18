@@ -123,6 +123,11 @@ std::string generate(const FlightData &fd, const std::string &data_dir, const st
 
 // Regenerate index.html from all JSON files in data_dir/flights/.
 void generate_index(const std::string &data_dir);
+
+// MapTiler key used for the report map. Empty (the default) selects OpenFreeMap,
+// which needs no key. Only affects reports rendered after the call.
+void               set_maptiler_key(const std::string &key);
+const std::string &maptiler_key();
 } // namespace HtmlReport
 
 // ── JSON parsing (for logbook and report regeneration) ─────────────────────

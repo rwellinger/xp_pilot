@@ -99,12 +99,73 @@ inline GeoBounds track_bounds(const std::vector<TrackPoint> &track)
     return bounds;
 }
 
-// Map a position into a width x height box, y growing downwards as pixels do.
-inline void project_to_pixel(const GeoBounds &bounds, double lat, double lon, double width, double height,
-                             float &out_x, float &out_y)
+// ── Map projection ────────────────────────────────────────────────────────────
+// Web Mercator, so the track keeps the shape a pilot recognises from a chart. Both
+// axes carry the same scale; whatever is left over becomes a letterbox margin. A plain
+// linear lat/lon stretch would squash north-south flights the further from the equator
+// they happen.
+
+namespace detail
 {
-    out_x = static_cast<float>((lon - bounds.lon_min) / (bounds.lon_max - bounds.lon_min) * width);
-    out_y = static_cast<float>((1.0 - (lat - bounds.lat_min) / (bounds.lat_max - bounds.lat_min)) * height);
+constexpr double DEGREES_TO_RADIANS = 3.14159265358979323846 / 180.0;
+constexpr double QUARTER_TURN_RAD   = 3.14159265358979323846 / 4.0;
+// Mercator diverges at the poles; Web Mercator's usual cutoff keeps the maths finite.
+constexpr double MERCATOR_LAT_LIMIT_DEG = 85.05112878;
+// Good to ~0.1% — plenty for a scale bar that snaps to round distances anyway.
+constexpr double KM_PER_DEGREE_LONGITUDE_AT_EQUATOR = 111.320;
+
+inline double mercator_x(double lon_degrees) { return lon_degrees * DEGREES_TO_RADIANS; }
+
+inline double mercator_y(double lat_degrees)
+{
+    const double clamped = std::clamp(lat_degrees, -MERCATOR_LAT_LIMIT_DEG, MERCATOR_LAT_LIMIT_DEG);
+    return std::log(std::tan(QUARTER_TURN_RAD + clamped * DEGREES_TO_RADIANS / 2.0));
+}
+} // namespace detail
+
+// A projected map fitted into a width x height box, centred with equal margins.
+struct MapViewport
+{
+    double x_left   = 0; // Mercator x along the left edge of the fitted map
+    double y_top    = 0; // Mercator y along its top edge
+    double scale    = 1; // pixels per Mercator unit — the same on both axes
+    float  offset_x = 0; // letterbox margins centring the map in its box
+    float  offset_y = 0;
+};
+
+inline MapViewport make_viewport(const GeoBounds &bounds, float width, float height)
+{
+    MapViewport viewport;
+    viewport.x_left = detail::mercator_x(bounds.lon_min);
+    viewport.y_top  = detail::mercator_y(bounds.lat_max);
+
+    // Guard against a degenerate span; track_bounds always pads, so this only bites on
+    // hand-built bounds.
+    const double span_x = std::max(detail::mercator_x(bounds.lon_max) - viewport.x_left, 1e-12);
+    const double span_y = std::max(viewport.y_top - detail::mercator_y(bounds.lat_min), 1e-12);
+
+    viewport.scale    = std::min(width / span_x, height / span_y);
+    viewport.offset_x = static_cast<float>((width - span_x * viewport.scale) / 2.0);
+    viewport.offset_y = static_cast<float>((height - span_y * viewport.scale) / 2.0);
+    return viewport;
+}
+
+// Ground distance one horizontal pixel covers, measured at the centre latitude —
+// what a scale bar needs to label itself.
+inline double km_per_pixel(const GeoBounds &bounds, const MapViewport &viewport)
+{
+    const double px_per_degree = detail::DEGREES_TO_RADIANS * viewport.scale;
+    if (px_per_degree <= 0.0)
+        return 0.0;
+    const double mid_lat_rad = (bounds.lat_min + bounds.lat_max) / 2.0 * detail::DEGREES_TO_RADIANS;
+    return detail::KM_PER_DEGREE_LONGITUDE_AT_EQUATOR * std::cos(mid_lat_rad) / px_per_degree;
+}
+
+// Map a position into the viewport, y growing downwards as pixels do.
+inline void project_to_pixel(const MapViewport &viewport, double lat, double lon, float &out_x, float &out_y)
+{
+    out_x = viewport.offset_x + static_cast<float>((detail::mercator_x(lon) - viewport.x_left) * viewport.scale);
+    out_y = viewport.offset_y + static_cast<float>((viewport.y_top - detail::mercator_y(lat)) * viewport.scale);
 }
 
 } // namespace FlightLoggerLogic

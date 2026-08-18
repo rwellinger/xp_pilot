@@ -508,9 +508,26 @@ std::string landing_cards_html(const FlightData &fd, const std::string &profile_
 }
 
 constexpr const char *REPORT_CDN_HEAD =
-    "<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>"
-    "<script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>"
+    "<link rel=\"stylesheet\" href=\"https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css\"/>"
+    "<script src=\"https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js\"></script>"
     "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js\"></script>";
+
+// OpenFreeMap serves vector tiles without a key or usage limit; a MapTiler key is
+// optional and only swaps the styling.
+constexpr const char *OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+constexpr const char *MAP_ATTRIBUTION =
+    "<a href=\"https://openfreemap.org\">OpenFreeMap</a> "
+    "<a href=\"https://www.openmaptiles.org/\">&copy; OpenMapTiles</a> Data from "
+    "<a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a>";
+
+std::string s_maptiler_key;
+
+std::string map_style_url()
+{
+    if (s_maptiler_key.empty())
+        return OPENFREEMAP_STYLE;
+    return "https://api.maptiler.com/maps/streets-v2-dark/style.json?key=" + s_maptiler_key;
+}
 
 std::string line_chart_js(const char *canvas_id, const char *label, const char *data_var, const char *border_color,
                           const char *fill_color, const char *unit)
@@ -535,19 +552,24 @@ std::string map_and_charts_script(const TrackJsArrays &track, const std::string 
     js << "<script>"
        << "var lats=" << track.lats << ",lons=" << track.lons << ",alts=" << track.alts << ",spds=" << track.spds
        << ",pauses=" << js_pauses << ";"
-       << "var map=L.map('map');"
-       << "L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',"
-       << "{maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd'}).addTo(map);"
-       << "if(lats.length>0){"
-       << "var coords=lats.map(function(la,i){return[la,lons[i]];});"
-       << "var poly=L.polyline(coords,{color:'#00d4ff',weight:2}).addTo(map);"
-       << "L.circleMarker(coords[0],{radius:6,color:'#00ff80',fillOpacity:1}).bindTooltip('Departure').addTo(map);"
-       << "L.circleMarker(coords[coords.length-1],{radius:6,color:'#ff4040',fillOpacity:1}).bindTooltip('Arrival')."
-          "addTo(map);"
-       << "pauses.forEach(function(p){L.circleMarker([p[0],p[1]],{radius:6,color:'#ffcc00',fillColor:'#ffcc00',"
-          "fillOpacity:.9}).bindTooltip('Pause '+p[2]).addTo(map);});"
-       << "map.fitBounds(poly.getBounds(),{padding:[20,20]});"
-       << "}else{map.setView([" << clat_s << "," << clon_s << "],8);}"
+       << "var map=new maplibregl.Map({container:'map',style:'" << map_style_url() << "',center:[" << clon_s << ","
+       << clat_s << "],zoom:8,attributionControl:false});"
+       << "map.addControl(new maplibregl.AttributionControl({customAttribution:'" << MAP_ATTRIBUTION << "'}));"
+       << R"(map.on('load',function(){
+if(!lats.length)return;
+var coords=lats.map(function(la,i){return[lons[i],la];});
+map.addSource('track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+map.addLayer({id:'track',type:'line',source:'track',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#00d4ff','line-width':2}});
+var pts=[{c:coords[0],l:'Departure',k:'#00ff80'},{c:coords[coords.length-1],l:'Arrival',k:'#ff4040'}];
+pauses.forEach(function(p){pts.push({c:[p[1],p[0]],l:'Pause '+p[2],k:'#ffcc00'});});
+map.addSource('points',{type:'geojson',data:{type:'FeatureCollection',features:pts.map(function(p){return{type:'Feature',geometry:{type:'Point',coordinates:p.c},properties:{label:p.l,color:p.k}};})}});
+map.addLayer({id:'points',type:'circle',source:'points',paint:{'circle-radius':6,'circle-color':['get','color'],'circle-stroke-width':1,'circle-stroke-color':'#101010'}});
+var bounds=coords.reduce(function(b,c){return b.extend(c);},new maplibregl.LngLatBounds(coords[0],coords[0]));
+map.fitBounds(bounds,{padding:20,duration:0});
+var popup=new maplibregl.Popup({closeButton:false,closeOnClick:false});
+map.on('mouseenter','points',function(e){map.getCanvas().style.cursor='pointer';popup.setLngLat(e.features[0].geometry.coordinates).setText(e.features[0].properties.label).addTo(map);});
+map.on('mouseleave','points',function(){map.getCanvas().style.cursor='';popup.remove();});
+});)"
        << "var fmt='" << time_fmt << "';"
        << "var lb=alts.map(function(_,i){var s=i*10;"
           "if(fmt==='ms'){var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}"
@@ -687,6 +709,9 @@ void HtmlReport::generate_index(const std::string &data_dir)
     if (out.is_open())
         out << idx;
 }
+
+void               HtmlReport::set_maptiler_key(const std::string &key) { s_maptiler_key = key; }
+const std::string &HtmlReport::maptiler_key() { return s_maptiler_key; }
 
 // ── JSON parsing ──────────────────────────────────────────────────────────────
 

@@ -18,6 +18,7 @@
 
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "html_report.hpp"
 #include "logbook_ui.hpp"
 #include "ui_theme.hpp"
 #include "settings.hpp"
@@ -58,6 +59,7 @@ static void load_settings()
         FlightLogger::set_popup_position(
             popup_position_from_string(j.value("popup_position", popup_position_to_string(POPUP_POSITION_DEFAULT))));
         Theme::set_ui_scale(j.value("ui_scale", 1.0f));
+        HtmlReport::set_maptiler_key(j.value("maptiler_api_key", std::string()));
     }
     catch (...)
     {
@@ -78,6 +80,7 @@ void Settings::save()
     j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
     j["popup_position"]             = popup_position_to_string(FlightLogger::popup_position());
     j["ui_scale"]                   = Theme::ui_scale();
+    j["maptiler_api_key"]           = HtmlReport::maptiler_key();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);

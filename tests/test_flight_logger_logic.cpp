@@ -90,23 +90,78 @@ TEST_CASE("bounds span the extremes of the track with padding", "[flight_logger]
     REQUIRE(bounds.lat_max - bounds.lat_min == Catch::Approx(1.0 + 2 * (0.05 + 0.001)));
 }
 
-TEST_CASE("projection maps the box corners to pixel corners", "[flight_logger][track]")
+TEST_CASE("projection centres the map and keeps north above south", "[flight_logger][track]")
 {
-    FlightLoggerLogic::GeoBounds bounds{46.0, 47.0, 7.0, 8.0};
-    float                        x = 0, y = 0;
+    const FlightLoggerLogic::GeoBounds bounds{46.0, 47.0, 7.0, 8.0};
+    const auto     viewport = FlightLoggerLogic::make_viewport(bounds, 200.f, 100.f);
+    float          x = 0, y = 0;
 
-    // North-west corner is the top-left pixel; latitude grows upwards, y grows downwards.
-    FlightLoggerLogic::project_to_pixel(bounds, 47.0, 7.0, 200.0, 100.0, x, y);
-    REQUIRE(x == Catch::Approx(0.f));
-    REQUIRE(y == Catch::Approx(0.f));
+    // The centre of the bounds lands in the centre of the box, whatever the letterboxing.
+    FlightLoggerLogic::project_to_pixel(viewport, 46.5, 7.5, x, y);
+    REQUIRE(x == Catch::Approx(100.f).margin(0.5f));
+    REQUIRE(y == Catch::Approx(50.f).margin(0.5f));
 
-    FlightLoggerLogic::project_to_pixel(bounds, 46.0, 8.0, 200.0, 100.0, x, y);
-    REQUIRE(x == Catch::Approx(200.f));
-    REQUIRE(y == Catch::Approx(100.f));
+    float north_y = 0, south_y = 0, unused = 0;
+    FlightLoggerLogic::project_to_pixel(viewport, 47.0, 7.5, unused, north_y);
+    FlightLoggerLogic::project_to_pixel(viewport, 46.0, 7.5, unused, south_y);
+    REQUIRE(north_y < south_y); // latitude grows upwards, pixel y downwards
 
-    FlightLoggerLogic::project_to_pixel(bounds, 46.5, 7.5, 200.0, 100.0, x, y);
-    REQUIRE(x == Catch::Approx(100.f));
-    REQUIRE(y == Catch::Approx(50.f));
+    float west_x = 0, east_x = 0;
+    FlightLoggerLogic::project_to_pixel(viewport, 46.5, 7.0, west_x, unused);
+    FlightLoggerLogic::project_to_pixel(viewport, 46.5, 8.0, east_x, unused);
+    REQUIRE(west_x < east_x);
+}
+
+TEST_CASE("km_per_pixel converts pixel distance back to ground distance", "[flight_logger][track]")
+{
+    // At 46 N one degree of longitude is 111.32 * cos(46) = 77.3 km on the ground.
+    const FlightLoggerLogic::GeoBounds bounds{45.5, 46.5, 7.0, 8.0};
+    const auto   viewport  = FlightLoggerLogic::make_viewport(bounds, 400.f, 400.f);
+    const double km_per_px = FlightLoggerLogic::km_per_pixel(bounds, viewport);
+
+    float west_x = 0, east_x = 0, unused = 0;
+    FlightLoggerLogic::project_to_pixel(viewport, 46.0, 7.0, west_x, unused);
+    FlightLoggerLogic::project_to_pixel(viewport, 46.0, 8.0, east_x, unused);
+
+    const double measured_km = (east_x - west_x) * km_per_px;
+    REQUIRE(measured_km == Catch::Approx(77.3).margin(1.0));
+}
+
+TEST_CASE("km_per_pixel falls as the map grows", "[flight_logger][track]")
+{
+    const FlightLoggerLogic::GeoBounds bounds{45.5, 46.5, 7.0, 8.0};
+
+    const double small = FlightLoggerLogic::km_per_pixel(bounds, FlightLoggerLogic::make_viewport(bounds, 400.f, 400.f));
+    const double large = FlightLoggerLogic::km_per_pixel(bounds, FlightLoggerLogic::make_viewport(bounds, 800.f, 800.f));
+
+    REQUIRE(small > 0.0);
+    REQUIRE(large == Catch::Approx(small / 2.0).epsilon(0.01));
+}
+
+// The regression this guards: a linear lat/lon stretch into a fixed-aspect box squashed
+// north-south flights, the more so the further from the equator they happened.
+TEST_CASE("projection preserves the aspect ratio and letterboxes the remainder", "[flight_logger][track]")
+{
+    // One degree of latitude covers more Mercator span than one of longitude at 46 N,
+    // so a square-in-degrees box is taller than it is wide once projected.
+    const FlightLoggerLogic::GeoBounds bounds{46.0, 47.0, 7.0, 8.0};
+    const auto viewport = FlightLoggerLogic::make_viewport(bounds, 400.f, 400.f);
+
+    float left_x = 0, right_x = 0, top_y = 0, bottom_y = 0, unused = 0;
+    FlightLoggerLogic::project_to_pixel(viewport, 46.5, 7.0, left_x, unused);
+    FlightLoggerLogic::project_to_pixel(viewport, 46.5, 8.0, right_x, unused);
+    FlightLoggerLogic::project_to_pixel(viewport, 47.0, 7.5, unused, top_y);
+    FlightLoggerLogic::project_to_pixel(viewport, 46.0, 7.5, unused, bottom_y);
+
+    const float drawn_w = right_x - left_x;
+    const float drawn_h = bottom_y - top_y;
+    REQUIRE(drawn_h > drawn_w);                          // no squashing into the square box
+    REQUIRE(drawn_h == Catch::Approx(400.f).margin(1.f)); // the taller axis fills the box
+    REQUIRE(left_x > 0.f);                               // the narrower one is letterboxed
+    REQUIRE(left_x == Catch::Approx(400.f - right_x).margin(0.5f)); // ...symmetrically
+
+    // Same scale on both axes is what "undistorted" means.
+    REQUIRE(viewport.scale > 0.0);
 }
 
 // ── Pause total ───────────────────────────────────────────────────────────────
