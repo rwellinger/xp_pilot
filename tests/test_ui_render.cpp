@@ -11,6 +11,8 @@
 #include "ui_home.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <imgui.h>
 #include <ios>
@@ -83,6 +85,106 @@ FlightData load_fixture(const char *name)
 }
 
 } // namespace
+
+// The regression these guard: a UI scale of 2.0 sized the logbook window at 2120x1440.
+// On any narrower screen its title bar and resize grip landed off-screen, so the window
+// could neither be moved nor shrunk — and the scale slider that caused it sat inside that
+// unreachable window. Recovery meant hand-editing settings.json.
+TEST_CASE("UI scale is clamped to a usable range", "[ui][scale]")
+{
+    ImGuiHeadlessContext ctx;
+
+    Theme::set_ui_scale(99.f);
+    REQUIRE(Theme::ui_scale() == Catch::Approx(Theme::ui_scale_max));
+
+    Theme::set_ui_scale(0.f);
+    REQUIRE(Theme::ui_scale() == Catch::Approx(Theme::ui_scale_min));
+
+    Theme::set_ui_scale(-5.f);
+    REQUIRE(Theme::ui_scale() == Catch::Approx(Theme::ui_scale_min));
+
+    // A value from settings.json takes the same path, so a hand-edited file cannot
+    // reintroduce an unusable scale.
+    Theme::set_ui_scale(1.25f);
+    REQUIRE(Theme::ui_scale() == Catch::Approx(1.25f));
+
+    Theme::reset_ui_scale();
+    REQUIRE(Theme::ui_scale() == Catch::Approx(Theme::ui_scale_default));
+}
+
+TEST_CASE("UI scale steps stay on the grid and inside the range", "[ui][scale]")
+{
+    // 5% steps, so setups that need fine tuning — 85% on a TV-distance monitor — are
+    // reachable and survive a click on either button.
+    REQUIRE(Theme::stepped_ui_scale(0.85f, +1) == Catch::Approx(0.90f));
+    REQUIRE(Theme::stepped_ui_scale(0.90f, -1) == Catch::Approx(0.85f));
+    REQUIRE(Theme::stepped_ui_scale(1.0f, +1) == Catch::Approx(1.05f));
+    REQUIRE(Theme::stepped_ui_scale(1.0f, -1) == Catch::Approx(0.95f));
+
+    // Both ends are hard stops, so repeated clicking cannot escape the range.
+    REQUIRE(Theme::stepped_ui_scale(Theme::ui_scale_max, +1) == Catch::Approx(Theme::ui_scale_max));
+    REQUIRE(Theme::stepped_ui_scale(Theme::ui_scale_min, -1) == Catch::Approx(Theme::ui_scale_min));
+
+    // A value from a hand-edited settings.json is snapped back onto the grid.
+    REQUIRE(Theme::stepped_ui_scale(1.234f, +1) == Catch::Approx(1.30f));
+    REQUIRE(Theme::stepped_ui_scale(1.234f, -1) == Catch::Approx(1.20f));
+
+    // Every step from bottom to top lands on a round percentage, and the grid reaches
+    // the maximum exactly rather than stopping short of it.
+    float scale = Theme::ui_scale_min;
+    for (int i = 0; i < 24; ++i)
+    {
+        scale                  = Theme::stepped_ui_scale(scale, +1);
+        const float percentage = scale * 100.f;
+        REQUIRE(percentage == Catch::Approx(std::round(percentage)).margin(0.01f));
+    }
+    REQUIRE(scale == Catch::Approx(Theme::ui_scale_max));
+
+    // And back down again, symmetrically.
+    for (int i = 0; i < 24; ++i)
+        scale = Theme::stepped_ui_scale(scale, -1);
+    REQUIRE(scale == Catch::Approx(Theme::ui_scale_min));
+}
+
+TEST_CASE("the logbook window never exceeds the screen at maximum scale", "[ui][scale]")
+{
+    ImGuiHeadlessContext ctx;
+
+    // A modest laptop screen — the case that broke.
+    constexpr float screen_w = 1440.f;
+    constexpr float screen_h = 900.f;
+
+    Theme::set_ui_scale(Theme::ui_scale_max);
+    REQUIRE(Theme::scaled(1060.f) > screen_w); // unclamped this is what overflowed
+
+    const Theme::WindowFit fit =
+        Theme::fit_window_to_screen(Theme::scaled(1060.f), Theme::scaled(720.f), screen_w, screen_h);
+
+    REQUIRE(fit.size.x <= screen_w);
+    REQUIRE(fit.size.y <= screen_h);
+    REQUIRE(fit.max_size.x <= screen_w);
+    REQUIRE(fit.max_size.y <= screen_h);
+
+    // Fully on screen, so the title bar and resize grip stay grabbable.
+    REQUIRE(fit.pos.x >= 0.f);
+    REQUIRE(fit.pos.y >= 0.f);
+    REQUIRE(fit.pos.x + fit.size.x <= screen_w);
+    REQUIRE(fit.pos.y + fit.size.y <= screen_h);
+
+    Theme::reset_ui_scale();
+}
+
+TEST_CASE("a window smaller than the screen keeps its requested size", "[ui][scale]")
+{
+    ImGuiHeadlessContext ctx;
+    Theme::reset_ui_scale();
+
+    const Theme::WindowFit fit = Theme::fit_window_to_screen(1060.f, 720.f, 2560.f, 1440.f);
+
+    REQUIRE(fit.size.x == Catch::Approx(1060.f));
+    REQUIRE(fit.size.y == Catch::Approx(720.f));
+    REQUIRE(fit.pos.x == Catch::Approx((2560.f - 1060.f) * 0.5f));
+}
 
 TEST_CASE("every icon define resolves to a glyph in the embedded subset", "[ui]")
 {

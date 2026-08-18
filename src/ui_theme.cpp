@@ -24,10 +24,7 @@
 namespace
 {
 
-constexpr float UI_SCALE_MIN = 0.8f;
-constexpr float UI_SCALE_MAX = 2.0f;
-
-float s_ui_scale = 1.0f;
+float s_ui_scale = Theme::ui_scale_default;
 
 ImVec4 with_alpha(const ImVec4 &c, float alpha) { return {c.x, c.y, c.z, alpha}; }
 
@@ -138,7 +135,7 @@ float Theme::ui_scale() { return s_ui_scale; }
 
 void Theme::set_ui_scale(float scale)
 {
-    s_ui_scale = std::clamp(scale, UI_SCALE_MIN, UI_SCALE_MAX);
+    s_ui_scale = std::clamp(scale, Theme::ui_scale_min, Theme::ui_scale_max);
 
     // ScaleAllSizes() is not idempotent, so the style is rebuilt from scratch first.
     apply_style();
@@ -146,3 +143,5 @@ void Theme::set_ui_scale(float scale)
         ImGui::GetStyle().ScaleAllSizes(s_ui_scale);
     ImGui::GetStyle().FontScaleMain = s_ui_scale;
 }
+
+void Theme::reset_ui_scale() { set_ui_scale(ui_scale_default); }

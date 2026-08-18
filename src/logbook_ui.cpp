@@ -54,6 +54,7 @@ using Home::Screen;
 static XPLMWindowID  s_wnd          = nullptr;
 static ImGuiContext *s_imgui_ctx    = nullptr;
 static bool          s_logbook_open = false; // ImGui window open state
+static bool          s_reset_window_layout = false; // recentre and resize on the next frame
 
 static Screen s_screen = Screen::Home;
 
@@ -255,13 +256,49 @@ static void draw_settings_screen()
 
     Ui::section_header(ICON_FA_GEAR, "Appearance");
 
-    float scale = Theme::ui_scale();
-    ImGui::SetNextItemWidth(Theme::scaled(220.f));
-    if (ImGui::SliderFloat("UI scale", &scale, 0.8f, 2.0f, "%.2fx"))
-        Theme::set_ui_scale(scale);
-    if (ImGui::IsItemDeactivatedAfterEdit())
+    // Stepped rather than dragged: the scale applies live, so a slider slides out from
+    // under the cursor mid-drag and overshooting to the maximum is far too easy.
+    const float scale       = Theme::ui_scale();
+    const float step_button = Theme::scaled(30.f);
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("UI scale");
+    ImGui::SameLine();
+
+    ImGui::BeginDisabled(scale <= Theme::ui_scale_min);
+    if (ImGui::Button("-", ImVec2(step_button, 0.f)))
+    {
+        Theme::set_ui_scale(Theme::stepped_ui_scale(scale, -1));
         Settings::save();
-    Ui::help_marker("Scales fonts and spacing. Useful on high-DPI displays.");
+    }
+    ImGui::EndDisabled();
+
+    // Padded to a fixed width so the buttons stay put between steps.
+    char percent[16];
+    snprintf(percent, sizeof(percent), "%4.0f%%", scale * 100.f);
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s", percent);
+    ImGui::SameLine();
+
+    ImGui::BeginDisabled(scale >= Theme::ui_scale_max);
+    if (ImGui::Button("+", ImVec2(step_button, 0.f)))
+    {
+        Theme::set_ui_scale(Theme::stepped_ui_scale(scale, +1));
+        Settings::save();
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    if (ImGui::Button(ICON_FA_ROTATE "  Reset"))
+    {
+        LogbookUI::reset_layout();
+        Settings::save();
+    }
+    Ui::help_marker("Scales fonts and spacing. Useful on high-DPI displays.\n"
+                    "Reset returns to 100% and recentres the window. It is also in\n"
+                    "the Plugins menu under \"XP Pilot Suite\", which stays reachable\n"
+                    "even if this window has been scaled out of view.");
 }
 
 // Screen chrome: back navigation and title, then the screen itself.
@@ -326,6 +363,12 @@ static void close_window()
     s_logbook_open = false;
     if (s_wnd)
         XPLMSetWindowIsVisible(s_wnd, 0);
+}
+
+void LogbookUI::reset_layout()
+{
+    Theme::reset_ui_scale();
+    s_reset_window_layout = true;
 }
 
 // Minimal XPLM window draw callback — input capture only, rendering is in LogbookUI::draw()
@@ -499,13 +542,25 @@ void LogbookUI::draw()
 
     if (s_logbook_open)
     {
-        const float window_w = Theme::scaled(1060.f);
-        const float window_h = Theme::scaled(720.f);
-        ImGui::SetNextWindowPos(
-            ImVec2((static_cast<float>(screen_w) - window_w) * 0.5f, (static_cast<float>(screen_h) - window_h) * 0.5f),
-            ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(window_w, window_h), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSizeConstraints(ImVec2(760, 460), ImVec2(3840, 2160));
+        const Theme::WindowFit fit = Theme::fit_window_to_screen(
+            Theme::scaled(1060.f), Theme::scaled(720.f), static_cast<float>(screen_w), static_cast<float>(screen_h));
+
+        // A scale change has to re-apply size and position, otherwise the window keeps
+        // whatever the previous scale left behind and its content no longer fits.
+        static float last_applied_scale = Theme::ui_scale();
+        ImGuiCond    layout_cond        = ImGuiCond_FirstUseEver;
+        if (s_reset_window_layout || last_applied_scale != Theme::ui_scale())
+        {
+            last_applied_scale    = Theme::ui_scale();
+            s_reset_window_layout = false;
+            layout_cond           = ImGuiCond_Always;
+        }
+
+        ImGui::SetNextWindowPos(fit.pos, layout_cond);
+        ImGui::SetNextWindowSize(fit.size, layout_cond);
+        ImGui::SetNextWindowSizeConstraints(
+            ImVec2(std::min(Theme::scaled(760.f), fit.max_size.x), std::min(Theme::scaled(460.f), fit.max_size.y)),
+            fit.max_size);
 
         bool open = true;
 #ifdef XP_PILOT_VERSION

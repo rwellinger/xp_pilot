@@ -28,4 +28,9 @@ void stop();
 void open();
 void toggle();
 void draw(); // call every frame from main draw callback
+
+// Restore the default UI scale and recentre the window at its default size. Reachable
+// from the plugin menu and a command, so an oversized window can always be recovered
+// without editing settings.json.
+void reset_layout();
 } // namespace LogbookUI

@@ -100,15 +100,27 @@ static int DrawCallback(XPLMDrawingPhase, int, void *)
 
 static XPLMCommandRef s_cmd_logbook     = nullptr;
 static XPLMCommandRef s_cmd_show_landing = nullptr;
+static XPLMCommandRef s_cmd_reset_layout = nullptr;
 
 static XPLMMenuID s_plugin_menu       = nullptr;
 static int        s_logbook_item      = -1;
 static int        s_show_landing_item = -1;
+static int        s_reset_layout_item = -1;
+
+// Resetting the interface has to work from outside the ImGui window: a window scaled
+// larger than the screen cannot be reached with the mouse, and the plugin menu can.
+static void reset_ui_layout()
+{
+    LogbookUI::reset_layout();
+    Settings::save();
+}
 
 static void PluginMenuHandler(void *, void *item_ref)
 {
     if (item_ref == &s_show_landing_item)
         FlightLogger::replay_last_landing_popup();
+    else if (item_ref == &s_reset_layout_item)
+        reset_ui_layout();
     else
         LogbookUI::toggle();
 }
@@ -124,6 +136,13 @@ static int CmdShowLanding(XPLMCommandRef, XPLMCommandPhase phase, void *)
 {
     if (phase == xplm_CommandBegin)
         FlightLogger::replay_last_landing_popup();
+    return 1;
+}
+
+static int CmdResetLayout(XPLMCommandRef, XPLMCommandPhase phase, void *)
+{
+    if (phase == xplm_CommandBegin)
+        reset_ui_layout();
     return 1;
 }
 
@@ -166,6 +185,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         s_cmd_show_landing =
             XPLMCreateCommand("xp_pilot/logbook/show_last_landing", "Show last landing rating popup");
         XPLMRegisterCommandHandler(s_cmd_show_landing, CmdShowLanding, 1, nullptr);
+        s_cmd_reset_layout = XPLMCreateCommand("xp_pilot/ui/reset_layout", "Reset UI scale and window size");
+        XPLMRegisterCommandHandler(s_cmd_reset_layout, CmdResetLayout, 1, nullptr);
 
         XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
         int        sub          = XPLMAppendMenuItem(plugins_menu, "XP Pilot Suite", nullptr, 0);
@@ -173,6 +194,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         s_logbook_item          = XPLMAppendMenuItem(s_plugin_menu, "Open / Close Logbook", &s_logbook_item, 0);
         s_show_landing_item =
             XPLMAppendMenuItem(s_plugin_menu, "Show Last Landing Rating", &s_show_landing_item, 0);
+        s_reset_layout_item =
+            XPLMAppendMenuItem(s_plugin_menu, "Reset UI Scale & Window Size", &s_reset_layout_item, 0);
 
         char banner[128];
         snprintf(banner, sizeof(banner), "[xp_pilot] *** xp_pilot v%s by thWelly ***\n", XP_PILOT_VERSION);
@@ -200,6 +223,8 @@ PLUGIN_API void XPluginStop()
         XPLMUnregisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
     if (s_cmd_show_landing)
         XPLMUnregisterCommandHandler(s_cmd_show_landing, CmdShowLanding, 1, nullptr);
+    if (s_cmd_reset_layout)
+        XPLMUnregisterCommandHandler(s_cmd_reset_layout, CmdResetLayout, 1, nullptr);
     XPLMUnregisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
     XPLMDebugString("[xp_pilot] Plugin unloaded.\n");
 }

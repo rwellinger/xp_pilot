@@ -17,6 +17,9 @@
  */
 
 #pragma once
+
+#include <algorithm>
+#include <cmath>
 #include <imgui.h>
 #include <string>
 
@@ -82,12 +85,53 @@ inline constexpr float font_size_base = 17.f;
 // Call once, before the renderer backend is initialised.
 void init();
 
-// Global UI scale (0.8 - 2.0), applied to fonts and to every layout constant
-// that goes through scaled(). Persisted in settings.json.
+// Global UI scale, applied to fonts and to every layout constant that goes through
+// scaled(). Persisted in settings.json. set_ui_scale() clamps to the range below, so
+// no caller can drive the interface to an unusable size.
+inline constexpr float ui_scale_min     = 0.8f;
+inline constexpr float ui_scale_max     = 2.0f;
+inline constexpr float ui_scale_default = 1.0f;
+// 5% steps: fine enough to tune a TV-distance setup (0.85 is a real-world setting),
+// coarse enough that a click is still a deliberate step rather than a drag.
+inline constexpr float ui_scale_step    = 0.05f;
+
 float ui_scale();
 void  set_ui_scale(float scale);
+void  reset_ui_scale();
+
+// Next scale one step up (direction +1) or down (-1), snapped back onto the step grid
+// and clamped. Stepping beats dragging here: the scale applies live, so a slider moves
+// out from under the cursor while being dragged, which makes overshooting to the
+// maximum almost unavoidable.
+inline float stepped_ui_scale(float current, int direction)
+{
+    const float snapped = std::round(current / ui_scale_step) * ui_scale_step;
+    return std::clamp(snapped + static_cast<float>(direction) * ui_scale_step, ui_scale_min, ui_scale_max);
+}
 
 // Layout constants are authored at scale 1.0 and passed through this.
 inline float scaled(float value) { return value * ui_scale(); }
+
+// ── Window fitting ────────────────────────────────────────────────────────────
+// A window is never allowed to outgrow the screen. At a large UI scale its title bar
+// and resize grip would otherwise sit off-screen, leaving no way to move or shrink it —
+// including no way back to the scale setting responsible.
+inline constexpr float window_screen_fraction = 0.95f;
+
+struct WindowFit
+{
+    ImVec2 size;     // initial size, clamped to the screen
+    ImVec2 pos;      // centred on the screen
+    ImVec2 max_size; // ceiling for the user's own resizing
+};
+
+inline WindowFit fit_window_to_screen(float desired_w, float desired_h, float screen_w, float screen_h)
+{
+    WindowFit fit;
+    fit.max_size = ImVec2(screen_w * window_screen_fraction, screen_h * window_screen_fraction);
+    fit.size     = ImVec2(std::min(desired_w, fit.max_size.x), std::min(desired_h, fit.max_size.y));
+    fit.pos      = ImVec2((screen_w - fit.size.x) * 0.5f, (screen_h - fit.size.y) * 0.5f);
+    return fit;
+}
 
 } // namespace Theme
