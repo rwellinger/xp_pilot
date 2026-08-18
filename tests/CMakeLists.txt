@@ -5,16 +5,30 @@
 
 set(CATCH2_DIR ${CMAKE_SOURCE_DIR}/vendor/catch2)
 
+# Dear ImGui without a backend, so the UI modules can be exercised headless.
+set(IMGUI_TEST_SOURCES
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+)
+
 add_executable(xp_pilot_tests
     ${CATCH2_DIR}/catch_amalgamated.cpp
     ${CMAKE_SOURCE_DIR}/src/html_report.cpp
     ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_theme.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_widgets.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_home.cpp
+    ${IMGUI_TEST_SOURCES}
     test_smoke.cpp
     test_html_report.cpp
     test_auto_qnh_logic.cpp
     test_flight_logger_logic.cpp
     test_runway.cpp
     test_popup_position.cpp
+    test_ui_render.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE
@@ -23,6 +37,7 @@ target_include_directories(xp_pilot_tests PRIVATE
 target_include_directories(xp_pilot_tests SYSTEM PRIVATE
     ${CATCH2_DIR}
     ${CMAKE_SOURCE_DIR}/vendor
+    ${IMGUI_DIR}
 )
 
 # Path to the fixtures directory, made available to the test code.

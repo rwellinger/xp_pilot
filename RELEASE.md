@@ -5,8 +5,16 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 
 ### Unreleased
 
+  - **Redesigned logbook window** — the window no longer opens on a row of tabs. It opens on a home screen of four large icon tiles (Live, Logbook, Archive, Settings), with a live status bar pinned above them that stays visible on every screen.
+    - **Status bar** — aircraft type and tail number, departure airport and current position with true heading, and the live figures as labelled cells: altitude, indicated airspeed, vertical speed and running block time. A red **REC** indicator marks a flight being recorded; between flights it reads **IDLE** and the figures show placeholders, so the bar never changes height.
+    - **Home screen** — each tile carries an icon and a live subtitle: whether a flight is recording, how many flights are in the logbook, how many are archived, and whether Auto QNH is on.
+    - **Navigation** — every screen has a **‹ Home** button. `Esc` steps back to the home screen and only closes the window from there.
+    - **Typography and icons** — the window now uses Roboto instead of Dear ImGui's built-in bitmap font, with Font Awesome icons on tiles, buttons and section headings. Both fonts are subset and compiled into the plugin (21 KB total), so nothing is loaded from disk or the network.
+    - **UI scale** — a new setting scales fonts and spacing between 0.8x and 2.0x for high-DPI displays. Stored as `ui_scale` in `settings.json`.
+    - **Flight lists are real tables** — the logbook and archive lists use aligned columns with alternating row backgrounds instead of space-padded text, which no longer depends on a monospaced font.
+    - Every action from the previous window is unchanged and in the same place: refresh, rebuild all reports, select all / clear, batch archive, batch delete, single archive / delete, open report, and the SkyVector link.
   - **Open a position on SkyVector** — coordinates are now one click away from an aeronautical chart instead of something to copy by hand.
-    - The **Live** tab has a **SkyVector** button next to the position line; it opens the current aircraft position on [skyvector.com](https://skyvector.com/) in the default browser.
+    - The **Live** screen has a **SkyVector** button; it opens the current aircraft position on [skyvector.com](https://skyvector.com/) in the default browser.
     - Every landing card in the HTML report gained a **Touchdown position** row showing the touchdown coordinates as a link to the same chart. Landings recorded before touchdown coordinates existed simply omit the row.
   - No file format change; flight logs stay at `version: 4`.
 
@@ -92,8 +100,9 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
   - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
-  - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the Settings tab
-  - Live tab — position, altitude, speed, running block time and the route flown so far, while the flight is still in progress
+  - In-sim ImGui logbook window — tablet-style home screen with a live status bar, plus Live, Logbook, Archive and Settings screens
+  - Live screen — position, altitude, speed, running block time and the route flown so far, while the flight is still in progress
+  - Adjustable UI scale (0.8x–2.0x) for high-DPI displays
   - SkyVector links — open the live position or a recorded touchdown point on an aeronautical chart in the browser
 
 

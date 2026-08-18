@@ -19,13 +19,15 @@
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
-#include "flight_logger_logic.hpp"
-#include "html_report.hpp"
 #include "settings.hpp"
+#include "ui_flight_list.hpp"
+#include "ui_flight_view.hpp"
+#include "ui_home.hpp"
+#include "ui_theme.hpp"
+#include "ui_widgets.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
-#include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMUtilities.h>
 #include <backends/imgui_impl_opengl2.h>
 #include <imgui.h>
@@ -35,14 +37,11 @@
 #include <GL/gl.h>
 #endif
 #include <algorithm>
-#include <cmath>
 // Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
 #include <cstdio> // snprintf
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
-#include <vector>
+
+using Home::Screen;
 
 // ════════════════════════════════════════════════════════════════
 // State
@@ -55,32 +54,22 @@ static XPLMWindowID  s_wnd          = nullptr;
 static ImGuiContext *s_imgui_ctx    = nullptr;
 static bool          s_logbook_open = false; // ImGui window open state
 
-// Active flight list (Logbook tab)
-static std::vector<FlightData> s_entries;
-static std::vector<bool>       s_active_checked; // multi-select state, parallel to s_entries
-static int                     s_selected               = -1;
-static bool                    s_confirm_del            = false; // single-flight delete in detail
-static bool                    s_confirm_archive_single = false; // single-flight archive in detail
-static FlightData              s_detail;
-static bool                    s_detail_loaded = false;
-static std::string             s_report_html;
-static bool                    s_report_exists = false;
+static Screen s_screen = Screen::Home;
 
-// Archived flight list (Archive tab)
-static std::vector<FlightData> s_arch_entries;
-static std::vector<bool>       s_arch_checked;
-static int                     s_arch_selected    = -1;
-static bool                    s_arch_confirm_del = false; // single-flight delete in detail
-static FlightData              s_arch_detail;
-static bool                    s_arch_detail_loaded = false;
-static std::string             s_arch_report_html;
-static bool                    s_arch_report_exists = false;
-static bool                    s_arch_loaded        = false; // lazy-load on first Archive tab view
+static FlightListScreen::FlightList make_list(const char *subdir, bool allow_archive)
+{
+    FlightListScreen::FlightList list;
+    list.subdir        = subdir;
+    list.allow_archive = allow_archive;
+    return list;
+}
 
-// Batch confirmation flags
-static bool s_confirm_batch_archive         = false; // Active tab → batch archive
-static bool s_confirm_batch_delete          = false; // Active tab → batch delete
-static bool s_confirm_batch_delete_archived = false; // Archive tab → batch delete
+static FlightListScreen::FlightList s_logbook = make_list("", true);
+static FlightListScreen::FlightList s_archive = make_list("archived/", false);
+
+// Shown on the archive tile. Counting files is cheap, parsing them is not — the
+// archive itself stays lazily loaded until its screen is opened.
+static size_t s_archive_count = 0;
 
 // ── Time ──────────────────────────────────────────────────────────────────────
 
@@ -94,291 +83,101 @@ static double get_xp_time()
 }
 
 // ════════════════════════════════════════════════════════════════
-// Data loading
+// Screens
 // ════════════════════════════════════════════════════════════════
 
-// Read every *.json file in `dir` (non-recursive), parse it as a FlightData, drop the track
-// samples to keep memory low, and return the list sorted newest-first by filename (filenames
-// start with the date).
-static std::vector<FlightData> read_flight_summaries(const std::string &dir)
+// Live view of the flight currently being recorded. The instantaneous figures live
+// in the status bar; this screen adds what needs room: track, times and landings.
+static void draw_live_screen(const FlightLogger::LiveFlight &live)
 {
-    std::vector<FlightData> out;
-
-    std::vector<std::string> fnames;
-    std::error_code          ec;
-    auto                     dit = std::filesystem::directory_iterator(dir, ec);
-    if (ec)
-        return out;
-    for (auto &entry : dit)
+    if (!live.in_progress)
     {
-        if (entry.is_regular_file())
-        {
-            std::string n = entry.path().filename().string();
-            if (n.size() > 5 && n.substr(n.size() - 5) == ".json")
-                fnames.push_back(n);
-        }
+        ImGui::Spacing();
+        Ui::text_dim("No flight in progress.");
+        Ui::text_dim("Recording starts on the takeoff roll and ends after engine shutdown.");
+        return;
     }
-    std::sort(fnames.begin(), fnames.end(), std::greater<std::string>());
 
-    for (auto &fname : fnames)
-    {
-        std::ifstream f(dir + fname);
-        if (!f.is_open())
-            continue;
-        std::string c((std::istreambuf_iterator<char>(f)), {});
-        FlightData  fd = parse_flight_json(c, fname);
-        fd.track.clear(); // summary only — keep memory low
-        out.push_back(std::move(fd));
-    }
-    return out;
-}
+    const FlightData &flight = live.flight;
 
-static FlightData read_flight_detail(const std::string &dir, const std::string &fname)
-{
-    std::ifstream f(dir + fname);
-    if (!f.is_open())
-        return {};
-    std::string c((std::istreambuf_iterator<char>(f)), {});
-    return parse_flight_json(c, fname);
-}
+    char header[160];
+    snprintf(header, sizeof(header), "%s  off blocks %s UTC  |  %s  %s%s", flight.date.c_str(),
+             flight.start_utc.empty() ? "?" : flight.start_utc.c_str(), flight.aircraft_icao.c_str(),
+             flight.aircraft_tail.c_str(), flight.aircraft_category == "rotorcraft" ? "  [Heli]" : "");
+    Ui::text_dim(header);
 
-static void load_entries()
-{
-    s_entries = read_flight_summaries(FlightLogger::output_dir() + "flights/");
-    s_active_checked.assign(s_entries.size(), false);
-    s_selected               = -1;
-    s_confirm_del            = false;
-    s_confirm_archive_single = false;
-    s_confirm_batch_archive  = false;
-    s_confirm_batch_delete   = false;
-    s_detail_loaded          = false;
-}
+    ImGui::SameLine();
+    if (ImGui::SmallButton(ICON_FA_MAP "  SkyVector"))
+        FlightView::open_in_browser(FlightView::skyvector_url(live.latitude, live.longitude));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Show this position on skyvector.com");
+    ImGui::Separator();
 
-static void load_archived_entries()
-{
-    s_arch_entries = read_flight_summaries(FlightLogger::output_dir() + "flights/archived/");
-    s_arch_checked.assign(s_arch_entries.size(), false);
-    s_arch_selected                 = -1;
-    s_arch_confirm_del              = false;
-    s_confirm_batch_delete_archived = false;
-    s_arch_detail_loaded            = false;
-    s_arch_loaded                   = true;
-}
+    FlightView::draw_time_lines(flight);
 
-static FlightData load_detail(const std::string &fname)
-{
-    return read_flight_detail(FlightLogger::output_dir() + "flights/", fname);
-}
+    const float  cell_w = ImGui::GetContentRegionAvail().x / 4.f;
+    const ImVec2 row    = Ui::begin_metric_row();
+    Ui::metric_cell("AGL", (std::to_string(static_cast<int>(live.agl_ft)) + " ft").c_str(), Theme::text, cell_w);
+    Ui::metric_cell("MAX ALT", (std::to_string(flight.max_altitude_ft) + " ft").c_str(), Theme::text, cell_w);
+    Ui::metric_cell("MAX SPEED", (std::to_string(flight.max_speed_kts) + " kts").c_str(), Theme::text, cell_w);
+    Ui::metric_cell("LANDINGS", std::to_string(flight.landings.size()).c_str(), Theme::text, cell_w);
+    Ui::end_metric_row(row);
+    ImGui::Separator();
 
-static FlightData load_archived_detail(const std::string &fname)
-{
-    return read_flight_detail(FlightLogger::output_dir() + "flights/archived/", fname);
-}
-
-// Move JSON + HTML from active to archived. Returns true if JSON move succeeded.
-// HTML report move is best-effort (the report file may not exist for older flights).
-static bool archive_flight(const std::string &fname)
-{
-    namespace fs            = std::filesystem;
-    const std::string &dd   = FlightLogger::output_dir();
-    const std::string  base = fname.substr(0, fname.rfind('.'));
-
-    std::error_code ec;
-    fs::rename(dd + "flights/" + fname, dd + "flights/archived/" + fname, ec);
-    if (ec)
-    {
-        XPLMDebugString(("[xp_pilot] archive: cannot move " + fname + ": " + ec.message() + "\n").c_str());
-        return false;
-    }
-    ec.clear();
-    fs::rename(dd + "reports/" + base + ".html", dd + "reports/archived/" + base + ".html", ec);
-    // ignore HTML move errors — report may not exist
-    return true;
-}
-
-// Delete the JSON + HTML for one flight. `subdir` is either "" (active) or "archived/".
-static void delete_flight_files(const std::string &fname, const std::string &subdir)
-{
-    const std::string &dd   = FlightLogger::output_dir();
-    const std::string  base = fname.substr(0, fname.rfind('.'));
-    std::remove((dd + "flights/" + subdir + fname).c_str());
-    std::remove((dd + "reports/" + subdir + base + ".html").c_str());
-}
-
-static int count_checked(const std::vector<bool> &v)
-{
-    int n = 0;
-    for (bool b : v)
-        if (b)
-            ++n;
-    return n;
-}
-
-static void open_in_browser(const std::string &target)
-{
-#if defined(__APPLE__)
-    system(("open \"" + target + "\"").c_str()); // NOLINT(bugprone-command-processor)
-#elif defined(_WIN32)
-    system(("start \"\" \"" + target + "\"").c_str());
-#else
-    system(("xdg-open \"" + target + "\"").c_str()); // NOLINT(bugprone-command-processor)
-#endif
-}
-
-// SkyVector centres its chart on the ll parameter; chart 301 is the world VFR layer.
-static std::string skyvector_url(double latitude, double longitude)
-{
-    char url[128];
-    snprintf(url, sizeof(url), "https://skyvector.com/?ll=%.5f,%.5f&chart=301&zoom=3", latitude, longitude);
-    return url;
-}
-
-// ════════════════════════════════════════════════════════════════
-// UI helpers
-// ════════════════════════════════════════════════════════════════
-
-static std::string fmt_dur(int min)
-{
-    char b[32];
-    int  h = min / 60, m = min % 60;
-    if (h > 0)
-        snprintf(b, sizeof(b), "%dh %02dm", h, m);
+    // The track is only sampled while log writing is on, so an empty map here usually
+    // means the setting is off rather than that nothing has happened yet.
+    if (!FlightLogger::write_enabled())
+        Ui::text_dim("Track recording is off - enable \"Write flight logs\" in Settings.");
     else
-        snprintf(b, sizeof(b), "%dm", m);
-    return b;
+        FlightView::draw_track_map(flight, ImGui::GetContentRegionAvail().x);
+    ImGui::Separator();
+
+    FlightView::draw_landings(flight);
 }
 
-// Second-resolution counterpart to fmt_dur(), used where a pause has to add up exactly:
-// "1h 23m" from an hour on, "8m 12s" below that, "50s" under a minute.
-static std::string fmt_dur_sec(int sec)
+static void draw_settings_screen()
 {
-    char b[32];
-    if (sec >= 3600)
-        snprintf(b, sizeof(b), "%dh %02dm", sec / 3600, (sec % 3600) / 60);
-    else if (sec >= 60)
-        snprintf(b, sizeof(b), "%dm %02ds", sec / 60, sec % 60);
-    else
-        snprintf(b, sizeof(b), "%ds", sec);
-    return b;
-}
+    Ui::section_header(ICON_FA_FILE_LINES, "Flight Log Writer");
 
-// Mirrors the report's stat tiles: gross time, pause total and net block time whenever
-// the flight was paused, otherwise the plain minute-resolution Block Time line.
-static void draw_time_lines(const FlightData &fd)
-{
-    if (fd.paused_sec <= 0)
-    {
-        ImGui::TextUnformatted(("Block Time:   " + fmt_dur(fd.block_time_min)).c_str());
-        return;
-    }
-
-    ImGui::TextUnformatted(("Total Time:   " + fmt_dur_sec(fd.block_time_sec + fd.paused_sec)).c_str());
-    ImGui::TextUnformatted(("Paused:       " + fmt_dur_sec(fd.paused_sec)).c_str());
-    ImGui::TextUnformatted(("Block Time:   " + fmt_dur_sec(fd.block_time_sec)).c_str());
-}
-
-static ImVec4 rating_color(const std::string &r)
-{
-    if (r == "BUTTER!")
-        return {1.0f, 1.0f, 0.0f, 1.0f};
-    if (r == "GREAT LANDING!")
-        return {0.25f, 1.0f, 0.25f, 1.0f};
-    if (r == "ACCEPTABLE")
-        return {0.0f, 0.8f, 0.0f, 1.0f};
-    if (r == "HARD LANDING!")
-        return {1.0f, 0.5f, 0.0f, 1.0f};
-    if (r == "WASTED!")
-        return {1.0f, 0.13f, 0.13f, 1.0f};
-    return {1.0f, 1.0f, 1.0f, 1.0f};
-}
-
-static void draw_wind_status_line(const LandingData &ld)
-{
-    const int xw = std::abs(ld.crosswind_kts);
-    char      line[128];
-
-    switch (wind_condition_from_string(ld.wind_status))
-    {
-    case WindCondition::Calm:
-        ImGui::TextUnformatted("  Wind: CALM");
-        return;
-
-    case WindCondition::Light:
-        snprintf(line, sizeof(line), "  Wind: LIGHT  XW %d kts %s", xw, ld.crosswind_side.c_str());
-        ImGui::TextUnformatted(line);
-        return;
-
-    case WindCondition::Steady:
-        if (ld.headwind_kts < -5 && !ld.is_rotorcraft)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.5f, 0, 1));
-            snprintf(line, sizeof(line), "  TAILWIND +%d kts  --  WRONG RWY?", std::abs(ld.headwind_kts));
-            ImGui::TextUnformatted(line);
-            ImGui::PopStyleColor();
-        }
-        else
-        {
-            const int  hw_abs   = std::abs(ld.headwind_kts);
-            const char *hw_lbl  = ld.headwind_kts < 0 ? "TW" : "HW";
-            snprintf(line, sizeof(line), "  Wind: %d kts | %s %d kts | XW %d kts %s", ld.wind_speed_kts, hw_lbl, hw_abs,
-                     xw, ld.crosswind_side.c_str());
-            ImGui::TextUnformatted(line);
-        }
-        return;
-    }
-}
-
-// ════════════════════════════════════════════════════════════════
-// Logbook window content
-// ════════════════════════════════════════════════════════════════
-
-static void draw_settings()
-{
-    ImGui::Spacing();
-    ImGui::TextUnformatted("Feature toggles (saved to settings.json):");
-    ImGui::Spacing();
-
-    bool v;
-
-    ImGui::SeparatorText("Flight Log Writer");
-
+    bool       value;
     const bool write_on = FlightLogger::write_enabled();
-    v                   = write_on;
-    if (ImGui::Checkbox("Write flight logs to disk (JSON)", &v))
+
+    value = write_on;
+    if (ImGui::Checkbox("Write flight logs to disk (JSON)", &value))
     {
-        FlightLogger::set_write_enabled(v);
+        FlightLogger::set_write_enabled(value);
         Settings::save();
     }
 
     ImGui::BeginDisabled(!write_on);
     ImGui::Indent();
-    v = FlightLogger::html_report_enabled();
-    if (ImGui::Checkbox("Also generate HTML report", &v))
+    value = FlightLogger::html_report_enabled();
+    if (ImGui::Checkbox("Also generate HTML report", &value))
     {
-        FlightLogger::set_html_report_enabled(v);
+        FlightLogger::set_html_report_enabled(value);
         Settings::save();
     }
     ImGui::Unindent();
     ImGui::EndDisabled();
 
-    v = FlightLogger::messages_enabled();
-    if (ImGui::Checkbox("Show flight logger status messages on screen", &v))
+    value = FlightLogger::messages_enabled();
+    if (ImGui::Checkbox("Show flight logger status messages on screen", &value))
     {
-        FlightLogger::set_messages_enabled(v);
+        FlightLogger::set_messages_enabled(value);
         Settings::save();
     }
 
-    ImGui::SeparatorText("Landing Rating");
+    Ui::section_header(ICON_FA_PLANE_DEP, "Landing Rating");
 
-    v = FlightLogger::landing_popup_enabled();
-    if (ImGui::Checkbox("Show landing rating popup after touchdown", &v))
+    value = FlightLogger::landing_popup_enabled();
+    if (ImGui::Checkbox("Show landing rating popup after touchdown", &value))
     {
-        FlightLogger::set_landing_popup_enabled(v);
+        FlightLogger::set_landing_popup_enabled(value);
         Settings::save();
     }
 
     int position = static_cast<int>(FlightLogger::popup_position());
-    ImGui::SetNextItemWidth(180.f);
+    ImGui::SetNextItemWidth(Theme::scaled(180.f));
     if (ImGui::Combo("Popup position", &position, popup_position_labels().data(),
                      static_cast<int>(popup_position_labels().size())))
     {
@@ -388,625 +187,105 @@ static void draw_settings()
 
     if (ImGui::Button("Show last landing popup"))
         FlightLogger::replay_last_landing_popup();
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Also available as the command \"xp_pilot/logbook/show_last_landing\",\n"
-                          "which can be bound to a key in X-Plane's keyboard settings.");
+    Ui::help_marker("Also available as the command \"xp_pilot/logbook/show_last_landing\",\n"
+                    "which can be bound to a key in X-Plane's keyboard settings.");
 
-    v = FlightLogger::runway_analysis_enabled();
-    if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &v))
+    value = FlightLogger::runway_analysis_enabled();
+    if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &value))
     {
-        FlightLogger::set_runway_analysis_enabled(v);
+        FlightLogger::set_runway_analysis_enabled(value);
         Settings::save();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Locates each touchdown on the runway it was made on.\n"
-                          "Reads X-Plane's global airport database once per flight,\n"
-                          "after the engines are shut down.");
+    Ui::help_marker("Locates each touchdown on the runway it was made on.\n"
+                    "Reads X-Plane's global airport database once per flight,\n"
+                    "after the engines are shut down.");
 
-    ImGui::SeparatorText("Auto QNH");
+    Ui::section_header(ICON_FA_STOPWATCH, "Auto QNH");
 
-    v = AutoQNH::enabled();
-    if (ImGui::Checkbox("Enable Auto QNH (sync pilot/copilot altimeter)", &v))
+    value = AutoQNH::enabled();
+    if (ImGui::Checkbox("Enable Auto QNH (sync pilot/copilot altimeter)", &value))
     {
-        AutoQNH::set_enabled(v);
+        AutoQNH::set_enabled(value);
         Settings::save();
     }
 
-    v = AutoQNH::messages_enabled();
-    if (ImGui::Checkbox("Show QNH warning messages on screen", &v))
+    value = AutoQNH::messages_enabled();
+    if (ImGui::Checkbox("Show QNH warning messages on screen", &value))
     {
-        AutoQNH::set_messages_enabled(v);
+        AutoQNH::set_messages_enabled(value);
         Settings::save();
     }
 
-    int ta = AutoQNH::transition_altitude_ft();
-    ImGui::SetNextItemWidth(140.f);
-    if (ImGui::InputInt("Transition altitude (ft)", &ta, 500, 1000))
+    int transition_altitude = AutoQNH::transition_altitude_ft();
+    ImGui::SetNextItemWidth(Theme::scaled(140.f));
+    if (ImGui::InputInt("Transition altitude (ft)", &transition_altitude, 500, 1000))
     {
-        AutoQNH::set_transition_altitude_ft(ta);
+        AutoQNH::set_transition_altitude_ft(transition_altitude);
         Settings::save();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Above this altitude, Auto QNH stops syncing and warns to set STD 29.92.\n"
-                          "USA: 18000 (fixed). Europe: varies per airport (3000-18000),\n"
-                          "see the approach chart for the destination.");
+    Ui::help_marker("Above this altitude, Auto QNH stops syncing and warns to set STD 29.92.\n"
+                    "USA: 18000 (fixed). Europe: varies per airport (3000-18000),\n"
+                    "see the approach chart for the destination.");
+
+    Ui::section_header(ICON_FA_GEAR, "Appearance");
+
+    float scale = Theme::ui_scale();
+    ImGui::SetNextItemWidth(Theme::scaled(220.f));
+    if (ImGui::SliderFloat("UI scale", &scale, 0.8f, 2.0f, "%.2fx"))
+        Theme::set_ui_scale(scale);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        Settings::save();
+    Ui::help_marker("Scales fonts and spacing. Useful on high-DPI displays.");
 }
 
-// One block per recorded landing, with its rating, touchdown numbers and runway placement.
-static void draw_landings(const FlightData &fd)
+// Screen chrome: back navigation and title, then the screen itself.
+static void draw_current_screen(const FlightLogger::LiveFlight &live)
 {
-    if (fd.landings.empty())
+    switch (s_screen)
     {
-        ImGui::TextUnformatted("(no landing recorded)");
-    }
-    else
-    {
-        for (size_t i = 0; i < fd.landings.size(); ++i)
+    case Screen::Home:
+        Ui::begin_content_panel("home_panel");
+        Home::draw_tiles(live, {s_logbook.entries.size(), s_archive_count, AutoQNH::enabled()}, s_screen);
+        Ui::end_content_panel();
+        return;
+
+    case Screen::Live:
+        if (Ui::view_header(ICON_FA_PLANE_DEP, "LIVE FLIGHT"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        Ui::begin_content_panel("live_panel");
+        draw_live_screen(live);
+        Ui::end_content_panel();
+        return;
+
+    case Screen::Logbook:
+        if (Ui::view_header(ICON_FA_BOOK, "LOGBOOK"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        if (FlightListScreen::draw(s_logbook))
         {
-            auto &ld = fd.landings[i];
-            if (fd.landings.size() > 1)
-            {
-                char h[32];
-                snprintf(h, sizeof(h), "-- Landing %zu --", i + 1);
-                ImGui::TextUnformatted(h);
-            }
-            ImGui::PushStyleColor(ImGuiCol_Text, rating_color(ld.rating));
-            ImGui::TextUnformatted(ld.rating.empty() ? "(no rating)" : ld.rating.c_str());
-            ImGui::PopStyleColor();
-
-            if (ld.time > 0)
-            {
-                char       ts[64];
-                struct tm *t = gmtime(&ld.time);
-                strftime(ts, sizeof(ts), "  Touchdown: %H:%M:%S UTC", t);
-                ImGui::TextUnformatted(ts);
-            }
-            char stats[160];
-            if (ld.is_rotorcraft)
-            {
-                if (ld.bounce_count > 0)
-                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  %d bounce%s", ld.fpm, ld.g_force,
-                             ld.bounce_count, ld.bounce_count == 1 ? "" : "s");
-                else
-                    snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G", ld.fpm, ld.g_force);
-            }
-            else if (ld.bounce_count > 0)
-                snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s  |  %d bounce%s", ld.fpm,
-                         ld.g_force, ld.float_time, ld.bounce_count, ld.bounce_count == 1 ? "" : "s");
-            else
-                snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s", ld.fpm, ld.g_force,
-                         ld.float_time);
-            ImGui::TextUnformatted(stats);
-            if (ld.ias_kts > 0.f)
-            {
-                char speed[64];
-                snprintf(speed, sizeof(speed), "  Speed: %.0f kts IAS  |  %.0f kts GS", ld.ias_kts,
-                         ld.ground_speed_kts);
-                ImGui::TextUnformatted(speed);
-            }
-            if (!ld.runway_ident.empty())
-            {
-                char rwy[128];
-                snprintf(rwy, sizeof(rwy), "  RWY %s  --  %.0f m past threshold  |  %.0f m %s of centerline",
-                         ld.runway_ident.c_str(), ld.runway_distance_m, std::abs(ld.runway_offset_m),
-                         ld.runway_offset_m > 0 ? "right" : "left");
-                ImGui::TextUnformatted(rwy);
-            }
-            if (!ld.is_rotorcraft)
-                ImGui::TextUnformatted(("  Flare: " + ld.flare).c_str());
-
-            draw_wind_status_line(ld);
-            if (i + 1 < fd.landings.size())
-                ImGui::Separator();
+            s_archive.loaded = false; // reload on next visit
+            s_archive_count  = FlightListScreen::count_on_disk("archived/");
         }
-    }
-}
+        return;
 
-// Top-down view of the flown route. The end marker is the last recorded sample, which
-// for a flight still in progress is the aircraft's current position.
-static void draw_track_map(const FlightData &fd, float right_w)
-{
-    if (fd.track.size() < 2)
-    {
-        ImGui::TextUnformatted("(no track data)");
+    case Screen::Archive:
+        if (Ui::view_header(ICON_FA_ARCHIVE, "ARCHIVE"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        FlightListScreen::draw(s_archive);
+        s_archive_count = s_archive.entries.size();
+        return;
+
+    case Screen::Settings:
+        if (Ui::view_header(ICON_FA_GEAR, "SETTINGS"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        Ui::begin_content_panel("settings_panel");
+        draw_settings_screen();
+        Ui::end_content_panel();
         return;
     }
-
-    const float cw = right_w - 20.f;
-    const float ch = std::floor(cw * 0.27f);
-
-    const auto bounds = FlightLoggerLogic::track_bounds(fd.track);
-    auto       to_px  = [&](double lat, double lon, float &px, float &py)
-    { FlightLoggerLogic::project_to_pixel(bounds, lat, lon, cw, ch, px, py); };
-
-    ImVec2 org = ImGui::GetCursorScreenPos();
-    ImGui::Dummy(ImVec2(cw, ch));
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(org, ImVec2(org.x + cw, org.y + ch), IM_COL32(46, 26, 26, 255), 4.f);
-    for (size_t i = 1; i < fd.track.size(); ++i)
-    {
-        float x1, y1, x2, y2;
-        to_px(fd.track[i - 1].lat, fd.track[i - 1].lon, x1, y1);
-        to_px(fd.track[i].lat, fd.track[i].lon, x2, y2);
-        dl->AddLine(ImVec2(org.x + x1, org.y + y1), ImVec2(org.x + x2, org.y + y2), IM_COL32(212, 212, 0, 255),
-                    1.5f);
-    }
-    for (const auto &p : resolve_pauses(fd))
-    {
-        if (p.lat == 0.0 && p.lon == 0.0)
-            continue;
-        float px, py;
-        to_px(p.lat, p.lon, px, py);
-        dl->AddCircleFilled(ImVec2(org.x + px, org.y + py), 4.f, IM_COL32(255, 204, 0, 255));
-    }
-
-    float dx, dy, ax, ay;
-    to_px(fd.track.front().lat, fd.track.front().lon, dx, dy);
-    to_px(fd.track.back().lat, fd.track.back().lon, ax, ay);
-    dl->AddCircleFilled(ImVec2(org.x + dx, org.y + dy), 5.f, IM_COL32(64, 255, 0, 255));
-    dl->AddCircleFilled(ImVec2(org.x + ax, org.y + ay), 5.f, IM_COL32(0, 0, 255, 255));
-
-    // Legend for the yellow markers drawn above.
-    if (fd.paused_sec > 0)
-    {
-        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Pause");
-        ImGui::SameLine(0.f, 6.f);
-        ImGui::TextDisabled("= sim paused here, not counted as block time");
-    }
-}
-
-// Renders the read-only detail content (route, info, stats, track map, landings) for one flight.
-// Action buttons are caller-rendered so each tab can show its own actions.
-static void draw_flight_detail_block(const FlightData &fd, float right_w)
-{
-    std::string route = (fd.departure_icao.empty() ? "?" : fd.departure_icao) + "  ->  " +
-                        (fd.arrival_icao.empty() ? "?" : fd.arrival_icao);
-    ImGui::TextUnformatted(route.c_str());
-
-    char info[256];
-    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
-    snprintf(info, sizeof(info), "%s  %s-%s UTC  |  %s  %s%s", fd.date.c_str(),
-             fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.end_utc.empty() ? "?" : fd.end_utc.c_str(),
-             fd.aircraft_icao.c_str(), fd.aircraft_tail.c_str(), heli_suffix);
-    ImGui::TextUnformatted(info);
-    ImGui::Separator();
-
-    draw_time_lines(fd);
-    ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
-    ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
-    ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());
-    ImGui::Separator();
-
-    draw_track_map(fd, right_w);
-    ImGui::Separator();
-
-    draw_landings(fd);
-
-    ImGui::Separator();
-}
-
-// Live view of the flight currently being recorded. Everything is read fresh each
-// frame — the snapshot is a copy, because the recorder clears its state the moment a
-// flight ends.
-static void draw_live()
-{
-    const FlightLogger::LiveFlight live = FlightLogger::live_flight();
-    if (!live.in_progress)
-    {
-        ImGui::TextDisabled("No flight in progress.");
-        ImGui::TextDisabled("Recording starts on the takeoff roll and ends after engine shutdown.");
-        return;
-    }
-
-    const FlightData &fd = live.flight;
-
-    ImGui::TextUnformatted(("Departure:    " + (fd.departure_icao.empty() ? "?" : fd.departure_icao)).c_str());
-
-    char info[256];
-    const char *heli_suffix = fd.aircraft_category == "rotorcraft" ? "  [Heli]" : "";
-    snprintf(info, sizeof(info), "%s  off blocks %s UTC  |  %s  %s%s", fd.date.c_str(),
-             fd.start_utc.empty() ? "?" : fd.start_utc.c_str(), fd.aircraft_icao.c_str(),
-             fd.aircraft_tail.c_str(), heli_suffix);
-    ImGui::TextUnformatted(info);
-    ImGui::Separator();
-
-    draw_time_lines(fd);
-    ImGui::Separator();
-
-    char position[128];
-    snprintf(position, sizeof(position), "Position:     %.5f, %.5f  |  HDG %03.0f", live.latitude, live.longitude,
-             live.heading_true);
-    ImGui::TextUnformatted(position);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("SkyVector"))
-        open_in_browser(skyvector_url(live.latitude, live.longitude));
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Show this position on skyvector.com");
-
-    char state[128];
-    snprintf(state, sizeof(state), "Altitude:     %d ft  (%.0f ft AGL)", live.altitude_ft, live.agl_ft);
-    ImGui::TextUnformatted(state);
-    snprintf(state, sizeof(state), "Speed:        %d kts IAS  |  V/S %+d fpm", live.indicated_airspeed_kts,
-             live.vertical_speed_fpm);
-    ImGui::TextUnformatted(state);
-    ImGui::Separator();
-
-    ImGui::TextUnformatted(("Max Alt:      " + std::to_string(fd.max_altitude_ft) + " ft").c_str());
-    ImGui::TextUnformatted(("Max Speed:    " + std::to_string(fd.max_speed_kts) + " kts").c_str());
-    ImGui::TextUnformatted(("Landings:     " + std::to_string(fd.landings.size())).c_str());
-    ImGui::Separator();
-
-    // The track is only sampled while log writing is on, so an empty map here usually
-    // means the setting is off rather than that nothing has happened yet.
-    if (!FlightLogger::write_enabled())
-        ImGui::TextDisabled("Track recording is off - enable \"Write flight logs\" in Settings.");
-    else
-        draw_track_map(fd, ImGui::GetContentRegionAvail().x);
-    ImGui::Separator();
-
-    draw_landings(fd);
-}
-
-static void draw_logbook()
-{
-    const int n_checked = count_checked(s_active_checked);
-
-    // ── Toolbar ────────────────────────────────────────────────────────────────
-    if (ImGui::Button("Refresh"))
-    {
-        load_entries();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Rebuild All Reports"))
-    {
-        FlightLogger::regen_all_reports();
-    }
-
-    if (!s_entries.empty())
-    {
-        ImGui::SameLine();
-        if (ImGui::Button("Select all"))
-            s_active_checked.assign(s_entries.size(), true);
-        ImGui::SameLine();
-        if (ImGui::Button("Clear"))
-            s_active_checked.assign(s_entries.size(), false);
-    }
-
-    if (n_checked > 0)
-    {
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-
-        if (!s_confirm_batch_archive && !s_confirm_batch_delete)
-        {
-            char btn[48];
-            snprintf(btn, sizeof(btn), "Archive selected (%d)", n_checked);
-            if (ImGui::Button(btn))
-            {
-                s_confirm_batch_archive = true;
-                s_confirm_batch_delete  = false;
-            }
-            ImGui::SameLine();
-            snprintf(btn, sizeof(btn), "Delete selected (%d)", n_checked);
-            if (ImGui::Button(btn))
-            {
-                s_confirm_batch_delete  = true;
-                s_confirm_batch_archive = false;
-            }
-        }
-        else if (s_confirm_batch_archive)
-        {
-            char q[64];
-            snprintf(q, sizeof(q), "Archive %d flights?", n_checked);
-            ImGui::TextUnformatted(q);
-            ImGui::SameLine();
-            if (ImGui::Button("Yes, archive"))
-            {
-                for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
-                    if (s_active_checked[i])
-                        archive_flight(s_entries[i].filename);
-                HtmlReport::generate_index(FlightLogger::output_dir());
-                load_entries();
-                s_arch_loaded = false; // force reload when Archive tab is opened
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
-                s_confirm_batch_archive = false;
-        }
-        else // s_confirm_batch_delete
-        {
-            char q[64];
-            snprintf(q, sizeof(q), "Delete %d flights (JSON + report)?", n_checked);
-            ImGui::TextUnformatted(q);
-            ImGui::SameLine();
-            if (ImGui::Button("Yes, delete"))
-            {
-                for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
-                    if (s_active_checked[i])
-                        delete_flight_files(s_entries[i].filename, "");
-                HtmlReport::generate_index(FlightLogger::output_dir());
-                load_entries();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
-                s_confirm_batch_delete = false;
-        }
-    }
-
-    ImGui::Separator();
-
-    float avail_w = ImGui::GetContentRegionAvail().x;
-    float avail_h = ImGui::GetContentRegionAvail().y;
-    float panel_h = std::max(100.f, avail_h - 4.f);
-    float left_w  = std::floor(avail_w * 0.30f);
-    float right_w = std::max(100.f, avail_w - left_w - 10.f);
-
-    // ── Left: flight list ──────────────────────────────────────────────────────
-    ImGui::BeginChild("lb_list", ImVec2(left_w, panel_h), true);
-    ImGui::TextUnformatted("    Date        Route       Type  Dur");
-    ImGui::Separator();
-    if (s_entries.empty())
-    {
-        ImGui::TextUnformatted("No flights found.");
-    }
-    else
-    {
-        for (int i = 0; i < static_cast<int>(s_entries.size()); ++i)
-        {
-            auto &e = s_entries[i];
-            ImGui::PushID(i);
-
-            bool checked = s_active_checked[i];
-            if (ImGui::Checkbox("##sel", &checked))
-                s_active_checked[i] = checked;
-            ImGui::SameLine();
-
-            char line[128];
-            snprintf(line, sizeof(line), "%-11s %-9s %-5s %s", e.date.c_str(),
-                     (e.departure_icao + "-" + e.arrival_icao).c_str(), e.aircraft_icao.c_str(),
-                     fmt_dur(e.block_time_min).c_str());
-            bool sel = (s_selected == i);
-            if (ImGui::Selectable(line, sel))
-            {
-                if (s_selected != i)
-                {
-                    s_selected               = i;
-                    s_confirm_del            = false;
-                    s_confirm_archive_single = false;
-                    s_detail                 = load_detail(e.filename);
-                    s_detail_loaded          = true;
-                    s_report_html =
-                        FlightLogger::output_dir() + "reports/" + e.filename.substr(0, e.filename.rfind('.')) + ".html";
-                    s_report_exists = std::ifstream(s_report_html).good();
-                }
-            }
-            ImGui::PopID();
-        }
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    // ── Right: detail ──────────────────────────────────────────────────────────
-    ImGui::BeginChild("lb_detail", ImVec2(right_w, panel_h), true);
-
-    if (!s_detail_loaded || s_selected < 0 || s_selected >= static_cast<int>(s_entries.size()))
-    {
-        ImGui::TextUnformatted("Select a flight...");
-    }
-    else
-    {
-        draw_flight_detail_block(s_detail, right_w);
-
-        if (s_report_exists)
-        {
-            if (ImGui::Button("Open Report"))
-                open_in_browser(s_report_html);
-            ImGui::SameLine();
-        }
-
-        // Single-flight Archive
-        if (!s_confirm_archive_single)
-        {
-            if (ImGui::Button("Archive"))
-            {
-                s_confirm_archive_single = true;
-                s_confirm_del            = false;
-            }
-        }
-        else
-        {
-            ImGui::TextUnformatted("Archive this flight?");
-            if (ImGui::Button("Yes, archive"))
-            {
-                auto &fn = s_entries[s_selected].filename;
-                archive_flight(fn);
-                HtmlReport::generate_index(FlightLogger::output_dir());
-                load_entries();
-                s_arch_loaded = false;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel##arch"))
-                s_confirm_archive_single = false;
-        }
-        ImGui::SameLine();
-
-        // Single-flight Delete
-        if (!s_confirm_del)
-        {
-            if (ImGui::Button("Delete"))
-            {
-                s_confirm_del            = true;
-                s_confirm_archive_single = false;
-            }
-        }
-        else
-        {
-            ImGui::TextUnformatted("Really delete?");
-            if (ImGui::Button("Yes, delete"))
-            {
-                auto &fn = s_entries[s_selected].filename;
-                delete_flight_files(fn, "");
-                HtmlReport::generate_index(FlightLogger::output_dir());
-                load_entries();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel##del"))
-                s_confirm_del = false;
-        }
-    }
-    ImGui::EndChild();
-}
-
-static void draw_archive()
-{
-    if (!s_arch_loaded)
-        load_archived_entries();
-
-    const int n_checked = count_checked(s_arch_checked);
-
-    // ── Toolbar ────────────────────────────────────────────────────────────────
-    if (ImGui::Button("Refresh"))
-        load_archived_entries();
-
-    if (!s_arch_entries.empty())
-    {
-        ImGui::SameLine();
-        if (ImGui::Button("Select all"))
-            s_arch_checked.assign(s_arch_entries.size(), true);
-        ImGui::SameLine();
-        if (ImGui::Button("Clear"))
-            s_arch_checked.assign(s_arch_entries.size(), false);
-    }
-
-    if (n_checked > 0)
-    {
-        ImGui::SameLine();
-        ImGui::TextDisabled("|");
-        ImGui::SameLine();
-
-        if (!s_confirm_batch_delete_archived)
-        {
-            char btn[48];
-            snprintf(btn, sizeof(btn), "Delete selected (%d)", n_checked);
-            if (ImGui::Button(btn))
-                s_confirm_batch_delete_archived = true;
-        }
-        else
-        {
-            char q[64];
-            snprintf(q, sizeof(q), "Delete %d archived flights (JSON + report)?", n_checked);
-            ImGui::TextUnformatted(q);
-            ImGui::SameLine();
-            if (ImGui::Button("Yes, delete"))
-            {
-                for (int i = 0; i < static_cast<int>(s_arch_entries.size()); ++i)
-                    if (s_arch_checked[i])
-                        delete_flight_files(s_arch_entries[i].filename, "archived/");
-                load_archived_entries();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel"))
-                s_confirm_batch_delete_archived = false;
-        }
-    }
-
-    ImGui::Separator();
-
-    float avail_w = ImGui::GetContentRegionAvail().x;
-    float avail_h = ImGui::GetContentRegionAvail().y;
-    float panel_h = std::max(100.f, avail_h - 4.f);
-    float left_w  = std::floor(avail_w * 0.30f);
-    float right_w = std::max(100.f, avail_w - left_w - 10.f);
-
-    // ── Left: archived flight list ─────────────────────────────────────────────
-    ImGui::BeginChild("arch_list", ImVec2(left_w, panel_h), true);
-    ImGui::TextUnformatted("    Date        Route       Type  Dur");
-    ImGui::Separator();
-    if (s_arch_entries.empty())
-    {
-        ImGui::TextUnformatted("No archived flights.");
-    }
-    else
-    {
-        for (int i = 0; i < static_cast<int>(s_arch_entries.size()); ++i)
-        {
-            auto &e = s_arch_entries[i];
-            ImGui::PushID(i);
-
-            bool checked = s_arch_checked[i];
-            if (ImGui::Checkbox("##sel", &checked))
-                s_arch_checked[i] = checked;
-            ImGui::SameLine();
-
-            char line[128];
-            snprintf(line, sizeof(line), "%-11s %-9s %-5s %s", e.date.c_str(),
-                     (e.departure_icao + "-" + e.arrival_icao).c_str(), e.aircraft_icao.c_str(),
-                     fmt_dur(e.block_time_min).c_str());
-            bool sel = (s_arch_selected == i);
-            if (ImGui::Selectable(line, sel))
-            {
-                if (s_arch_selected != i)
-                {
-                    s_arch_selected      = i;
-                    s_arch_confirm_del   = false;
-                    s_arch_detail        = load_archived_detail(e.filename);
-                    s_arch_detail_loaded = true;
-                    s_arch_report_html   = FlightLogger::output_dir() + "reports/archived/" +
-                                           e.filename.substr(0, e.filename.rfind('.')) + ".html";
-                    s_arch_report_exists = std::ifstream(s_arch_report_html).good();
-                }
-            }
-            ImGui::PopID();
-        }
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    // ── Right: detail ──────────────────────────────────────────────────────────
-    ImGui::BeginChild("arch_detail", ImVec2(right_w, panel_h), true);
-
-    if (!s_arch_detail_loaded || s_arch_selected < 0 || s_arch_selected >= static_cast<int>(s_arch_entries.size()))
-    {
-        ImGui::TextUnformatted("Select an archived flight...");
-    }
-    else
-    {
-        draw_flight_detail_block(s_arch_detail, right_w);
-
-        if (s_arch_report_exists)
-        {
-            if (ImGui::Button("Open Report"))
-                open_in_browser(s_arch_report_html);
-            ImGui::SameLine();
-        }
-
-        if (!s_arch_confirm_del)
-        {
-            if (ImGui::Button("Delete"))
-                s_arch_confirm_del = true;
-        }
-        else
-        {
-            ImGui::TextUnformatted("Really delete?");
-            if (ImGui::Button("Yes, delete"))
-            {
-                auto &fn = s_arch_entries[s_arch_selected].filename;
-                delete_flight_files(fn, "archived/");
-                load_archived_entries();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel##del"))
-                s_arch_confirm_del = false;
-        }
-    }
-    ImGui::EndChild();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1016,73 +295,60 @@ static void draw_archive()
 // ImGui draws on top with its own window chrome.
 // ════════════════════════════════════════════════════════════════
 
+static void close_window()
+{
+    s_logbook_open = false;
+    if (s_wnd)
+        XPLMSetWindowIsVisible(s_wnd, 0);
+}
+
 // Minimal XPLM window draw callback — input capture only, rendering is in LogbookUI::draw()
 static void DrawCallback(XPLMWindowID, void *)
 {
     if (FlightLogger::lb_needs_refresh())
     {
         FlightLogger::lb_needs_refresh() = false;
-        load_entries();
+        FlightListScreen::reload(s_logbook);
     }
 }
 
-static int  s_mouse_dbg_count = 0; // DEBUG: remove after Linux input is confirmed working
-static bool s_fb_logged       = false;
-
-static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
+static void feed_mouse_position(XPLMWindowID wnd, int x, int y)
 {
     int left, top, right, bottom;
     XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGuiIO &io = ImGui::GetIO();
+    ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
+}
 
-    float mx = static_cast<float>(x - left);
-    float my = static_cast<float>(top - y);
-
-    // DEBUG: log first few mouse events so we can verify delivery on Linux
-    if (s_mouse_dbg_count < 20)
-    {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "[xp_pilot] MouseCB: raw(%d,%d) wnd(%d,%d,%d,%d) imgui(%.0f,%.0f) status=%d\n", x, y,
-                 left, top, right, bottom, mx, my, status);
-        XPLMDebugString(buf);
-        ++s_mouse_dbg_count;
-    }
-
-    io.AddMousePosEvent(mx, my);
+static int MouseCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
+{
+    feed_mouse_position(wnd, x, y);
     if (status == xplm_MouseDown)
-        io.AddMouseButtonEvent(0, true);
+        ImGui::GetIO().AddMouseButtonEvent(0, true);
     if (status == xplm_MouseUp)
-        io.AddMouseButtonEvent(0, false);
+        ImGui::GetIO().AddMouseButtonEvent(0, false);
     return 1; // consume event
 }
 
 static int ScrollCallback(XPLMWindowID wnd, int x, int y, int, int clicks, void *)
 {
-    int left, top, right, bottom;
-    XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
+    feed_mouse_position(wnd, x, y);
     ImGui::GetIO().AddMouseWheelEvent(0.f, static_cast<float>(clicks));
     return 1;
 }
 
 static int RightClickCallback(XPLMWindowID wnd, int x, int y, XPLMMouseStatus status, void *)
 {
-    int left, top, right, bottom;
-    XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGuiIO &io = ImGui::GetIO();
-    io.AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
+    feed_mouse_position(wnd, x, y);
     if (status == xplm_MouseDown)
-        io.AddMouseButtonEvent(1, true);
+        ImGui::GetIO().AddMouseButtonEvent(1, true);
     if (status == xplm_MouseUp)
-        io.AddMouseButtonEvent(1, false);
+        ImGui::GetIO().AddMouseButtonEvent(1, false);
     return 1;
 }
 
 static XPLMCursorStatus CursorCallback(XPLMWindowID wnd, int x, int y, void *)
 {
-    int left, top, right, bottom;
-    XPLMGetWindowGeometry(wnd, &left, &top, &right, &bottom);
-    ImGui::GetIO().AddMousePosEvent(static_cast<float>(x - left), static_cast<float>(top - y));
+    feed_mouse_position(wnd, x, y);
     return xplm_CursorDefault;
 }
 
@@ -1090,24 +356,26 @@ static void KeyCallback(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, v
 {
     if (losing_focus)
         return;
-    ImGuiIO &io = ImGui::GetIO();
-    // Printable ASCII
     if (!(flags & xplm_DownFlag))
         return;
+
+    ImGuiIO &io = ImGui::GetIO();
     if (key >= 32 && key < 127)
         io.AddInputCharacter(static_cast<unsigned>(key));
-    // Basic special keys
     if (vkey == XPLM_VK_BACK)
         io.AddKeyEvent(ImGuiKey_Backspace, true);
     if (vkey == XPLM_VK_DELETE)
         io.AddKeyEvent(ImGuiKey_Delete, true);
     if (vkey == XPLM_VK_RETURN)
         io.AddKeyEvent(ImGuiKey_Enter, true);
+
+    // Escape steps back to the home screen first, and only closes the window from there.
     if (vkey == XPLM_VK_ESCAPE)
     {
-        s_logbook_open = false;
-        if (s_wnd)
-            XPLMSetWindowIsVisible(s_wnd, 0);
+        if (s_screen != Screen::Home)
+            s_screen = Screen::Home;
+        else
+            close_window();
     }
 }
 
@@ -1126,11 +394,7 @@ void LogbookUI::init()
     io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 
-    ImGui::StyleColorsDark();
-    auto &style          = ImGui::GetStyle();
-    style.WindowRounding = 6.f;
-    style.FrameRounding  = 3.f;
-    style.WindowPadding  = ImVec2(8, 6);
+    Theme::init();
 
     ImGui_ImplOpenGL2_Init();
     s_last_frame_time = get_xp_time();
@@ -1145,26 +409,26 @@ void LogbookUI::draw()
     if (FlightLogger::lb_needs_refresh())
     {
         FlightLogger::lb_needs_refresh() = false;
-        load_entries();
+        FlightListScreen::reload(s_logbook);
     }
 
     if (!s_logbook_open && !FlightLogger::popup_active())
         return;
 
-    int gl, gt, gr, gb;
-    XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
-    int sw = gr - gl;
-    int sh = gt - gb;
-    if (sw <= 0 || sh <= 0)
+    int screen_left, screen_top, screen_right, screen_bottom;
+    XPLMGetScreenBoundsGlobal(&screen_left, &screen_top, &screen_right, &screen_bottom);
+    const int screen_w = screen_right - screen_left;
+    const int screen_h = screen_top - screen_bottom;
+    if (screen_w <= 0 || screen_h <= 0)
         return;
 
     // Keep the invisible capture window sized to the current screen (only when logbook is open)
     if (s_logbook_open && s_wnd)
     {
-        int wl, wt, wr, wb;
-        XPLMGetWindowGeometry(s_wnd, &wl, &wt, &wr, &wb);
-        if (wl != gl || wb != gb || wr != gr || wt != gt)
-            XPLMSetWindowGeometry(s_wnd, gl, gt, gr, gb);
+        int left, top, right, bottom;
+        XPLMGetWindowGeometry(s_wnd, &left, &top, &right, &bottom);
+        if (left != screen_left || bottom != screen_bottom || right != screen_right || top != screen_top)
+            XPLMSetWindowGeometry(s_wnd, screen_left, screen_top, screen_right, screen_bottom);
     }
 
     // Save GL state
@@ -1184,31 +448,23 @@ void LogbookUI::draw()
 
     // Use X-Plane's actual viewport (framebuffer) dimensions — these may differ
     // from logical screen dimensions on Linux (Vulkan-to-OpenGL compat layer)
-    int fb_w = prev_viewport[2];
-    int fb_h = prev_viewport[3];
+    const int framebuffer_w = prev_viewport[2];
+    const int framebuffer_h = prev_viewport[3];
 
-    if (!s_fb_logged)
-    {
-        char dbg[192];
-        snprintf(dbg, sizeof(dbg), "[xp_pilot] Framebuffer: viewport(%d,%d) logical(%d,%d) scale(%.2f,%.2f)\n", fb_w,
-                 fb_h, sw, sh, static_cast<float>(fb_w) / static_cast<float>(sw), static_cast<float>(fb_h) / static_cast<float>(sh));
-        XPLMDebugString(dbg);
-        s_fb_logged = true;
-    }
-
-    glViewport(0, 0, fb_w, fb_h);
+    glViewport(0, 0, framebuffer_w, framebuffer_h);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(0, sw, sh, 0, -1, 1); // top-left origin for ImGui (logical coords)
+    glOrtho(0, screen_w, screen_h, 0, -1, 1); // top-left origin for ImGui (logical coords)
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
-    ImGuiIO &io                = ImGui::GetIO();
-    double   now               = get_xp_time();
+    ImGuiIO     &io            = ImGui::GetIO();
+    const double now           = get_xp_time();
     io.DeltaTime               = static_cast<float>(std::max(now - s_last_frame_time, 0.001));
     s_last_frame_time          = now;
-    io.DisplaySize             = ImVec2(static_cast<float>(sw), static_cast<float>(sh));
-    io.DisplayFramebufferScale = ImVec2(static_cast<float>(fb_w) / static_cast<float>(sw), static_cast<float>(fb_h) / static_cast<float>(sh));
+    io.DisplaySize             = ImVec2(static_cast<float>(screen_w), static_cast<float>(screen_h));
+    io.DisplayFramebufferScale = ImVec2(static_cast<float>(framebuffer_w) / static_cast<float>(screen_w),
+                                        static_cast<float>(framebuffer_h) / static_cast<float>(screen_h));
 
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
@@ -1217,49 +473,30 @@ void LogbookUI::draw()
 
     if (s_logbook_open)
     {
-        float win_w = 1020.f, win_h = 700.f;
-        ImGui::SetNextWindowPos(ImVec2((static_cast<float>(sw) - win_w) * 0.5f, (static_cast<float>(sh) - win_h) * 0.5f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(win_w, win_h), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSizeConstraints(ImVec2(600, 300), ImVec2(3840, 2160));
+        const float window_w = Theme::scaled(1060.f);
+        const float window_h = Theme::scaled(720.f);
+        ImGui::SetNextWindowPos(
+            ImVec2((static_cast<float>(screen_w) - window_w) * 0.5f, (static_cast<float>(screen_h) - window_h) * 0.5f),
+            ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(window_w, window_h), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSizeConstraints(ImVec2(760, 460), ImVec2(3840, 2160));
 
         bool open = true;
 #ifdef XP_PILOT_VERSION
-        static const std::string window_title = std::string("Logbook v") + XP_PILOT_VERSION + "##xp_pilot";
+        static const std::string window_title = std::string("xp_pilot v") + XP_PILOT_VERSION + "##xp_pilot";
 #else
-        static const std::string window_title = "Logbook##xp_pilot";
+        static const std::string window_title = "xp_pilot##xp_pilot";
 #endif
         if (ImGui::Begin(window_title.c_str(), &open, ImGuiWindowFlags_NoCollapse))
         {
-            if (ImGui::BeginTabBar("lb_tabs"))
-            {
-                if (ImGui::BeginTabItem("Live"))
-                {
-                    draw_live();
-                    ImGui::EndTabItem();
-                }
-                if (ImGui::BeginTabItem("Logbook"))
-                {
-                    draw_logbook();
-                    ImGui::EndTabItem();
-                }
-                if (ImGui::BeginTabItem("Archive"))
-                {
-                    draw_archive();
-                    ImGui::EndTabItem();
-                }
-                if (ImGui::BeginTabItem("Settings"))
-                {
-                    draw_settings();
-                    ImGui::EndTabItem();
-                }
-                ImGui::EndTabBar();
-            }
+            const FlightLogger::LiveFlight live = FlightLogger::live_flight();
+            Home::draw_status_bar(live);
+            draw_current_screen(live);
         }
         ImGui::End();
-        s_logbook_open = open;
 
-        if (!s_logbook_open && s_wnd)
-            XPLMSetWindowIsVisible(s_wnd, 0);
+        if (!open)
+            close_window();
     }
 
     ImGui::Render();
@@ -1296,48 +533,41 @@ void LogbookUI::open()
     if (!s_wnd)
     {
         // Full-screen invisible capture window — mouse/keyboard only
-        int gl, gt, gr, gb;
-        XPLMGetScreenBoundsGlobal(&gl, &gt, &gr, &gb);
-        char dbg[128];
-        snprintf(dbg, sizeof(dbg), "[xp_pilot] Screen bounds: global(%d,%d,%d,%d) size(%dx%d)\n", gl, gt, gr, gb,
-                 gr - gl, gt - gb);
-        XPLMDebugString(dbg);
-        XPLMCreateWindow_t p       = {};
-        p.structSize               = sizeof(p);
-        p.left                     = gl;
-        p.bottom                   = gb;
-        p.right                    = gr;
-        p.top                      = gt;
-        p.visible                  = 1;
-        p.drawWindowFunc           = DrawCallback;
-        p.handleMouseClickFunc     = MouseCallback;
-        p.handleKeyFunc            = KeyCallback;
-        p.handleCursorFunc         = CursorCallback;
-        p.handleMouseWheelFunc     = ScrollCallback;
-        p.refcon                   = nullptr;
-        p.decorateAsFloatingWindow = xplm_WindowDecorationNone; // no chrome
-        p.layer                    = xplm_WindowLayerFloatingWindows;
-        p.handleRightClickFunc     = RightClickCallback;
-        s_wnd                      = XPLMCreateWindowEx(&p);
+        int left, top, right, bottom;
+        XPLMGetScreenBoundsGlobal(&left, &top, &right, &bottom);
+
+        XPLMCreateWindow_t params       = {};
+        params.structSize               = sizeof(params);
+        params.left                     = left;
+        params.bottom                   = bottom;
+        params.right                    = right;
+        params.top                      = top;
+        params.visible                  = 1;
+        params.drawWindowFunc           = DrawCallback;
+        params.handleMouseClickFunc     = MouseCallback;
+        params.handleKeyFunc            = KeyCallback;
+        params.handleCursorFunc         = CursorCallback;
+        params.handleMouseWheelFunc     = ScrollCallback;
+        params.handleRightClickFunc     = RightClickCallback;
+        params.refcon                   = nullptr;
+        params.decorateAsFloatingWindow = xplm_WindowDecorationNone; // no chrome
+        params.layer                    = xplm_WindowLayerFloatingWindows;
+        s_wnd                           = XPLMCreateWindowEx(&params);
     }
 
     XPLMSetWindowIsVisible(s_wnd, 1);
     XPLMBringWindowToFront(s_wnd);
-    s_fb_logged       = false;
-    s_mouse_dbg_count = 0;
-    load_entries();
+
+    s_screen = Screen::Home;
+    FlightListScreen::reload(s_logbook);
+    s_archive.loaded = false;
+    s_archive_count  = FlightListScreen::count_on_disk("archived/");
 }
 
 void LogbookUI::toggle()
 {
     if (s_logbook_open)
-    {
-        s_logbook_open = false;
-        if (s_wnd)
-            XPLMSetWindowIsVisible(s_wnd, 0);
-    }
+        close_window();
     else
-    {
         open();
-    }
 }
