@@ -390,6 +390,17 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
         out += b;
     }
 
+    // Flights logged before touchdown coordinates were recorded leave lat/lon at zero.
+    if (ld.lat != 0.0 || ld.lon != 0.0)
+    {
+        snprintf(b, sizeof(b),
+                 "<tr><td>Touchdown position</td><td>"
+                 "<a href=\"https://skyvector.com/?ll=%.5f,%.5f&amp;chart=301&amp;zoom=3\" "
+                 "target=\"_blank\" rel=\"noopener\">%.5f, %.5f</a></td></tr>",
+                 ld.lat, ld.lon, ld.lat, ld.lon);
+        out += b;
+    }
+
     snprintf(b, sizeof(b), "<tr><td>Wind</td><td><b>%s</b></td></tr>", w.src.c_str());
     out += b;
     snprintf(b, sizeof(b), "<tr><td>Headwind</td><td>%s</td></tr>", w.hw.c_str());

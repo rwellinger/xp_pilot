@@ -214,15 +214,23 @@ static int count_checked(const std::vector<bool> &v)
     return n;
 }
 
-static void open_path_in_browser(const std::string &path)
+static void open_in_browser(const std::string &target)
 {
 #if defined(__APPLE__)
-    system(("open \"" + path + "\"").c_str()); // NOLINT(bugprone-command-processor)
+    system(("open \"" + target + "\"").c_str()); // NOLINT(bugprone-command-processor)
 #elif defined(_WIN32)
-    system(("start \"\" \"" + path + "\"").c_str());
+    system(("start \"\" \"" + target + "\"").c_str());
 #else
-    system(("xdg-open \"" + path + "\"").c_str()); // NOLINT(bugprone-command-processor)
+    system(("xdg-open \"" + target + "\"").c_str()); // NOLINT(bugprone-command-processor)
 #endif
+}
+
+// SkyVector centres its chart on the ll parameter; chart 301 is the world VFR layer.
+static std::string skyvector_url(double latitude, double longitude)
+{
+    char url[128];
+    snprintf(url, sizeof(url), "https://skyvector.com/?ll=%.5f,%.5f&chart=301&zoom=3", latitude, longitude);
+    return url;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -615,6 +623,11 @@ static void draw_live()
     snprintf(position, sizeof(position), "Position:     %.5f, %.5f  |  HDG %03.0f", live.latitude, live.longitude,
              live.heading_true);
     ImGui::TextUnformatted(position);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("SkyVector"))
+        open_in_browser(skyvector_url(live.latitude, live.longitude));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Show this position on skyvector.com");
 
     char state[128];
     snprintf(state, sizeof(state), "Altitude:     %d ft  (%.0f ft AGL)", live.altitude_ft, live.agl_ft);
@@ -794,7 +807,7 @@ static void draw_logbook()
         if (s_report_exists)
         {
             if (ImGui::Button("Open Report"))
-                open_path_in_browser(s_report_html);
+                open_in_browser(s_report_html);
             ImGui::SameLine();
         }
 
@@ -970,7 +983,7 @@ static void draw_archive()
         if (s_arch_report_exists)
         {
             if (ImGui::Button("Open Report"))
-                open_path_in_browser(s_arch_report_html);
+                open_in_browser(s_arch_report_html);
             ImGui::SameLine();
         }
 
