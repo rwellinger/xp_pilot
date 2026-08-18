@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -7,17 +8,25 @@
 // domain), converted to a compact text format by tools/ and shipped in data/.
 //
 // Lakes are closed rings and get filled, so water reads as water. Coastlines are open
-// lines: which side is sea cannot be derived from the line alone, so they are drawn in
-// the same blue and read as "water is over there".
+// lines: which side is sea cannot be derived from the line alone, so they share the
+// water colour and read as "the sea is over there". Country borders are open lines too
+// and carry their own muted colour.
 
 struct OutlinePoint
 {
     double lat = 0, lon = 0;
 };
 
+enum class OutlineKind : std::uint8_t
+{
+    Coastline, // open line along the sea
+    Lake,      // closed ring, filled
+    Border,    // open line, country boundary
+};
+
 struct GeoOutline
 {
-    bool                      is_lake = false; // false: coastline (open line)
+    OutlineKind               kind = OutlineKind::Coastline;
     std::vector<OutlinePoint> points;
 };
 

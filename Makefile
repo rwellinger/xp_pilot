@@ -139,8 +139,8 @@ install:
 	fi
 	@# Generated map data — always refreshed, unlike the profiles a user may have edited.
 	@mkdir -p "$(PLUGIN_DIR)/data"
-	@cp data/coastlines.dat "$(PLUGIN_DIR)/data/"
-	@echo "Installed: $(PLUGIN_DIR)/data/coastlines.dat" 
+	@cp data/coastlines.dat data/cities.dat "$(PLUGIN_DIR)/data/"
+	@echo "Installed: $(PLUGIN_DIR)/data/coastlines.dat + cities.dat" 
 	@set -euo pipefail; \
 	OLD_DATA="$(XPLANE_ROOT)/Resources/available plugins/FlyWithLua/Scripts/flight_logger_data"; \
 	MARKER="$(PLUGIN_DIR)/data/.migrated_from_flywothlua"; \

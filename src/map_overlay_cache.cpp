@@ -4,6 +4,9 @@
 #include <mutex>
 #include <thread>
 
+using MapOverlayCache::airspace_span_limit_deg;
+using MapOverlayCache::city_limit;
+
 namespace
 {
 
@@ -14,6 +17,7 @@ struct Bounds
 
 std::string s_airspace_path;  // set once by init(), read by the worker
 std::string s_coastline_path; // ditto
+std::string s_city_path;      // ditto
 
 std::mutex                     s_mutex;
 Bounds                         s_cached_bounds{};    // guarded by s_mutex
@@ -33,10 +37,12 @@ bool same(const Bounds &a, const Bounds &b)
 
 } // namespace
 
-void MapOverlayCache::init(const std::string &airspace_txt_path, const std::string &coastlines_dat_path)
+void MapOverlayCache::init(const std::string &airspace_txt_path, const std::string &coastlines_dat_path,
+                           const std::string &cities_dat_path)
 {
     s_airspace_path  = airspace_txt_path;
     s_coastline_path = coastlines_dat_path;
+    s_city_path      = cities_dat_path;
 }
 
 void MapOverlayCache::stop()
@@ -52,7 +58,7 @@ void MapOverlayCache::stop()
 
 MapOverlayCache::Overlay MapOverlayCache::for_bounds(double lat_min, double lat_max, double lon_min, double lon_max)
 {
-    if (s_airspace_path.empty() && s_coastline_path.empty())
+    if (s_airspace_path.empty() && s_coastline_path.empty() && s_city_path.empty())
         return {};
 
     const Bounds wanted{lat_min, lat_max, lon_min, lon_max};
@@ -90,12 +96,18 @@ MapOverlayCache::Overlay MapOverlayCache::for_bounds(double lat_min, double lat_
             try
             {
                 const Bounds &b = s_loading_bounds;
-                if (!s_airspace_path.empty())
+                const double  span =
+                    std::max(b.lat_max - b.lat_min, (b.lon_max - b.lon_min) * std::cos((b.lat_min + b.lat_max) / 2 * 0.01745329));
+
+                if (!s_airspace_path.empty() && span <= airspace_span_limit_deg)
                     loaded.airspaces =
                         AirspaceData::load_airspaces(s_airspace_path, {b.lat_min, b.lat_max, b.lon_min, b.lon_max});
                 if (!s_coastline_path.empty())
                     loaded.outlines =
                         CoastlineData::load_outlines(s_coastline_path, {b.lat_min, b.lat_max, b.lon_min, b.lon_max});
+                if (!s_city_path.empty())
+                    loaded.cities = CityData::load_cities(s_city_path, {b.lat_min, b.lat_max, b.lon_min, b.lon_max},
+                                                          city_limit);
             }
             catch (...) // NOLINT(bugprone-empty-catch) — a failed load just means no overlay
             {

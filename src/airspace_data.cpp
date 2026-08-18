@@ -1,5 +1,7 @@
 #include "airspace_data.hpp"
 
+#include "geo_longitude.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -49,17 +51,20 @@ bool contains(const std::vector<AirspacePoint> &outline, double lat, double lon)
 // at all while nearby LSZG — which sits closer to airspace edges — showed some.
 bool touches(const std::vector<AirspacePoint> &outline, const AirspaceBounds &bounds)
 {
+    const double reference = (bounds.lon_min + bounds.lon_max) / 2.0;
+
     double lat_min = outline.front().lat, lat_max = lat_min;
-    double lon_min = outline.front().lon, lon_max = lon_min;
+    double lon_min = GeoLongitude::unwrapped_near(outline.front().lon, reference), lon_max = lon_min;
     for (const auto &point : outline)
     {
-        lat_min = std::min(lat_min, point.lat);
-        lat_max = std::max(lat_max, point.lat);
-        lon_min = std::min(lon_min, point.lon);
-        lon_max = std::max(lon_max, point.lon);
+        const double lon = GeoLongitude::unwrapped_near(point.lon, reference);
+        lat_min          = std::min(lat_min, point.lat);
+        lat_max          = std::max(lat_max, point.lat);
+        lon_min          = std::min(lon_min, lon);
+        lon_max          = std::max(lon_max, lon);
 
-        if (point.lat >= bounds.lat_min && point.lat <= bounds.lat_max && point.lon >= bounds.lon_min &&
-            point.lon <= bounds.lon_max)
+        if (point.lat >= bounds.lat_min && point.lat <= bounds.lat_max && lon >= bounds.lon_min &&
+            lon <= bounds.lon_max)
             return true; // an edge runs through the view
     }
 

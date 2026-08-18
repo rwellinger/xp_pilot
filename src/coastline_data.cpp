@@ -1,5 +1,7 @@
 #include "coastline_data.hpp"
 
+#include "geo_longitude.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -25,17 +27,22 @@ bool contains(const std::vector<OutlinePoint> &ring, double lat, double lon)
 // vanish exactly where it matters.
 bool touches(const std::vector<OutlinePoint> &points, const OutlineBounds &bounds, bool is_ring)
 {
+    // Bounds may run past ±180 when the view crosses the date line, so every longitude
+    // is expressed near the view's centre before being compared.
+    const double reference = (bounds.lon_min + bounds.lon_max) / 2.0;
+
     double lat_min = points.front().lat, lat_max = lat_min;
-    double lon_min = points.front().lon, lon_max = lon_min;
+    double lon_min = GeoLongitude::unwrapped_near(points.front().lon, reference), lon_max = lon_min;
     for (const auto &point : points)
     {
-        lat_min = std::min(lat_min, point.lat);
-        lat_max = std::max(lat_max, point.lat);
-        lon_min = std::min(lon_min, point.lon);
-        lon_max = std::max(lon_max, point.lon);
+        const double lon = GeoLongitude::unwrapped_near(point.lon, reference);
+        lat_min          = std::min(lat_min, point.lat);
+        lat_max          = std::max(lat_max, point.lat);
+        lon_min          = std::min(lon_min, lon);
+        lon_max          = std::max(lon_max, lon);
 
-        if (point.lat >= bounds.lat_min && point.lat <= bounds.lat_max && point.lon >= bounds.lon_min &&
-            point.lon <= bounds.lon_max)
+        if (point.lat >= bounds.lat_min && point.lat <= bounds.lat_max && lon >= bounds.lon_min &&
+            lon <= bounds.lon_max)
             return true;
     }
 
@@ -68,11 +75,13 @@ std::vector<GeoOutline> CoastlineData::load_outlines(const std::string   &coastl
         char tag         = 0;
         int  point_count = 0;
         // NOLINTNEXTLINE(bugprone-unchecked-string-to-number-conversion) — result checked
-        if (sscanf(line.c_str(), "%c %d", &tag, &point_count) != 2 || (tag != 'C' && tag != 'L') || point_count <= 0)
+        if (sscanf(line.c_str(), "%c %d", &tag, &point_count) != 2 || point_count <= 0)
+            continue;
+        if (tag != 'C' && tag != 'L' && tag != 'B')
             continue;
 
         GeoOutline outline;
-        outline.is_lake = (tag == 'L');
+        outline.kind = tag == 'L' ? OutlineKind::Lake : (tag == 'B' ? OutlineKind::Border : OutlineKind::Coastline);
         outline.points.reserve(static_cast<size_t>(point_count));
 
         for (int i = 0; i < point_count && std::getline(file, line); ++i)
@@ -83,11 +92,16 @@ std::vector<GeoOutline> CoastlineData::load_outlines(const std::string   &coastl
                 outline.points.push_back({lat, lon});
         }
 
-        // A lake needs a ring to fill; a coastline needs two points to be a line.
-        const size_t minimum = outline.is_lake ? 3 : 2;
-        if (outline.points.size() >= minimum && touches(outline.points, bounds, outline.is_lake))
+        // A lake needs a ring to fill; an open line needs two points.
+        const bool   is_ring = outline.kind == OutlineKind::Lake;
+        const size_t minimum = is_ring ? 3 : 2;
+        if (outline.points.size() >= minimum && touches(outline.points, bounds, is_ring))
             found.push_back(std::move(outline));
     }
 
+    // Largest first: the drawing budget is finite, and when it runs out on a wide view
+    // it should be the coastline of Ireland that survives, not an anonymous islet.
+    std::sort(found.begin(), found.end(),
+              [](const GeoOutline &a, const GeoOutline &b) { return a.points.size() > b.points.size(); });
     return found;
 }

@@ -46,7 +46,8 @@ X-Plane 12/Resources/plugins/xp_pilot/
 ├── win_x64/xp_pilot.xpl   ← Windows
 └── data/
     ├── flight_logger_profiles.json   ← bundled config (read-only)
-    └── coastlines.dat                ← coastlines and lakes for the track map (read-only)
+    ├── coastlines.dat                ← coastlines, lakes and borders (read-only)
+    └── cities.dat                    ← place names for the track map (read-only)
 ```
 
 X-Plane loads the correct platform binary automatically. Nothing here needs an API key or an account.
@@ -69,7 +70,7 @@ Flight records, HTML reports, settings, and the flight index are stored under X-
 
 On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker).
 
-**Why `settings.json` lives here and not next to the plugin.** It looks misplaced — the folder is named after the reports — but anything inside the plugin folder is owned by the updater. The SkunkCrafts updater synchronises that tree against its file list, so a settings file kept there would be overwritten or removed on every update, taking your toggles with it. Everything the plugin writes therefore lives outside the tree; the plugin folder holds only bundled, read-only files (`flight_logger_profiles.json` and `coastlines.dat`), which are meant to be replaced on update.
+**Why `settings.json` lives here and not next to the plugin.** It looks misplaced — the folder is named after the reports — but anything inside the plugin folder is owned by the updater. The SkunkCrafts updater synchronises that tree against its file list, so a settings file kept there would be overwritten or removed on every update, taking your toggles with it. Everything the plugin writes therefore lives outside the tree; the plugin folder holds only bundled, read-only files (`flight_logger_profiles.json`, `coastlines.dat` and `cities.dat`), which are meant to be replaced on update.
 
 ## Features
 
@@ -109,16 +110,19 @@ Nothing is written to disk — this is a read-only view of what the recorder alr
 <details>
 <summary><strong>The track map in the logbook window</strong></summary>
 
-The in-sim map draws the flown route over aeronautical context, all from local data — no network, no API key, and it works with the sim offline.
+The in-sim map draws the flown route over geographic and aeronautical context, all from local data — no network, no API key, and it works with the sim offline.
 
 - **The track itself** ramps from orange to near-white with altitude, so a climb reads at a glance. It is the only warm, saturated element on the map; everything else stays deliberately quiet.
 - **Airspaces** come from X-Plane's own database (`Resources/default data/airspaces/`). Violet outlines mark controlled airspace, red marks restricted, prohibited and danger areas. Airspaces that *surround* your route — the CTR around your departure airport — are included, not just those your track crosses.
-- **Water** is drawn from a Natural Earth extract bundled with the plugin: lakes as filled teal shapes, coastlines as teal lines.
+- **Water and borders** are drawn from a Natural Earth extract bundled with the plugin: lakes as filled teal shapes, coastlines in the same teal, country borders in muted grey.
+- **Place names** label the route, largest first. A label is dropped when it would overlap another one, so names stay readable where cities cluster; departure and arrival keep their spot regardless.
 - **Scale bar and ICAO labels** for departure and arrival, plus pause markers in violet.
 
-The projection is Web Mercator with the aspect ratio preserved, so a north-south leg keeps its shape instead of being squashed. Loading runs on a background thread — the map appears without airspaces for a moment on a large route, rather than stalling the window.
+**What is shown depends on how far you flew.** Airspaces only appear on local flights — a Zurich-Paris leg crosses several hundred of them, almost all irrelevant at cruise level, so beyond roughly 330 km the map shows geography instead. Place names and borders answer "where did I fly" at that scale far better than outlines do.
 
-If X-Plane's airspace database is missing, or the bundled coastline file was not installed, that layer is simply left out.
+The projection is Web Mercator with the aspect ratio preserved, so a north-south leg keeps its shape instead of being squashed, and routes crossing the date line stay in one piece. Loading runs on a background thread — on a large route the map appears without its overlays for a moment rather than stalling the window.
+
+If X-Plane's airspace database is missing, or a bundled data file was not installed, that layer is simply left out.
 
 </details>
 
@@ -317,14 +321,16 @@ src/
 ├── runway_data.*       apt.dat parsing (runway thresholds and widths)
 ├── runway_geometry.hpp Touchdown-to-runway placement math (header-only)
 ├── airspace_data.*     OpenAir parsing of X-Plane's airspace database
-├── coastline_data.*    Bundled coastline and lake outlines
-├── map_overlay_cache.* Background loading of both, off the draw thread
+├── coastline_data.*    Bundled coastlines, lakes and country borders
+├── city_data.*         Bundled place names, population-ordered
+├── map_overlay_cache.* Background loading of all three, off the draw thread
+├── geo_longitude.hpp   Date-line-safe longitude handling (header-only)
 └── auto_qnh.*          Altimeter monitoring and auto-sync
 ```
 
-`data/coastlines.dat` is generated from Natural Earth by `tools/build_coastlines.py`
-(coastlines at 1:50m, lakes at 1:10m). Re-run it only when the source data should be
-refreshed — the result is committed.
+`data/coastlines.dat` and `data/cities.dat` are generated from Natural Earth by
+`tools/build_map_data.py` (coastlines and borders at 1:50m, lakes and places at 1:10m).
+Re-run it only when the source data should be refreshed — the results are committed.
 
 `sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.
 
@@ -343,7 +349,7 @@ after changing the icon set:
 
 | Data | Use | License |
 |---|---|---|
-| Natural Earth (`data/coastlines.dat`) | coastlines and lakes on the track map | Public domain |
+| Natural Earth (`data/coastlines.dat`, `data/cities.dat`) | coastlines, lakes, borders and place names on the track map | Public domain |
 | X-Plane airspace database | airspace outlines on the track map | Read from the user's own X-Plane install; nothing is copied or redistributed |
 
 Full third-party inventory: [3part-lizenz.md](3part-lizenz.md).

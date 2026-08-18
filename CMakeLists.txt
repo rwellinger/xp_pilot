@@ -45,6 +45,7 @@ add_library(xp_pilot MODULE
     src/airspace_data.cpp
     src/map_overlay_cache.cpp
     src/coastline_data.cpp
+    src/city_data.cpp
     src/logbook_ui.cpp
     src/ui_flight_list.cpp
     src/ui_flight_view.cpp

@@ -20,6 +20,7 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
     ${CMAKE_SOURCE_DIR}/src/map_overlay_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/coastline_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/city_data.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_widgets.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp

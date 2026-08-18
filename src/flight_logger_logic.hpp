@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include "geo_longitude.hpp"
 #include "html_report.hpp"
 
 #include <algorithm>
@@ -72,6 +73,7 @@ inline int paused_seconds(double total_seconds, double active_seconds)
 inline constexpr double TRACK_BOUNDS_PADDING_FRACTION = 0.05;
 inline constexpr double TRACK_BOUNDS_MIN_PADDING_DEG  = 0.001;
 
+
 inline GeoBounds track_bounds(const std::vector<TrackPoint> &track)
 {
     GeoBounds bounds;
@@ -79,12 +81,16 @@ inline GeoBounds track_bounds(const std::vector<TrackPoint> &track)
     {
         bounds.lat_min = bounds.lat_max = track.front().lat;
         bounds.lon_min = bounds.lon_max = track.front().lon;
+        // Longitudes are unwrapped against the first point, so a track crossing the date
+        // line keeps growing east instead of snapping back and spanning the globe.
+        const double reference = track.front().lon;
         for (const auto &point : track)
         {
-            bounds.lat_min = std::min(bounds.lat_min, point.lat);
-            bounds.lat_max = std::max(bounds.lat_max, point.lat);
-            bounds.lon_min = std::min(bounds.lon_min, point.lon);
-            bounds.lon_max = std::max(bounds.lon_max, point.lon);
+            const double lon = GeoLongitude::unwrapped_near(point.lon, reference);
+            bounds.lat_min   = std::min(bounds.lat_min, point.lat);
+            bounds.lat_max   = std::max(bounds.lat_max, point.lat);
+            bounds.lon_min   = std::min(bounds.lon_min, lon);
+            bounds.lon_max   = std::max(bounds.lon_max, lon);
         }
     }
 
@@ -126,17 +132,19 @@ inline double mercator_y(double lat_degrees)
 // A projected map fitted into a width x height box, centred with equal margins.
 struct MapViewport
 {
-    double x_left   = 0; // Mercator x along the left edge of the fitted map
-    double y_top    = 0; // Mercator y along its top edge
-    double scale    = 1; // pixels per Mercator unit — the same on both axes
-    float  offset_x = 0; // letterbox margins centring the map in its box
-    float  offset_y = 0;
+    double x_left     = 0; // Mercator x along the left edge of the fitted map
+    double y_top      = 0; // Mercator y along its top edge
+    double scale      = 1; // pixels per Mercator unit — the same on both axes
+    double lon_centre = 0; // reference for unwrapping longitudes onto this map
+    float  offset_x   = 0; // letterbox margins centring the map in its box
+    float  offset_y   = 0;
 };
 
 inline MapViewport make_viewport(const GeoBounds &bounds, float width, float height)
 {
     MapViewport viewport;
-    viewport.x_left = detail::mercator_x(bounds.lon_min);
+    viewport.lon_centre = (bounds.lon_min + bounds.lon_max) / 2.0;
+    viewport.x_left     = detail::mercator_x(bounds.lon_min);
     viewport.y_top  = detail::mercator_y(bounds.lat_max);
 
     // Guard against a degenerate span; track_bounds always pads, so this only bites on
@@ -161,10 +169,19 @@ inline double km_per_pixel(const GeoBounds &bounds, const MapViewport &viewport)
     return detail::KM_PER_DEGREE_LONGITUDE_AT_EQUATOR * std::cos(mid_lat_rad) / px_per_degree;
 }
 
+// Drop points that would land on the pixel their predecessor already covers. Natural
+// Earth outlines carry far more detail than a 1000 px map can show, and ImGui indexes
+// vertices with 16 bits — a wide view once overflowed that limit and drew the map as
+// garbage. Thinning removes the cause rather than capping the symptom.
+inline constexpr float min_pixel_step = 1.5f;
+
 // Map a position into the viewport, y growing downwards as pixels do.
 inline void project_to_pixel(const MapViewport &viewport, double lat, double lon, float &out_x, float &out_y)
 {
-    out_x = viewport.offset_x + static_cast<float>((detail::mercator_x(lon) - viewport.x_left) * viewport.scale);
+    // Unwrapping here fixes the overlays too: an American coastline at -120 lands at
+    // +240 on a map centred past the date line, instead of vanishing off the left edge.
+    const double unwrapped = GeoLongitude::unwrapped_near(lon, viewport.lon_centre);
+    out_x = viewport.offset_x + static_cast<float>((detail::mercator_x(unwrapped) - viewport.x_left) * viewport.scale);
     out_y = viewport.offset_y + static_cast<float>((viewport.y_top - detail::mercator_y(lat)) * viewport.scale);
 }
 

@@ -77,6 +77,12 @@ inline constexpr ImU32 map_background = IM_COL32(24, 30, 40, 255);
 inline constexpr ImU32 map_water     = IM_COL32(14, 82, 102, 255);
 inline constexpr ImU32 map_coastline = IM_COL32(72, 178, 196, 255);
 
+// Country borders and place labels: neutral greys, so geography orients without
+// competing with the track or the airspaces.
+inline constexpr ImU32 map_border     = IM_COL32(112, 124, 148, 190);
+inline constexpr ImU32 map_city_dot   = IM_COL32(196, 206, 226, 255);
+inline constexpr ImU32 map_city_label = IM_COL32(176, 188, 212, 255);
+
 // Airspace outlines: violet for controlled (as control zones are drawn on ICAO charts),
 // red for restricted/prohibited/danger. Translucent, so the track stays dominant.
 inline constexpr ImU32 map_airspace_controlled = IM_COL32(130, 115, 225, 115);

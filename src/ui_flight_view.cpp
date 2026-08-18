@@ -21,6 +21,7 @@
 #include "flight_logger_logic.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -63,39 +64,114 @@ ImU32 airspace_color(const std::string &airspace_class)
     return restricted ? Theme::map_airspace_restricted : Theme::map_airspace_controlled;
 }
 
-// Water first, so airspaces and the track sit on top of it. Lakes are closed rings and
+// Project an outline, dropping points too close together to be distinguishable, and
+// stop once the frame's vertex budget is used up. Both guard the same failure: ImGui's
+// 16-bit vertex indices overflow silently and turn the whole map into noise.
+template <typename PointList>
+void project_thinned(const PointList &points, const FlightLoggerLogic::MapViewport &viewport, const ImVec2 &origin,
+                     std::vector<ImVec2> &out, int &budget)
+{
+    out.clear();
+    for (const auto &point : points)
+    {
+        if (budget <= 0)
+            break;
+        float x, y;
+        FlightLoggerLogic::project_to_pixel(viewport, point.lat, point.lon, x, y);
+        const ImVec2 at(origin.x + x, origin.y + y);
+        if (!out.empty())
+        {
+            const float dx = at.x - out.back().x;
+            const float dy = at.y - out.back().y;
+            if (std::fabs(dx) < FlightLoggerLogic::min_pixel_step &&
+                std::fabs(dy) < FlightLoggerLogic::min_pixel_step)
+                continue;
+        }
+        out.push_back(at);
+        --budget;
+    }
+}
+
+// Geography first, so airspaces and the track sit on top of it. Lakes are closed rings and
 // get filled — a filled shape reads as water without needing a legend. Coastlines are
 // open lines; the shared teal is what marks them as water's edge.
 void draw_water(ImDrawList *dl, const ImVec2 &origin, const std::vector<GeoOutline> &outlines,
-                const FlightLoggerLogic::MapViewport &viewport)
+                const FlightLoggerLogic::MapViewport &viewport, int &budget)
 {
     std::vector<ImVec2> projected;
     for (const auto &outline : outlines)
     {
-        projected.clear();
-        projected.reserve(outline.points.size());
-        for (const auto &point : outline.points)
-        {
-            float x, y;
-            FlightLoggerLogic::project_to_pixel(viewport, point.lat, point.lon, x, y);
-            projected.push_back(ImVec2(origin.x + x, origin.y + y));
-        }
+        project_thinned(outline.points, viewport, origin, projected, budget);
         if (projected.size() < 2)
             continue;
 
-        if (outline.is_lake)
+        switch (outline.kind)
         {
+        case OutlineKind::Lake:
             // Lake outlines are concave often enough that the convex filler would
             // produce visible spikes.
             dl->AddConcavePolyFilled(projected.data(), static_cast<int>(projected.size()), Theme::map_water);
             dl->AddPolyline(projected.data(), static_cast<int>(projected.size()), Theme::map_coastline,
                             ImDrawFlags_Closed, 1.f);
-        }
-        else
-        {
+            break;
+        case OutlineKind::Coastline:
             dl->AddPolyline(projected.data(), static_cast<int>(projected.size()), Theme::map_coastline,
                             ImDrawFlags_None, 1.2f);
+            break;
+        case OutlineKind::Border:
+            dl->AddPolyline(projected.data(), static_cast<int>(projected.size()), Theme::map_border,
+                            ImDrawFlags_None, 1.f);
+            break;
         }
+    }
+}
+
+bool overlaps(const ImVec4 &a, const ImVec4 &b)
+{
+    return a.x < b.z && b.x < a.z && a.y < b.w && b.y < a.w;
+}
+
+// The rectangle a label occupies, with a little breathing room so neighbours do not
+// touch.
+ImVec4 label_box(const ImVec2 &anchor, const char *text)
+{
+    const ImVec2 size = ImGui::CalcTextSize(text);
+    const float  pad  = Theme::scaled(2.f);
+    return ImVec4(anchor.x - pad, anchor.y - pad, anchor.x + size.x + pad, anchor.y + size.y + pad);
+}
+
+// Place names are what makes a flown route recognisable — "past Nancy, then the Marne"
+// says more than any number of airspace outlines.
+//
+// Cities cluster, so drawing every candidate piles labels on top of each other: a
+// Pacific crossing stacks ten Californian names in one corner while the ocean stays
+// bare. Candidates arrive largest-first and each is dropped if its label would collide
+// with one already placed — including the departure and arrival labels, which are
+// reserved beforehand and always win.
+void draw_cities(ImDrawList *dl, const ImVec2 &origin, const std::vector<City> &cities,
+                 const FlightLoggerLogic::MapViewport &viewport, std::vector<ImVec4> &occupied)
+{
+    constexpr size_t max_labels = 18;
+    size_t           placed     = 0;
+
+    for (const auto &city : cities)
+    {
+        if (placed >= max_labels)
+            break;
+
+        float x, y;
+        FlightLoggerLogic::project_to_pixel(viewport, city.lat, city.lon, x, y);
+        const ImVec2 at(origin.x + x, origin.y + y);
+        const ImVec2 text_at(at.x + Theme::scaled(5.f), at.y - Theme::scaled(6.f));
+        const ImVec4 box = label_box(text_at, city.name.c_str());
+
+        if (std::any_of(occupied.begin(), occupied.end(), [&](const ImVec4 &o) { return overlaps(box, o); }))
+            continue;
+
+        occupied.push_back(box);
+        ++placed;
+        dl->AddCircleFilled(at, Theme::scaled(2.5f), Theme::map_city_dot);
+        dl->AddText(text_at, Theme::map_city_label, city.name.c_str());
     }
 }
 
@@ -103,19 +179,12 @@ void draw_water(ImDrawList *dl, const ImVec2 &origin, const std::vector<GeoOutli
 // needs no network and no API key. Outlines reach past the map — an airspace only has
 // to touch the bounds to be included — so the caller clips to the map rectangle.
 void draw_airspaces(ImDrawList *dl, const ImVec2 &origin, const std::vector<Airspace> &airspaces,
-                    const FlightLoggerLogic::MapViewport &viewport)
+                    const FlightLoggerLogic::MapViewport &viewport, int &budget)
 {
     std::vector<ImVec2> projected;
     for (const auto &airspace : airspaces)
     {
-        projected.clear();
-        projected.reserve(airspace.outline.size());
-        for (const auto &point : airspace.outline)
-        {
-            float x, y;
-            FlightLoggerLogic::project_to_pixel(viewport, point.lat, point.lon, x, y);
-            projected.push_back(ImVec2(origin.x + x, origin.y + y));
-        }
+        project_thinned(airspace.outline, viewport, origin, projected, budget);
         if (projected.size() >= 3)
             dl->AddPolyline(projected.data(), static_cast<int>(projected.size()),
                             airspace_color(airspace.airspace_class), ImDrawFlags_Closed, 1.f);
@@ -279,8 +348,29 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     ImGui::PushClipRect(origin, ImVec2(origin.x + map_w, origin.y + map_h), true);
 
     const auto overlay = MapOverlayCache::for_bounds(bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max);
-    draw_water(dl, origin, overlay.outlines, viewport);
-    draw_airspaces(dl, origin, overlay.airspaces, viewport);
+    // ImGui indexes vertices with 16 bits (65535). Each polyline point costs about four
+    // of them, so the overlay is capped well below that; the track and markers drawn
+    // afterwards need headroom too.
+    int overlay_budget = 12000;
+    draw_water(dl, origin, overlay.outlines, viewport, overlay_budget);
+    draw_airspaces(dl, origin, overlay.airspaces, viewport, overlay_budget);
+
+    // Departure and arrival are the two labels that must never be crowded out, so their
+    // boxes are reserved before any city competes for the space.
+    float departure_x, departure_y, arrival_x, arrival_y;
+    to_px(flight.track.front().lat, flight.track.front().lon, departure_x, departure_y);
+    to_px(flight.track.back().lat, flight.track.back().lon, arrival_x, arrival_y);
+    const float  label_gap = Theme::scaled(8.f);
+    const ImVec2 departure_label(origin.x + departure_x + label_gap, origin.y + departure_y - label_gap);
+    const ImVec2 arrival_label(origin.x + arrival_x + label_gap, origin.y + arrival_y - label_gap);
+
+    std::vector<ImVec4> occupied;
+    if (!flight.departure_icao.empty())
+        occupied.push_back(label_box(departure_label, flight.departure_icao.c_str()));
+    if (!flight.arrival_icao.empty())
+        occupied.push_back(label_box(arrival_label, flight.arrival_icao.c_str()));
+
+    draw_cities(dl, origin, overlay.cities, viewport, occupied);
 
     int lowest_ft  = flight.track.front().alt_ft;
     int highest_ft = lowest_ft;
@@ -291,14 +381,25 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     }
     const float altitude_span = static_cast<float>(std::max(highest_ft - lowest_ft, 1));
 
+    // The track is drawn segment by segment to colour it by altitude, and points closer
+    // together than a pixel are skipped: an eight-hour flight samples ~2900 of them,
+    // which together with the overlay would approach ImGui's 16-bit vertex limit.
+    float previous_x = 0, previous_y = 0;
+    to_px(flight.track.front().lat, flight.track.front().lon, previous_x, previous_y);
     for (size_t i = 1; i < flight.track.size(); ++i)
     {
-        float x1, y1, x2, y2;
-        to_px(flight.track[i - 1].lat, flight.track[i - 1].lon, x1, y1);
-        to_px(flight.track[i].lat, flight.track[i].lon, x2, y2);
+        float x, y;
+        to_px(flight.track[i].lat, flight.track[i].lon, x, y);
+        const bool last = i + 1 == flight.track.size();
+        if (!last && std::fabs(x - previous_x) < FlightLoggerLogic::min_pixel_step &&
+            std::fabs(y - previous_y) < FlightLoggerLogic::min_pixel_step)
+            continue;
+
         const float share = static_cast<float>(flight.track[i].alt_ft - lowest_ft) / altitude_span;
-        dl->AddLine(ImVec2(origin.x + x1, origin.y + y1), ImVec2(origin.x + x2, origin.y + y2),
+        dl->AddLine(ImVec2(origin.x + previous_x, origin.y + previous_y), ImVec2(origin.x + x, origin.y + y),
                     lerp_color(Theme::map_track_low, Theme::map_track_high, share), 1.5f);
+        previous_x = x;
+        previous_y = y;
     }
     for (const auto &pause : resolve_pauses(flight))
     {
@@ -309,25 +410,20 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
         dl->AddCircleFilled(ImVec2(origin.x + px, origin.y + py), 4.f, Theme::map_pause);
     }
 
-    float dep_x, dep_y, arr_x, arr_y;
-    to_px(flight.track.front().lat, flight.track.front().lon, dep_x, dep_y);
-    to_px(flight.track.back().lat, flight.track.back().lon, arr_x, arr_y);
-    dl->AddCircleFilled(ImVec2(origin.x + dep_x, origin.y + dep_y), 5.f, Theme::map_departure);
-    dl->AddCircleFilled(ImVec2(origin.x + arr_x, origin.y + arr_y), 5.f, Theme::map_arrival);
-
-    const float label_gap = Theme::scaled(8.f);
+    dl->AddCircleFilled(ImVec2(origin.x + departure_x, origin.y + departure_y), 5.f, Theme::map_departure);
+    dl->AddCircleFilled(ImVec2(origin.x + arrival_x, origin.y + arrival_y), 5.f, Theme::map_arrival);
     if (!flight.departure_icao.empty())
-        dl->AddText(ImVec2(origin.x + dep_x + label_gap, origin.y + dep_y - label_gap), Theme::map_departure,
-                    flight.departure_icao.c_str());
+        dl->AddText(departure_label, Theme::map_departure, flight.departure_icao.c_str());
     if (!flight.arrival_icao.empty())
-        dl->AddText(ImVec2(origin.x + arr_x + label_gap, origin.y + arr_y - label_gap), Theme::map_arrival,
-                    flight.arrival_icao.c_str());
+        dl->AddText(arrival_label, Theme::map_arrival, flight.arrival_icao.c_str());
 
     draw_scale_bar(dl, origin, bounds, viewport, map_w, map_h);
     ImGui::PopClipRect();
 
-    if (!overlay.airspaces.empty() || !overlay.outlines.empty())
+    if (!overlay.airspaces.empty())
         Ui::text_dim("Violet = controlled airspace, red = restricted, teal = water");
+    else if (!overlay.outlines.empty() || !overlay.cities.empty())
+        Ui::text_dim("Airspaces are shown on local flights, where they stay legible");
 
     if (flight.paused_sec > 0)
     {

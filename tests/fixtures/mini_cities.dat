@@ -1,0 +1,10 @@
+# Test fixture in the format tools/build_map_data.py emits.
+3500000|13.4050|52.5200|Berlin
+1800000|2.3510|48.8567|Paris
+800000|8.5417|47.3769|Zürich
+280000|7.5886|47.5596|Basel
+120000|7.4474|46.9480|Bern
+9000|7.3958|47.1900|Grenchen
+notanumber|1.0|2.0|Broken Population
+5000|abc|2.0|Broken Longitude
+5000|1.0|2.0

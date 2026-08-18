@@ -16,6 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "../src/geo_longitude.hpp"
 #include "flight_logger_logic.hpp"
 
 #include <catch2/catch_amalgamated.hpp>
@@ -69,6 +70,20 @@ TEST_CASE("a single track point gets padded into a real box", "[flight_logger][t
     REQUIRE(bounds.lat_max == Catch::Approx(46.9 + FlightLoggerLogic::TRACK_BOUNDS_MIN_PADDING_DEG));
     REQUIRE(bounds.lon_min == Catch::Approx(7.5 - FlightLoggerLogic::TRACK_BOUNDS_MIN_PADDING_DEG));
     REQUIRE(bounds.lon_max == Catch::Approx(7.5 + FlightLoggerLogic::TRACK_BOUNDS_MIN_PADDING_DEG));
+}
+
+TEST_CASE("bounds follow the track's own extent", "[flight_logger][track]")
+{
+    // The map frames the flight itself: a short circuit stays zoomed in, which keeps the
+    // track legible even though nearby airspace boundaries then fall outside the frame.
+    std::vector<TrackPoint> track(2);
+    track[0].lat = 47.4;
+    track[0].lon = 8.5;
+    track[1].lat = 49.0;
+    track[1].lon = 2.5;
+
+    const auto bounds = FlightLoggerLogic::track_bounds(track);
+    REQUIRE(bounds.lat_max - bounds.lat_min == Catch::Approx(1.6 + 2 * (1.6 * 0.05 + 0.001)));
 }
 
 TEST_CASE("bounds span the extremes of the track with padding", "[flight_logger][track]")
@@ -191,4 +206,50 @@ TEST_CASE("a real pause is reported to the nearest second", "[flight_logger][pau
 TEST_CASE("active time exceeding total time cannot go negative", "[flight_logger][pause]")
 {
     REQUIRE(FlightLoggerLogic::paused_seconds(100.0, 140.0) == 0);
+}
+
+// ── Date line ─────────────────────────────────────────────────────────────────
+// The regression these guard: longitude wraps at ±180, and a Pacific crossing steps
+// from 179.99 to -179.99. Treated as plain numbers that spans the globe — Auckland to
+// Los Angeles rendered as a world map with the track jumping between the two edges.
+// Long-haul users fly these routes routinely.
+
+TEST_CASE("unwrapped_near expresses longitude next to a reference", "[flight_logger][dateline]")
+{
+    CHECK(GeoLongitude::unwrapped_near(-179.0, 179.0) == Catch::Approx(181.0));
+    CHECK(GeoLongitude::unwrapped_near(179.0, -179.0) == Catch::Approx(-181.0));
+    CHECK(GeoLongitude::unwrapped_near(8.5, 7.0) == Catch::Approx(8.5)); // untouched nearby
+    CHECK(GeoLongitude::unwrapped_near(-120.0, 210.0) == Catch::Approx(240.0));
+}
+
+TEST_CASE("track_bounds keeps a date-line crossing compact", "[flight_logger][dateline]")
+{
+    std::vector<TrackPoint> track(4); // Auckland heading east past the date line
+    track[0].lat = -37.0; track[0].lon = 174.8;
+    track[1].lat = -20.0; track[1].lon = 179.9;
+    track[2].lat = 0.0;   track[2].lon = -179.9;
+    track[3].lat = 21.3;  track[3].lon = -157.9; // Honolulu
+
+    const auto bounds = FlightLoggerLogic::track_bounds(track);
+
+    // Unwrapped the span is about 27 degrees; wrapped it would be the full 360.
+    REQUIRE(bounds.lon_max - bounds.lon_min < 40.0);
+    REQUIRE(bounds.lon_min > 170.0); // stays east of the date line rather than at -180
+}
+
+TEST_CASE("projection places both sides of the date line side by side", "[flight_logger][dateline]")
+{
+    std::vector<TrackPoint> track(2);
+    track[0].lat = 0.0; track[0].lon = 179.0;
+    track[1].lat = 0.0; track[1].lon = -179.0; // two degrees further east
+
+    const auto bounds   = FlightLoggerLogic::track_bounds(track);
+    const auto viewport = FlightLoggerLogic::make_viewport(bounds, 1000.f, 500.f);
+
+    float west_x = 0, east_x = 0, unused = 0;
+    FlightLoggerLogic::project_to_pixel(viewport, 0.0, 179.0, west_x, unused);
+    FlightLoggerLogic::project_to_pixel(viewport, 0.0, -179.0, east_x, unused);
+
+    REQUIRE(east_x > west_x);                     // continues east, does not jump back
+    REQUIRE(east_x - west_x < 1000.f);            // and not across the whole map
 }

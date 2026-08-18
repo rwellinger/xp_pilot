@@ -184,7 +184,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
             MapOverlayCache::init((std::filesystem::path(system_path) / "Resources" / "default data" / "airspaces" /
                                    "airspace.txt")
                                       .generic_string(),
-                                  FlightLogger::config_dir() + "coastlines.dat");
+                                  FlightLogger::config_dir() + "coastlines.dat",
+                                  FlightLogger::config_dir() + "cities.dat");
         }
         XPLMDebugString("[xp_pilot] XPluginStart: load_settings\n");
         load_settings();
