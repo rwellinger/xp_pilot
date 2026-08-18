@@ -21,6 +21,8 @@
 #include "html_report.hpp"
 #include "runway_data.hpp"
 #include "runway_geometry.hpp"
+#include "ui_theme.hpp"
+#include "ui_widgets.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -418,21 +420,6 @@ static ImVec2 popup_pivot()
     return {0.5f, 0.f};
 }
 
-static ImVec4 rating_col(const std::string &r)
-{
-    if (r == "BUTTER!")
-        return {1.00f, 1.00f, 0.00f, 1.0f};
-    if (r == "GREAT LANDING!")
-        return {0.25f, 1.00f, 0.25f, 1.0f};
-    if (r == "ACCEPTABLE")
-        return {0.00f, 0.80f, 0.00f, 1.0f};
-    if (r == "HARD LANDING!")
-        return {1.00f, 0.50f, 0.00f, 1.0f};
-    if (r == "WASTED!")
-        return {1.00f, 0.13f, 0.13f, 1.0f};
-    return {1.0f, 1.0f, 1.0f, 1.0f};
-}
-
 // The rating headline on a tinted bar in its own colour.
 static void draw_popup_rating_banner(const ImVec4 &col, float content_w)
 {
@@ -457,23 +444,6 @@ static void draw_popup_rating_banner(const ImVec4 &col, float content_w)
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + BANNER_H));
 }
 
-// One metric as a dim label above its value, laid out in a row of equal columns.
-static void draw_popup_metric_cell(const char *label, const char *value, const ImVec4 &value_col, float cell_w)
-{
-    const ImVec2 origin = ImGui::GetCursorPos();
-
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
-    ImGui::TextUnformatted(label);
-    ImGui::PopStyleColor();
-
-    ImGui::SetCursorPosX(origin.x);
-    ImGui::PushStyleColor(ImGuiCol_Text, value_col);
-    ImGui::TextUnformatted(value);
-    ImGui::PopStyleColor();
-
-    ImGui::SetCursorPos(ImVec2(origin.x + cell_w, origin.y));
-}
-
 static void draw_popup_metrics(float content_w)
 {
     const ImVec4 white{0.92f, 0.94f, 0.98f, 1.f};
@@ -484,15 +454,15 @@ static void draw_popup_metrics(float content_w)
     const ImVec2 row_origin = ImGui::GetCursorPos();
 
     snprintf(value, sizeof(value), "%.0f fpm", s_popup_ld.fpm);
-    draw_popup_metric_cell("VERTICAL SPEED", value, rating_col(s_popup_ld.rating), cell_w);
+    Ui::metric_cell("VERTICAL SPEED", value, Theme::rating_color(s_popup_ld.rating), cell_w);
 
     snprintf(value, sizeof(value), "%.2f G", s_popup_ld.g_force);
-    draw_popup_metric_cell("G-FORCE", value, white, cell_w);
+    Ui::metric_cell("G-FORCE", value, white, cell_w);
 
     if (!s_popup_ld.is_rotorcraft)
     {
         snprintf(value, sizeof(value), "%.1f s", s_popup_ld.float_time);
-        draw_popup_metric_cell("FLOAT", value, white, cell_w);
+        Ui::metric_cell("FLOAT", value, white, cell_w);
     }
 
     // Two stacked rows of cells; the helper only advances horizontally.
@@ -501,22 +471,22 @@ static void draw_popup_metrics(float content_w)
     if (s_popup_ld.ias_kts > 0.f)
     {
         snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ias_kts);
-        draw_popup_metric_cell("TOUCHDOWN IAS", value, white, cell_w);
+        Ui::metric_cell("TOUCHDOWN IAS", value, white, cell_w);
 
         snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ground_speed_kts);
-        draw_popup_metric_cell("GROUND SPEED", value, white, cell_w);
+        Ui::metric_cell("GROUND SPEED", value, white, cell_w);
     }
 
     if (s_popup_ld.bounce_count > 0)
     {
         snprintf(value, sizeof(value), "%d", s_popup_ld.bounce_count);
-        draw_popup_metric_cell("BOUNCES", value, ImVec4(1.f, 0.5f, 0.2f, 1.f), cell_w);
+        Ui::metric_cell("BOUNCES", value, ImVec4(1.f, 0.5f, 0.2f, 1.f), cell_w);
     }
     else if (!s_popup_ld.is_rotorcraft)
     {
         snprintf(value, sizeof(value), "%d kts %s", std::abs(s_popup_ld.crosswind_kts),
                  s_popup_ld.crosswind_side.c_str());
-        draw_popup_metric_cell("CROSSWIND", value, white, cell_w);
+        Ui::metric_cell("CROSSWIND", value, white, cell_w);
     }
 
     ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 4.4f));
@@ -608,7 +578,7 @@ void FlightLogger::draw_popup()
     ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
 
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.11f, 0.18f, 0.94f));
-    ImGui::PushStyleColor(ImGuiCol_Border, rating_col(s_popup_ld.rating));
+    ImGui::PushStyleColor(ImGuiCol_Border, Theme::rating_color(s_popup_ld.rating));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.f, 14.f));
@@ -619,7 +589,7 @@ void FlightLogger::draw_popup()
 
     const float content_w = ImGui::GetContentRegionAvail().x;
 
-    draw_popup_rating_banner(rating_col(s_popup_ld.rating), content_w);
+    draw_popup_rating_banner(Theme::rating_color(s_popup_ld.rating), content_w);
     ImGui::Spacing();
     draw_popup_metrics(content_w);
     if (!s_popup_ld.runway_ident.empty())

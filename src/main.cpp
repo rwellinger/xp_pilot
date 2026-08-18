@@ -19,6 +19,7 @@
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "logbook_ui.hpp"
+#include "ui_theme.hpp"
 #include "settings.hpp"
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -56,6 +57,7 @@ static void load_settings()
         FlightLogger::set_runway_analysis_enabled(j.value("runway_analysis", true));
         FlightLogger::set_popup_position(
             popup_position_from_string(j.value("popup_position", popup_position_to_string(POPUP_POSITION_DEFAULT))));
+        Theme::set_ui_scale(j.value("ui_scale", 1.0f));
     }
     catch (...)
     {
@@ -75,6 +77,7 @@ void Settings::save()
     j["landing_popup"]              = FlightLogger::landing_popup_enabled();
     j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
     j["popup_position"]             = popup_position_to_string(FlightLogger::popup_position());
+    j["ui_scale"]                   = Theme::ui_scale();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);

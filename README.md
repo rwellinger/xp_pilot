@@ -244,10 +244,27 @@ src/
 ├── main.cpp            Plugin entry points, draw callback, menu
 ├── flight_logger.*     State machine, data acquisition, JSON save
 ├── html_report.*       HTML/index generation, JSON parsing
-├── logbook_ui.*        Dear ImGui logbook window
+├── logbook_ui.*        Window lifecycle, input bridge, screen routing
+├── ui_theme.*          Colour palette, style, embedded fonts, icon defines
+├── ui_widgets.*        Shared building blocks (tiles, metric cells, headers)
+├── ui_home.*           Live status bar and the home screen tiles
+├── ui_flight_view.*    Read-only presentation of one flight
+├── ui_flight_list.*    Logbook and archive screen (one implementation, two lists)
+├── fonts/              Generated font headers (see tools/generate_fonts.sh)
 ├── runway_data.*       apt.dat parsing (runway thresholds and widths)
 ├── runway_geometry.hpp Touchdown-to-runway placement math (header-only)
 └── auto_qnh.*          Altimeter monitoring and auto-sync
 ```
 
 `sdk/` and `vendor/` are populated by `make setup` and are not committed to the repository.
+
+### Embedded fonts
+
+The UI ships with two subset fonts compiled into the binary, so a build needs neither
+network access nor a font toolchain. Regenerate them with `./tools/generate_fonts.sh`
+after changing the icon set:
+
+| Font | Use | License |
+|---|---|---|
+| Roboto Medium (Latin-1 subset) | all UI text | Apache License 2.0 |
+| Font Awesome 6 Free Solid (18 glyphs) | icons | Font: SIL OFL 1.1 · Icons: CC BY 4.0 |
