@@ -21,6 +21,7 @@
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <imgui.h>
 

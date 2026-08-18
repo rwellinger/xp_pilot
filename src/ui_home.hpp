@@ -19,13 +19,14 @@
 #pragma once
 #include "flight_logger.hpp"
 #include <cstddef>
+#include <cstdint>
 
 // The tablet home screen: a live status band that stays visible on every screen,
 // and the four tiles that lead into the detail screens.
 namespace Home
 {
 
-enum class Screen
+enum class Screen : std::uint8_t
 {
     Home,
     Live,

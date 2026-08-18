@@ -13,7 +13,9 @@
 #include "ui_widgets.hpp"
 #include <fstream>
 #include <imgui.h>
-#include <sstream>
+#include <ios>
+#include <iterator>
+#include <string>
 
 namespace
 {

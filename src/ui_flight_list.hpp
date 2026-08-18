@@ -18,6 +18,7 @@
 
 #pragma once
 #include "html_report.hpp"
+#include <cstddef>
 #include <string>
 #include <vector>
 

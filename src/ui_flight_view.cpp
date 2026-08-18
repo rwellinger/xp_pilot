@@ -21,6 +21,7 @@
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>

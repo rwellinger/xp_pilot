@@ -23,11 +23,16 @@
 #include "ui_widgets.hpp"
 #include <XPLM/XPLMUtilities.h>
 #include <algorithm>
+#include <cmath>
+// Keep explicit: std::remove(const char*) comes from here, and <algorithm> declares
+// an unrelated std::remove that would be picked instead.
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <imgui.h>
-#include <sstream>
+#include <iterator>
+#include <utility>
 
 using FlightListScreen::FlightList;
 
