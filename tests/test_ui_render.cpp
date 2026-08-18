@@ -182,3 +182,57 @@ TEST_CASE("the home grid fits its panel without scrolling", "[ui]")
 
     CHECK(scroll_max == 0.f);
 }
+
+TEST_CASE("the time row always shows three cells", "[ui]")
+{
+    // The regression: an unpaused flight used to render a single BLOCK TIME cell and
+    // grew two more the moment paused_sec went above zero. With a phantom one-second
+    // pause appearing every second, that made the live view flicker.
+    FlightData flight;
+    flight.block_time_min = 47;
+    flight.block_time_sec = 2820;
+
+    flight.paused_sec                 = 0;
+    const FlightView::TimeCells clean = FlightView::time_cells(flight);
+    CHECK_FALSE(clean.was_paused);
+    CHECK(clean.paused == "--");
+    CHECK(clean.total == clean.block); // nothing to subtract
+    CHECK_FALSE(clean.block.empty());
+
+    flight.paused_sec                  = 1200;
+    const FlightView::TimeCells paused = FlightView::time_cells(flight);
+    CHECK(paused.was_paused);
+    CHECK(paused.paused == "20m 00s");
+    CHECK(paused.block == "47m 00s");
+    CHECK(paused.total == "1h 07m"); // block + pause, and the three add up
+}
+
+TEST_CASE("the time row keeps its height whether or not the flight was paused", "[ui]")
+{
+    ImGuiHeadlessContext ctx;
+
+    // A running flight crossing into a pause must not shift everything below it.
+    auto row_height = [](int paused_sec)
+    {
+        FlightData flight;
+        flight.block_time_min = 47;
+        flight.block_time_sec = 2820;
+        flight.paused_sec     = paused_sec;
+
+        float height = -1.f;
+        render_frames(
+            [&]
+            {
+                const float before = ImGui::GetCursorPosY();
+                FlightView::draw_time_lines(flight);
+                height = ImGui::GetCursorPosY() - before;
+            });
+        return height;
+    };
+
+    const float without_pause = row_height(0);
+    const float with_pause    = row_height(1200);
+
+    CHECK(without_pause > 0.f);
+    CHECK(without_pause == with_pause);
+}

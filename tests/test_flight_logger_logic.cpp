@@ -108,3 +108,32 @@ TEST_CASE("projection maps the box corners to pixel corners", "[flight_logger][t
     REQUIRE(x == Catch::Approx(100.f));
     REQUIRE(y == Catch::Approx(50.f));
 }
+
+// ── Pause total ───────────────────────────────────────────────────────────────
+// The regression these guard: feeding the total from a whole-second wall clock while
+// the active time accumulates continuously made the difference oscillate between 0
+// and 1, so a flight that was never paused reported a phantom pause of one second.
+
+TEST_CASE("a flight that was never paused reports no pause", "[flight_logger][pause]")
+{
+    REQUIRE(FlightLoggerLogic::paused_seconds(0.0, 0.0) == 0);
+    REQUIRE(FlightLoggerLogic::paused_seconds(2843.5, 2843.5) == 0);
+}
+
+TEST_CASE("floating point noise is not reported as a pause", "[flight_logger][pause]")
+{
+    REQUIRE(FlightLoggerLogic::paused_seconds(100.0000001, 100.0) == 0);
+    REQUIRE(FlightLoggerLogic::paused_seconds(100.49, 100.0) == 0);
+}
+
+TEST_CASE("a real pause is reported to the nearest second", "[flight_logger][pause]")
+{
+    REQUIRE(FlightLoggerLogic::paused_seconds(130.4, 100.2) == 30);
+    REQUIRE(FlightLoggerLogic::paused_seconds(1300.0, 100.0) == 1200);
+    REQUIRE(FlightLoggerLogic::paused_seconds(100.6, 100.0) == 1);
+}
+
+TEST_CASE("active time exceeding total time cannot go negative", "[flight_logger][pause]")
+{
+    REQUIRE(FlightLoggerLogic::paused_seconds(100.0, 140.0) == 0);
+}

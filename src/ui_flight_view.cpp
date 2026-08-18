@@ -110,24 +110,25 @@ std::string FlightView::skyvector_url(double latitude, double longitude)
     return url;
 }
 
+FlightView::TimeCells FlightView::time_cells(const FlightData &flight)
+{
+    TimeCells cells;
+    cells.was_paused = flight.paused_sec > 0;
+    cells.total      = format_duration_sec(flight.block_time_sec + flight.paused_sec);
+    cells.paused     = cells.was_paused ? format_duration_sec(flight.paused_sec) : "--";
+    cells.block      = format_duration_sec(flight.block_time_sec);
+    return cells;
+}
+
 void FlightView::draw_time_lines(const FlightData &flight)
 {
-    const float cell_w = ImGui::GetContentRegionAvail().x / 3.f;
+    const float     cell_w = ImGui::GetContentRegionAvail().x / 3.f;
+    const TimeCells cells  = time_cells(flight);
 
     const ImVec2 row = Ui::begin_metric_row();
-
-    if (flight.paused_sec <= 0)
-    {
-        Ui::metric_cell("BLOCK TIME", format_duration(flight.block_time_min).c_str(), Theme::text, cell_w);
-    }
-    else
-    {
-        Ui::metric_cell("TOTAL", format_duration_sec(flight.block_time_sec + flight.paused_sec).c_str(), Theme::text,
-                        cell_w);
-        Ui::metric_cell("PAUSED", format_duration_sec(flight.paused_sec).c_str(), Theme::warning, cell_w);
-        Ui::metric_cell("BLOCK TIME", format_duration_sec(flight.block_time_sec).c_str(), Theme::text, cell_w);
-    }
-
+    Ui::metric_cell("TOTAL", cells.total.c_str(), Theme::text, cell_w);
+    Ui::metric_cell("PAUSED", cells.paused.c_str(), cells.was_paused ? Theme::warning : Theme::text_dim, cell_w);
+    Ui::metric_cell("BLOCK TIME", cells.block.c_str(), Theme::text, cell_w);
     Ui::end_metric_row(row);
 }
 

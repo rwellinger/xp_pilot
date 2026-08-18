@@ -21,6 +21,7 @@
 #include "html_report.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <vector>
 
@@ -56,6 +57,17 @@ struct GeoBounds
 {
     double lat_min = 0, lat_max = 0, lon_min = 0, lon_max = 0;
 };
+
+// Pause total: whatever the flight clock ran beyond the active (unpaused) time.
+// Both counters are fed from the same per-frame delta, so their difference carries no
+// quantisation noise and is exactly zero for a flight that was never paused. Feeding
+// one of them from a whole-second wall clock instead would make this oscillate
+// between 0 and 1 every second.
+inline int paused_seconds(double total_seconds, double active_seconds)
+{
+    const double paused = total_seconds - active_seconds;
+    return paused > 0.0 ? static_cast<int>(std::lround(paused)) : 0;
+}
 
 inline constexpr double TRACK_BOUNDS_PADDING_FRACTION = 0.05;
 inline constexpr double TRACK_BOUNDS_MIN_PADDING_DEG  = 0.001;

@@ -32,7 +32,18 @@ std::string format_duration_sec(int seconds);
 void        open_in_browser(const std::string &target);
 std::string skyvector_url(double latitude, double longitude);
 
-// Gross/pause/net time when the flight was paused, plain block time otherwise.
+// The three time figures as they are shown: total, pause and net block time. Always
+// three, so the layout does not shift when a flight crosses into a pause — an unpaused
+// flight simply shows a dash. Split out from the drawing so it can be unit tested.
+struct TimeCells
+{
+    std::string total;
+    std::string paused;
+    std::string block;
+    bool        was_paused = false;
+};
+TimeCells time_cells(const FlightData &flight);
+
 void draw_time_lines(const FlightData &flight);
 
 // Top-down view of the flown route. For a running flight the end marker is the

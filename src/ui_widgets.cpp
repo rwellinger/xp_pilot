@@ -51,7 +51,11 @@ ImVec2 Ui::begin_metric_row() { return ImGui::GetCursorPos(); }
 
 void Ui::end_metric_row(const ImVec2 &row_origin)
 {
-    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 2.f));
+    // Claim the row as a real item rather than just moving the cursor past it —
+    // a bare SetCursorPos() would leave the parent unaware of the height, which
+    // breaks its content size and therefore its scrolling.
+    ImGui::SetCursorPos(row_origin);
+    ImGui::Dummy(ImVec2(0.f, ImGui::GetTextLineHeightWithSpacing() * 2.f));
 }
 
 void Ui::metric_cell(const char *label, const char *value, const ImVec4 &value_color, float cell_width)

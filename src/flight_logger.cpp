@@ -845,6 +845,7 @@ static int                      s_prev_any_eng = -1; // -1 = unknown
 // Flight time excluding sim pause: only frames with sim/time/paused == 0 are counted,
 // so a flight parked in pause for hours no longer inflates the block time.
 static double                  s_active_seconds     = 0.0;
+static double                  s_total_seconds      = 0.0;
 static double                  s_last_sample_active = 0.0;
 static std::vector<PauseEvent> s_pauses;
 
@@ -864,7 +865,7 @@ static void session_reset()
     s_aircraft_tail.clear();
     s_is_rotorcraft   = false;
     s_start_time = s_end_time = 0;
-    s_active_seconds = s_last_sample_active = 0.0;
+    s_active_seconds = s_last_sample_active = s_total_seconds = 0.0;
     s_max_altitude_ft = s_max_speed_kts = 0;
     s_track.clear();
     s_landings.clear();
@@ -876,11 +877,7 @@ static void session_reset()
 static int block_time_seconds() { return static_cast<int>(std::lround(s_active_seconds)); }
 static int block_time_minutes() { return static_cast<int>(s_active_seconds / 60.0); }
 
-static int paused_seconds(time_t end_time)
-{
-    const double paused = static_cast<double>(end_time - s_start_time) - s_active_seconds;
-    return paused > 0.0 ? static_cast<int>(std::lround(paused)) : 0;
-}
+static int paused_seconds() { return FlightLoggerLogic::paused_seconds(s_total_seconds, s_active_seconds); }
 
 static void finalize_flight();
 
@@ -1369,12 +1366,20 @@ static bool flight_in_progress()
 }
 
 // Flight-loop callbacks keep firing while the sim is paused or in replay, so gate the
-// accumulator on those datarefs instead of trusting the wall clock. Freezing the
-// accumulator also freezes the track sampler, which keeps replayed frames out of the
-// track and out of the max altitude/speed statistics.
-static void accumulate_active_time(const Frame &f, float elapsed_real_sec)
+// active accumulator on those datarefs instead of trusting the wall clock. Freezing it
+// also freezes the track sampler, which keeps replayed frames out of the track and out
+// of the max altitude/speed statistics.
+//
+// The total counter runs unconditionally over the same frames, so that the pause total
+// — their difference — stays free of the quantisation noise a whole-second wall clock
+// would introduce.
+static void accumulate_flight_time(const Frame &f, float elapsed_real_sec)
 {
-    if (f.paused == 0 && f.in_replay == 0 && flight_in_progress())
+    if (!flight_in_progress())
+        return;
+
+    s_total_seconds += elapsed_real_sec;
+    if (f.paused == 0 && f.in_replay == 0)
         s_active_seconds += elapsed_real_sec;
 }
 
@@ -1423,7 +1428,7 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
     }
 
     const Frame f = read_frame();
-    accumulate_active_time(f, elapsed_real_sec);
+    accumulate_flight_time(f, elapsed_real_sec);
     record_pause_release(f);
     cache_airport_when_stationary(f);
     handle_engine_edge_detection(f.on_gnd);
@@ -1535,7 +1540,7 @@ static std::string save_flight()
     obj["end_time"]        = (long long)s_end_time;
     obj["block_time_min"]  = block_time_minutes();
     obj["block_time_sec"]  = block_time_seconds();
-    obj["paused_sec"]      = paused_seconds(s_end_time);
+    obj["paused_sec"]      = paused_seconds();
     obj["max_altitude_ft"] = s_max_altitude_ft;
     obj["max_speed_kts"]   = s_max_speed_kts;
     obj["fuel_used_kg"]    = 0;
@@ -1625,7 +1630,7 @@ static FlightData build_flight_data(time_t end_time)
     fd.end_time          = end_time;
     fd.block_time_min    = block_time_minutes();
     fd.block_time_sec    = block_time_seconds();
-    fd.paused_sec        = paused_seconds(end_time);
+    fd.paused_sec        = paused_seconds();
     fd.max_altitude_ft   = s_max_altitude_ft;
     fd.max_speed_kts     = s_max_speed_kts;
     fd.track             = s_track;
