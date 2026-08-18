@@ -3,6 +3,14 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
+### Unreleased
+
+  - **Open a position on SkyVector** — coordinates are now one click away from an aeronautical chart instead of something to copy by hand.
+    - The **Live** tab has a **SkyVector** button next to the position line; it opens the current aircraft position on [skyvector.com](https://skyvector.com/) in the default browser.
+    - Every landing card in the HTML report gained a **Touchdown position** row showing the touchdown coordinates as a link to the same chart. Landings recorded before touchdown coordinates existed simply omit the row.
+  - No file format change; flight logs stay at `version: 4`.
+
+
 ### What's New in v1.6.3
 
   - **Live tab — watch the flight while it is still running** — the Logbook window has a new first tab showing the flight in progress instead of making you wait for the report. It shows the departure airport, aircraft and off-blocks time, the running block time (pause-aware, exactly as the finished report counts it), the current position, altitude and AGL, indicated airspeed, vertical speed and true heading, the maxima reached so far, and the route flown from takeoff up to this moment on the same track map the logbook detail view uses. Landings already made during the flight — a touch-and-go en route — appear with their full rating.
@@ -86,6 +94,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
   - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the Settings tab
   - Live tab — position, altitude, speed, running block time and the route flown so far, while the flight is still in progress
+  - SkyVector links — open the live position or a recorded touchdown point on an aeronautical chart in the browser
 
 
 ### Installation

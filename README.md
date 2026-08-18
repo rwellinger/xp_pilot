@@ -32,7 +32,7 @@ No FlyWithLua required. No account or subscription.
 - **Your data stays on your machine.** Flights, landings, and reports are plain JSON and HTML files in your X-Plane folder. No cloud, no server, no account — nothing to shut down, nothing to leak.
 - **No login, no subscription, no telemetry.** Install it and it works. You own your logbook.
 - **First-class native builds for macOS, Linux and Windows.** Universal binary on Apple Silicon and Intel Macs — a platform most X-Plane tools treat as an afterthought.
-- **Flight recording runs offline.** No internet needed while flying. Only the map tiles in the HTML reports are fetched from OpenStreetMap when you open a report.
+- **Flight recording runs offline.** No internet needed while flying. The only outbound traffic is the map tiles the HTML reports fetch from OpenStreetMap when you open a report, and the SkyVector chart — opened in your browser only when you click a position link.
 
 ## Installation
 
@@ -84,6 +84,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; `index.html` lists all flights
 - Shows the flight in progress live in the Logbook window — no need to land first
+- Opens the live position or a recorded touchdown point on a [SkyVector](https://skyvector.com/) aeronautical chart in the browser
 
 ![Logbook Window](logbook.jpg)
 
@@ -92,7 +93,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 
 The **Live** tab of the Logbook window shows the flight currently being recorded, so you can check the route flown so far without ending the flight or opening an HTML report.
 
-- **Where you are** — position, altitude and height above ground, indicated airspeed, vertical speed, true heading. Updated every frame.
+- **Where you are** — position, altitude and height above ground, indicated airspeed, vertical speed, true heading. Updated every frame. The **SkyVector** button next to the position line opens the current coordinates on an aeronautical chart in your browser.
 - **How long you have been flying** — the running block time, pause-aware, counted exactly as the finished report counts it.
 - **Where you have been** — the route from takeoff up to this moment on the same track map the logbook detail view uses. It follows the 10-second sampling grid, so the first line appears after about 20 seconds of flight.
 - **What you have done** — the maxima reached so far, plus any landing already made during the flight (a touch-and-go en route) with its full rating.
@@ -130,6 +131,7 @@ Each landing is placed on the runway it was actually made on, so you can see *wh
 - **Touchdown point** — distance past the threshold in metres and feet, plus how much of the runway you used.
 - **Runway remaining** — how much pavement was left ahead of you.
 - **Centerline deviation** — how far left or right of the centerline you put it down.
+- **Touchdown position** — the coordinates of the touchdown, linked to the spot on SkyVector in the HTML report.
 
 Displaced thresholds are taken into account, so the distance is measured from the actual landing threshold rather than the start of the pavement.
 
