@@ -83,8 +83,23 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
 - Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; `index.html` lists all flights
+- Shows the flight in progress live in the Logbook window — no need to land first
 
 ![Logbook Window](logbook.jpg)
+
+<details>
+<summary><strong>Live view of the running flight</strong></summary>
+
+The **Live** tab of the Logbook window shows the flight currently being recorded, so you can check the route flown so far without ending the flight or opening an HTML report.
+
+- **Where you are** — position, altitude and height above ground, indicated airspeed, vertical speed, true heading. Updated every frame.
+- **How long you have been flying** — the running block time, pause-aware, counted exactly as the finished report counts it.
+- **Where you have been** — the route from takeoff up to this moment on the same track map the logbook detail view uses. It follows the 10-second sampling grid, so the first line appears after about 20 seconds of flight.
+- **What you have done** — the maxima reached so far, plus any landing already made during the flight (a touch-and-go en route) with its full rating.
+
+Nothing is written to disk — this is a read-only view of what the recorder already holds in memory. With *Write flight logs to disk* switched off no track is sampled, so the map is replaced by a note; all other live values still work.
+
+</details>
 
 <details>
 <summary><strong>Pause-aware block time</strong></summary>
@@ -144,7 +159,7 @@ Under **Plugins → xp_pilot**:
 
 | Item | Description |
 |---|---|
-| Open / Close Logbook | Open the in-sim flight logbook window (contains all settings) |
+| Open / Close Logbook | Open the in-sim flight logbook window (live view, flight history, and all settings) |
 | Show Last Landing Rating | Re-open the landing popup for the most recent landing |
 
 ### Commands
@@ -164,7 +179,7 @@ All feature toggles live in the **Settings** tab of the Logbook window. Changes 
 
 | Setting | Default | Description |
 |---|---|---|
-| Write flight logs to disk | on | When off, no JSON flight file and no HTML report are written. Flight tracking and on-screen messages still work. |
+| Write flight logs to disk | on | When off, no JSON flight file and no HTML report are written, and no track is sampled — so the Live tab shows no route map. Flight tracking, live position values and on-screen messages still work. |
 | Auto QNH | off | Silently syncs pilot and copilot altimeter to the actual sea-level pressure (skipped on standard 29.92). |
 | Show QNH warning messages | on | Gates the on-screen *CHECK ALTIMETER* and *ALTIMETER DISAGREE* warnings. Independent of Auto QNH. |
 | Show flight logger status messages | on | Gates the on-screen overlays (*DEP cached*, *REC Flight recording started*, *Touch-and-Go*, *Flight saved*, etc.). |

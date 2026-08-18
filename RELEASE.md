@@ -3,8 +3,13 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
-### Unreleased
+### What's New in v1.6.3
 
+  - **Live tab — watch the flight while it is still running** — the Logbook window has a new first tab showing the flight in progress instead of making you wait for the report. It shows the departure airport, aircraft and off-blocks time, the running block time (pause-aware, exactly as the finished report counts it), the current position, altitude and AGL, indicated airspeed, vertical speed and true heading, the maxima reached so far, and the route flown from takeoff up to this moment on the same track map the logbook detail view uses. Landings already made during the flight — a touch-and-go en route — appear with their full rating.
+    - The position line updates every frame; the track map follows the 10-second sampling grid, so the first line segment appears after about 20 seconds of flight.
+    - Nothing is written to disk and no HTML report is generated — this is a read-only view of what the recorder already holds in memory.
+    - When *Write flight logs to disk* is switched off the recorder keeps no track, so the tab says so instead of showing an empty map. All other live values still work.
+    - Between flights the tab reads *No flight in progress*.
   - **Replay no longer pollutes the flight statistics** — entering X-Plane's replay mid-flight and leaving it again used to feed the replayed frames into the track and into the **Max Speed** and **Max Altitude** tiles. Replay time is now excluded from the active flight time, exactly like a sim pause, which also stops the track sampler for its duration. Flights ending in replay were already discarded and still are.
   - **Implausible speed samples are discarded** — a repositioning, an aircraft reload or a single bad frame could hand the logger one garbage airspeed reading, and the running maximum kept it for the rest of the flight. Readings outside 0–1000 kts, or jumping more than 150 kts from the previous 10-second sample, are now dropped instead of recorded.
   - No file format change; flight logs stay at `version: 4`.
@@ -80,6 +85,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
   - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
   - In-sim ImGui Logbook window with flight list, detail view, report regeneration, and the Settings tab
+  - Live tab — position, altitude, speed, running block time and the route flown so far, while the flight is still in progress
 
 
 ### Installation
