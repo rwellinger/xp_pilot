@@ -17,6 +17,7 @@
  */
 
 #include "ui_flight_view.hpp"
+#include "airspace_cache.hpp"
 #include "flight_logger_logic.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
@@ -52,6 +53,37 @@ double round_scale_distance_km(double budget_km)
         if (step <= budget_km)
             chosen = step;
     return chosen;
+}
+
+// Restricted, prohibited and danger areas read red on aviation charts; controlled
+// airspace reads blue. Anything else follows the controlled colour.
+ImU32 airspace_color(const std::string &airspace_class)
+{
+    const bool restricted = airspace_class == "R" || airspace_class == "P" || airspace_class == "Q";
+    return restricted ? Theme::map_airspace_restricted : Theme::map_airspace_controlled;
+}
+
+// Airspace outlines under the track. They come from X-Plane's own database, so this
+// needs no network and no API key. Outlines reach past the map — an airspace only has
+// to touch the bounds to be included — so the caller clips to the map rectangle.
+void draw_airspaces(ImDrawList *dl, const ImVec2 &origin, const std::vector<Airspace> &airspaces,
+                    const FlightLoggerLogic::MapViewport &viewport)
+{
+    std::vector<ImVec2> projected;
+    for (const auto &airspace : airspaces)
+    {
+        projected.clear();
+        projected.reserve(airspace.outline.size());
+        for (const auto &point : airspace.outline)
+        {
+            float x, y;
+            FlightLoggerLogic::project_to_pixel(viewport, point.lat, point.lon, x, y);
+            projected.push_back(ImVec2(origin.x + x, origin.y + y));
+        }
+        if (projected.size() >= 3)
+            dl->AddPolyline(projected.data(), static_cast<int>(projected.size()),
+                            airspace_color(airspace.airspace_class), ImDrawFlags_Closed, 1.f);
+    }
 }
 
 // A bar of round length, sized from the map's own scale so distances stay readable
@@ -206,6 +238,14 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(origin, ImVec2(origin.x + map_w, origin.y + map_h), Theme::map_background, Theme::scaled(8.f));
 
+    // Airspaces sit underneath the track. Their outlines run past the map edge, so
+    // everything from here on is clipped to the map rectangle.
+    ImGui::PushClipRect(origin, ImVec2(origin.x + map_w, origin.y + map_h), true);
+
+    const AirspaceBounds airspace_bounds{bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max};
+    const auto           airspaces = AirspaceCache::for_bounds(airspace_bounds);
+    draw_airspaces(dl, origin, airspaces, viewport);
+
     int lowest_ft  = flight.track.front().alt_ft;
     int highest_ft = lowest_ft;
     for (const auto &point : flight.track)
@@ -248,6 +288,12 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
                     flight.arrival_icao.c_str());
 
     draw_scale_bar(dl, origin, bounds, viewport, map_w, map_h);
+    ImGui::PopClipRect();
+
+    if (!airspaces.empty())
+    {
+        Ui::text_dim("Airspace outlines from X-Plane's database: blue = controlled, red = restricted");
+    }
 
     if (flight.paused_sec > 0)
     {

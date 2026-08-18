@@ -17,6 +17,8 @@ add_executable(xp_pilot_tests
     ${CATCH2_DIR}/catch_amalgamated.cpp
     ${CMAKE_SOURCE_DIR}/src/html_report.cpp
     ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
+    ${CMAKE_SOURCE_DIR}/src/airspace_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_widgets.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp
@@ -27,6 +29,7 @@ add_executable(xp_pilot_tests
     test_auto_qnh_logic.cpp
     test_flight_logger_logic.cpp
     test_runway.cpp
+    test_airspace.cpp
     test_popup_position.cpp
     test_ui_render.cpp
 )

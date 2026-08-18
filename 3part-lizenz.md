@@ -43,9 +43,8 @@ files. If they are ever bundled locally, their license texts must ship with the 
 
 | Service | Role | Terms |
 |---|---|---|
-| [OpenFreeMap](https://openfreemap.org/) | Default basemap for the flight report | Public instance is free for any use, no registration, no API key, no usage limits. Requires the attribution the report renders: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap". |
-| [MapTiler](https://www.maptiler.com/) | Optional basemap, only when the user enters their own API key in the settings | Governed by the agreement between that user and MapTiler. The key lives in the user's local `settings.json`; xp_pilot ships no key of its own. |
-| OpenStreetMap | Map data behind both providers | ODbL, attribution rendered in the report. |
+| [OpenFreeMap](https://openfreemap.org/) | Basemap for the flight report | Public instance is free for any use, no registration, no API key, no usage limits. Requires the attribution the report renders: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap". |
+| OpenStreetMap | Map data behind the tiles | ODbL, attribution rendered in the report. |
 | SkyVector | Deep links to charts | Links only, no data ingestion. |
 
 ---

@@ -75,6 +75,11 @@ inline constexpr ImU32 map_departure  = IM_COL32(64, 255, 0, 255);
 inline constexpr ImU32 map_arrival    = IM_COL32(80, 150, 255, 255);
 inline constexpr ImU32 map_scale      = IM_COL32(139, 153, 175, 255); // text_dim, as ImDrawList wants ImU32
 
+// Airspace outlines, drawn faintly beneath the track: controlled airspace in blue,
+// restricted/prohibited/danger areas in red — the convention on aviation charts.
+inline constexpr ImU32 map_airspace_controlled = IM_COL32(90, 140, 220, 110);
+inline constexpr ImU32 map_airspace_restricted = IM_COL32(220, 90, 90, 110);
+
 // Landing rating colours, shared by the logbook, the detail view and the popup.
 ImVec4 rating_color(const std::string &rating);
 

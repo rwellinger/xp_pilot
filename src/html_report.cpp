@@ -512,22 +512,15 @@ constexpr const char *REPORT_CDN_HEAD =
     "<script src=\"https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js\"></script>"
     "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js\"></script>";
 
-// OpenFreeMap serves vector tiles without a key or usage limit; a MapTiler key is
-// optional and only swaps the styling.
+// OpenFreeMap serves vector tiles without a key or usage limit. Keyless on purpose: the
+// style URL ends up inside every generated report, so any credential in it would travel
+// along whenever a report is shared.
 constexpr const char *OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
 constexpr const char *MAP_ATTRIBUTION =
     "<a href=\"https://openfreemap.org\">OpenFreeMap</a> "
     "<a href=\"https://www.openmaptiles.org/\">&copy; OpenMapTiles</a> Data from "
     "<a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a>";
 
-std::string s_maptiler_key;
-
-std::string map_style_url()
-{
-    if (s_maptiler_key.empty())
-        return OPENFREEMAP_STYLE;
-    return "https://api.maptiler.com/maps/streets-v2-dark/style.json?key=" + s_maptiler_key;
-}
 
 std::string line_chart_js(const char *canvas_id, const char *label, const char *data_var, const char *border_color,
                           const char *fill_color, const char *unit)
@@ -552,7 +545,7 @@ std::string map_and_charts_script(const TrackJsArrays &track, const std::string 
     js << "<script>"
        << "var lats=" << track.lats << ",lons=" << track.lons << ",alts=" << track.alts << ",spds=" << track.spds
        << ",pauses=" << js_pauses << ";"
-       << "var map=new maplibregl.Map({container:'map',style:'" << map_style_url() << "',center:[" << clon_s << ","
+       << "var map=new maplibregl.Map({container:'map',style:'" << OPENFREEMAP_STYLE << "',center:[" << clon_s << ","
        << clat_s << "],zoom:8,attributionControl:false});"
        << "map.addControl(new maplibregl.AttributionControl({customAttribution:'" << MAP_ATTRIBUTION << "'}));"
        << R"(map.on('load',function(){
@@ -709,9 +702,6 @@ void HtmlReport::generate_index(const std::string &data_dir)
     if (out.is_open())
         out << idx;
 }
-
-void               HtmlReport::set_maptiler_key(const std::string &key) { s_maptiler_key = key; }
-const std::string &HtmlReport::maptiler_key() { return s_maptiler_key; }
 
 // ── JSON parsing ──────────────────────────────────────────────────────────────
 

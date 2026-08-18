@@ -42,6 +42,8 @@ add_library(xp_pilot MODULE
     src/flight_logger.cpp
     src/html_report.cpp
     src/runway_data.cpp
+    src/airspace_data.cpp
+    src/airspace_cache.cpp
     src/logbook_ui.cpp
     src/ui_flight_list.cpp
     src/ui_flight_view.cpp

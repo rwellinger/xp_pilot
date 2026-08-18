@@ -16,9 +16,9 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "airspace_cache.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
-#include "html_report.hpp"
 #include "logbook_ui.hpp"
 #include "ui_theme.hpp"
 #include "settings.hpp"
@@ -30,6 +30,7 @@
 // Keep these explicit: MSVC needs them; Clang often pulls them in transitively and flags them unused.
 #include <cstdio>  // snprintf
 #include <cstring> // strncpy
+#include <filesystem>
 #include <fstream>
 #include <json.hpp>
 
@@ -59,7 +60,6 @@ static void load_settings()
         FlightLogger::set_popup_position(
             popup_position_from_string(j.value("popup_position", popup_position_to_string(POPUP_POSITION_DEFAULT))));
         Theme::set_ui_scale(j.value("ui_scale", 1.0f));
-        HtmlReport::set_maptiler_key(j.value("maptiler_api_key", std::string()));
     }
     catch (...)
     {
@@ -80,7 +80,6 @@ void Settings::save()
     j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
     j["popup_position"]             = popup_position_to_string(FlightLogger::popup_position());
     j["ui_scale"]                   = Theme::ui_scale();
-    j["maptiler_api_key"]           = HtmlReport::maptiler_key();
     std::ofstream f(settings_path());
     if (f.is_open())
         f << j.dump(2);
@@ -175,6 +174,16 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         AutoQNH::init();
         XPLMDebugString("[xp_pilot] XPluginStart: LogbookUI::init\n");
         LogbookUI::init();
+
+        // X-Plane's own OpenAir database backs the airspace overlay on the track map:
+        // local, no key, no network. A missing file just leaves the overlay empty.
+        {
+            char system_path[2048] = {};
+            XPLMGetSystemPath(system_path);
+            AirspaceCache::init((std::filesystem::path(system_path) / "Resources" / "default data" / "airspaces" /
+                                 "airspace.txt")
+                                    .generic_string());
+        }
         XPLMDebugString("[xp_pilot] XPluginStart: load_settings\n");
         load_settings();
 
@@ -217,6 +226,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 PLUGIN_API void XPluginStop()
 {
     LogbookUI::stop();
+    AirspaceCache::stop();
     FlightLogger::stop();
     AutoQNH::stop();
     if (s_cmd_logbook)

@@ -250,7 +250,7 @@ TEST_CASE("HtmlReport::generate: writes a report file and returns its basename",
     fs::remove_all(root);
 }
 
-TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap by default", "[report][map]")
+TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap", "[report][map]")
 {
     fs::path    root  = make_tmp_data_dir();
     std::string ddir  = root.string() + "/";
@@ -259,7 +259,6 @@ TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap by defaul
     FlightData         fd = parse_flight_json(read_fixture("sample_flight.json"), jname);
     std::array<int, 4> thresholds{-100, -250, -350, -600};
 
-    HtmlReport::set_maptiler_key("");
     std::string html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "medium_ga", thresholds));
 
     REQUIRE(html.find("maplibre-gl") != std::string::npos);
@@ -273,7 +272,10 @@ TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap by defaul
     fs::remove_all(root);
 }
 
-TEST_CASE("HtmlReport::generate: a MapTiler key swaps the style source", "[report][map]")
+// The regression this guards: reports are made to be shared, so anything embedded in one
+// travels with it. A keyed tile provider would have put the user's API key into every
+// report they sent to a friend or posted online.
+TEST_CASE("HtmlReport::generate: a report never carries credentials", "[report][map]")
 {
     fs::path    root  = make_tmp_data_dir();
     std::string ddir  = root.string() + "/";
@@ -282,14 +284,13 @@ TEST_CASE("HtmlReport::generate: a MapTiler key swaps the style source", "[repor
     FlightData         fd = parse_flight_json(read_fixture("sample_flight.json"), jname);
     std::array<int, 4> thresholds{-100, -250, -350, -600};
 
-    HtmlReport::set_maptiler_key("test-key-123");
     std::string html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "medium_ga", thresholds));
 
-    REQUIRE(html.find("api.maptiler.com") != std::string::npos);
-    REQUIRE(html.find("test-key-123") != std::string::npos);
-    REQUIRE(html.find("tiles.openfreemap.org") == std::string::npos);
+    REQUIRE(html.find("api.maptiler.com") == std::string::npos);
+    REQUIRE(html.find("key=") == std::string::npos);
+    REQUIRE(html.find("apikey") == std::string::npos);
+    REQUIRE(html.find("access_token") == std::string::npos);
 
-    HtmlReport::set_maptiler_key(""); // leave the default in place for other tests
     fs::remove_all(root);
 }
 

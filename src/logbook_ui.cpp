@@ -19,7 +19,6 @@
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
-#include "html_report.hpp"
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
@@ -137,30 +136,6 @@ static void draw_live_screen(const FlightLogger::LiveFlight &live)
     FlightView::draw_landings(flight);
 }
 
-// The report map falls back to OpenFreeMap, which needs no key. A MapTiler key is
-// optional and only swaps the styling.
-static void draw_maptiler_key_field()
-{
-    static char key_buffer[128] = {};
-    static bool buffer_filled   = false;
-    if (!buffer_filled)
-    {
-        snprintf(key_buffer, sizeof(key_buffer), "%s", HtmlReport::maptiler_key().c_str());
-        buffer_filled = true;
-    }
-
-    ImGui::SetNextItemWidth(Theme::scaled(240.f));
-    if (ImGui::InputText("MapTiler API key", key_buffer, sizeof(key_buffer)))
-    {
-        HtmlReport::set_maptiler_key(key_buffer);
-        Settings::save();
-    }
-    Ui::help_marker("Optional. Without a key the map uses OpenFreeMap.\n"
-                    "A key only changes the map styling.\n"
-                    "Reports already written keep their map until you press\n"
-                    "\"Rebuild All Reports\" in the flight list.");
-}
-
 static void draw_settings_screen()
 {
     Ui::section_header(ICON_FA_FILE_LINES, "Flight Log Writer");
@@ -183,7 +158,6 @@ static void draw_settings_screen()
         FlightLogger::set_html_report_enabled(value);
         Settings::save();
     }
-    draw_maptiler_key_field();
     ImGui::Unindent();
     ImGui::EndDisabled();
 
@@ -429,8 +403,32 @@ static void KeyCallback(XPLMWindowID, char key, XPLMKeyFlags flags, char vkey, v
         return;
 
     ImGuiIO &io = ImGui::GetIO();
-    if (key >= 32 && key < 127)
+
+    // Shortcut modifiers. ConfigMacOSXBehaviors makes ImGui expect Cmd (Super) rather
+    // than Ctrl on macOS; X-Plane reports both through xplm_ControlFlag, so the flag is
+    // mapped to whichever key ImGui is looking for on this platform.
+    const bool ctrl_down = (flags & xplm_ControlFlag) != 0;
+    io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, ctrl_down);
+    io.AddKeyEvent(ImGuiMod_Shift, (flags & xplm_ShiftFlag) != 0);
+
+    // With a modifier held, X-Plane still reports the letter — feed it as a key so
+    // ImGui's own copy/paste/select-all shortcuts fire, and skip the text path that
+    // would otherwise insert a stray character.
+    if (ctrl_down)
+    {
+        switch (vkey)
+        {
+        case XPLM_VK_V: io.AddKeyEvent(ImGuiKey_V, true); break;
+        case XPLM_VK_C: io.AddKeyEvent(ImGuiKey_C, true); break;
+        case XPLM_VK_X: io.AddKeyEvent(ImGuiKey_X, true); break;
+        case XPLM_VK_A: io.AddKeyEvent(ImGuiKey_A, true); break;
+        default: break;
+        }
+    }
+    else if (key >= 32 && key < 127)
+    {
         io.AddInputCharacter(static_cast<unsigned>(key));
+    }
     if (vkey == XPLM_VK_BACK)
         io.AddKeyEvent(ImGuiKey_Backspace, true);
     if (vkey == XPLM_VK_DELETE)
