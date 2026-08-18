@@ -143,6 +143,10 @@ jobs:
           cp dist/linux/xp_pilot.xpl   dist/xp_pilot/lin_x64/xp_pilot.xpl
           cp dist/windows/xp_pilot.xpl dist/xp_pilot/win_x64/xp_pilot.xpl
           cp data/flight_logger_profiles.json dist/xp_pilot/data/
+          # Map overlay data (coastlines and lakes). Without it the track map simply
+          # draws no water, so a missing file would ship as a silent feature loss.
+          cp data/coastlines.dat dist/xp_pilot/data/
+          test -s dist/xp_pilot/data/coastlines.dat
           # SkunkCrafts control files into the staging tree, BEFORE the zip, so
           # the release ZIP also carries the cfg (manual installs become
           # updater-discoverable). Version from the tag (v1.2.3 -> 1.2.3).

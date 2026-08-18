@@ -105,6 +105,9 @@ LiveFlight live_flight();
 // ── Logbook access ────────────────────────────────────────────────────────────
 // User data root (flights, reports, index, settings) under X-Plane's Output dir.
 const std::string &output_dir();
+
+// Bundled read-only config shipped next to the plugin binary (<plugin>/data/).
+const std::string &config_dir();
 bool              &lb_needs_refresh();
 void               regen_all_reports();
 

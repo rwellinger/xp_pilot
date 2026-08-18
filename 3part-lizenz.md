@@ -45,6 +45,8 @@ files. If they are ever bundled locally, their license texts must ship with the 
 |---|---|---|
 | [OpenFreeMap](https://openfreemap.org/) | Basemap for the flight report | Public instance is free for any use, no registration, no API key, no usage limits. Requires the attribution the report renders: "OpenFreeMap © OpenMapTiles Data from OpenStreetMap". |
 | OpenStreetMap | Map data behind the tiles | ODbL, attribution rendered in the report. |
+| [Natural Earth](https://www.naturalearthdata.com/) | Coastlines and lakes drawn on the in-plugin track map, shipped as `data/coastlines.dat` | Public domain — "no permission needed" — so redistribution inside the plugin is unrestricted. Regenerate with `tools/build_coastlines.py`. |
+| X-Plane airspace database | Airspace outlines on the in-plugin track map | Read from the user's own X-Plane installation (`Resources/default data/airspaces/`). Nothing is copied or redistributed; the plugin only reads what the simulator already installed. |
 | SkyVector | Deep links to charts | Links only, no data ingestion. |
 
 ---

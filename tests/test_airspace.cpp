@@ -1,5 +1,6 @@
-#include "../src/airspace_cache.hpp"
+#include "../src/map_overlay_cache.hpp"
 #include "../src/airspace_data.hpp"
+#include "../src/coastline_data.hpp"
 #include <catch_amalgamated.hpp>
 
 #include <algorithm>
@@ -79,41 +80,87 @@ TEST_CASE("load_airspaces survives a missing file", "[airspace]")
 // The cache exists because scanning the 17 MB world file costs ~110 ms — far too much
 // for the frame that draws the map. These guard the threading contract around that.
 
-TEST_CASE("the cache stays empty and harmless without a path", "[airspace][cache]")
+TEST_CASE("the overlay cache stays empty and harmless without paths", "[airspace][cache]")
 {
-    AirspaceCache::init(""); // as when X-Plane ships no airspace database
-    REQUIRE(AirspaceCache::for_bounds(SWITZERLAND).empty());
-    AirspaceCache::stop();
+    MapOverlayCache::init("", ""); // as when X-Plane ships no airspace database
+    REQUIRE(MapOverlayCache::for_bounds(46.0, 47.2, 5.8, 7.7).airspaces.empty());
+    MapOverlayCache::stop();
 }
 
 TEST_CASE("the cache loads in the background and then serves from memory", "[airspace][cache]")
 {
-    AirspaceCache::init(fixture_path());
+    MapOverlayCache::init(fixture_path(), "");
 
     // The first call only kicks off the load — the map draws without airspaces until
     // it lands, rather than stalling the frame.
-    REQUIRE(AirspaceCache::for_bounds(SWITZERLAND).empty());
+    REQUIRE(MapOverlayCache::for_bounds(46.0, 47.2, 5.8, 7.7).airspaces.empty());
 
     std::vector<Airspace> loaded;
     for (int attempt = 0; attempt < 200 && loaded.empty(); ++attempt)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        loaded = AirspaceCache::for_bounds(SWITZERLAND);
+        loaded = MapOverlayCache::for_bounds(46.0, 47.2, 5.8, 7.7).airspaces;
     }
     REQUIRE_FALSE(loaded.empty());
     CHECK(find_named(loaded, "BERN CTR") != nullptr);
 
     // A repeat for the same bounds is served from the cache, not reloaded.
-    CHECK(AirspaceCache::for_bounds(SWITZERLAND).size() == loaded.size());
+    CHECK(MapOverlayCache::for_bounds(46.0, 47.2, 5.8, 7.7).airspaces.size() == loaded.size());
 
-    AirspaceCache::stop();
+    MapOverlayCache::stop();
 }
 
 TEST_CASE("stop() joins a load that is still running", "[airspace][cache]")
 {
     // Leaving the worker running past plugin shutdown would terminate X-Plane.
-    AirspaceCache::init(fixture_path());
-    AirspaceCache::for_bounds(SWITZERLAND);
-    AirspaceCache::stop(); // must not hang, crash or leave the thread behind
+    MapOverlayCache::init(fixture_path(), "");
+    MapOverlayCache::for_bounds(46.0, 47.2, 5.8, 7.7).airspaces;
+    MapOverlayCache::stop(); // must not hang, crash or leave the thread behind
     SUCCEED("stop() returned cleanly with a load in flight");
+}
+
+// ── Coastlines and lakes ──────────────────────────────────────────────────────
+
+namespace
+{
+std::string coastline_fixture() { return std::string(XP_PILOT_TEST_FIXTURES_DIR) + "/mini_coastlines.dat"; }
+constexpr OutlineBounds SWISS_OUTLINE{46.0, 47.2, 5.8, 7.7};
+} // namespace
+
+TEST_CASE("load_outlines keeps what overlaps and separates lakes from coastlines", "[coastline]")
+{
+    const auto outlines = CoastlineData::load_outlines(coastline_fixture(), SWISS_OUTLINE);
+
+    REQUIRE(outlines.size() == 2); // one coastline, one lake; the far ones are dropped
+    const int lakes = static_cast<int>(std::count_if(outlines.begin(), outlines.end(),
+                                                     [](const GeoOutline &o) { return o.is_lake; }));
+    CHECK(lakes == 1);
+    // A lake is filled and a coastline is not, so mixing the two would paint land blue.
+    CHECK(std::count_if(outlines.begin(), outlines.end(), [](const GeoOutline &o) { return !o.is_lake; }) == 1);
+}
+
+TEST_CASE("load_outlines reads lon/lat in file order into lat/lon fields", "[coastline]")
+{
+    const auto outlines = CoastlineData::load_outlines(coastline_fixture(), SWISS_OUTLINE);
+    const auto coast    = std::find_if(outlines.begin(), outlines.end(), [](const GeoOutline &o) { return !o.is_lake; });
+    REQUIRE(coast != outlines.end());
+
+    // File line is "7.0000 46.5000" — longitude first, as GeoJSON has it.
+    CHECK(coast->points[0].lon == Catch::Approx(7.0));
+    CHECK(coast->points[0].lat == Catch::Approx(46.5));
+}
+
+TEST_CASE("load_outlines survives a missing file", "[coastline]")
+{
+    REQUIRE(CoastlineData::load_outlines("/nonexistent/coastlines.dat", SWISS_OUTLINE).empty());
+}
+
+TEST_CASE("the shipped coastline data parses and covers Lake Geneva", "[coastline][data]")
+{
+    // Guards the generated file itself: a broken tools/build_coastlines.py run would
+    // otherwise only show up as an empty map.
+    const auto outlines = CoastlineData::load_outlines(std::string(XP_PILOT_SOURCE_DIR) + "/data/coastlines.dat",
+                                                       {46.2, 46.6, 6.1, 6.9});
+    REQUIRE_FALSE(outlines.empty());
+    CHECK(std::any_of(outlines.begin(), outlines.end(), [](const GeoOutline &o) { return o.is_lake; }));
 }

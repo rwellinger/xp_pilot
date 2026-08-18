@@ -18,7 +18,8 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/html_report.cpp
     ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
     ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
-    ${CMAKE_SOURCE_DIR}/src/airspace_cache.cpp
+    ${CMAKE_SOURCE_DIR}/src/map_overlay_cache.cpp
+    ${CMAKE_SOURCE_DIR}/src/coastline_data.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_theme.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_widgets.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp
@@ -46,6 +47,7 @@ target_include_directories(xp_pilot_tests SYSTEM PRIVATE
 # Path to the fixtures directory, made available to the test code.
 target_compile_definitions(xp_pilot_tests PRIVATE
     XP_PILOT_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    XP_PILOT_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 if(MSVC)

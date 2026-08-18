@@ -66,19 +66,31 @@ inline constexpr ImVec4 danger{0.957f, 0.282f, 0.243f, 1.00f};
 inline constexpr ImVec4 recording{0.957f, 0.282f, 0.243f, 1.00f};
 
 // Track map
+// Layered by importance: water and terrain sit quietly in the background, airspaces are
+// faint context, and the track itself is the only warm, saturated element — so it never
+// competes with anything else on the map.
 inline constexpr ImU32 map_background = IM_COL32(24, 30, 40, 255);
-// Track colour ramps with altitude, from ground level to the flight's ceiling.
-inline constexpr ImU32 map_track_low  = IM_COL32(0, 110, 180, 255);
-inline constexpr ImU32 map_track_high = IM_COL32(130, 235, 255, 255);
-inline constexpr ImU32 map_pause      = IM_COL32(255, 204, 0, 255);
-inline constexpr ImU32 map_departure  = IM_COL32(64, 255, 0, 255);
-inline constexpr ImU32 map_arrival    = IM_COL32(80, 150, 255, 255);
-inline constexpr ImU32 map_scale      = IM_COL32(139, 153, 175, 255); // text_dim, as ImDrawList wants ImU32
 
-// Airspace outlines, drawn faintly beneath the track: controlled airspace in blue,
-// restricted/prohibited/danger areas in red — the convention on aviation charts.
-inline constexpr ImU32 map_airspace_controlled = IM_COL32(90, 140, 220, 110);
-inline constexpr ImU32 map_airspace_restricted = IM_COL32(220, 90, 90, 110);
+// Water in teal, airspaces in violet-blue: keeping the two families apart matters more
+// than matching chart convention exactly. Lakes are filled so they read as water at a
+// glance; coastlines are open lines, and only the shared teal says which side the sea is on.
+inline constexpr ImU32 map_water     = IM_COL32(14, 82, 102, 255);
+inline constexpr ImU32 map_coastline = IM_COL32(72, 178, 196, 255);
+
+// Airspace outlines: violet for controlled (as control zones are drawn on ICAO charts),
+// red for restricted/prohibited/danger. Translucent, so the track stays dominant.
+inline constexpr ImU32 map_airspace_controlled = IM_COL32(130, 115, 225, 115);
+inline constexpr ImU32 map_airspace_restricted = IM_COL32(210, 90, 90, 115);
+
+// The track ramps warm-to-bright with altitude — the one hue family nothing else uses.
+inline constexpr ImU32 map_track_low  = IM_COL32(255, 138, 40, 255);
+inline constexpr ImU32 map_track_high = IM_COL32(255, 246, 214, 255);
+
+// Markers are small and fully saturated, which sets them apart from the faint outlines.
+inline constexpr ImU32 map_pause     = IM_COL32(198, 124, 255, 255);
+inline constexpr ImU32 map_departure = IM_COL32(60, 230, 90, 255);
+inline constexpr ImU32 map_arrival   = IM_COL32(255, 72, 72, 255);
+inline constexpr ImU32 map_scale     = IM_COL32(139, 153, 175, 255); // text_dim, as ImDrawList wants ImU32
 
 // Landing rating colours, shared by the logbook, the detail view and the popup.
 ImVec4 rating_color(const std::string &rating);

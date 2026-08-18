@@ -1708,6 +1708,7 @@ FlightLogger::LiveFlight FlightLogger::live_flight()
 }
 
 const std::string &FlightLogger::output_dir() { return s_output_dir; }
+const std::string &FlightLogger::config_dir() { return s_config_dir; }
 bool              &FlightLogger::lb_needs_refresh() { return s_lb_needs_refresh; }
 
 void FlightLogger::regen_all_reports()

@@ -16,7 +16,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "airspace_cache.hpp"
+#include "map_overlay_cache.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "logbook_ui.hpp"
@@ -175,14 +175,16 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         XPLMDebugString("[xp_pilot] XPluginStart: LogbookUI::init\n");
         LogbookUI::init();
 
-        // X-Plane's own OpenAir database backs the airspace overlay on the track map:
-        // local, no key, no network. A missing file just leaves the overlay empty.
+        // Everything drawn beneath the track comes from local files: X-Plane's own OpenAir
+        // database for airspaces, and a Natural Earth extract shipped in the plugin's
+        // data/ for water. No network, no API key. A missing file leaves that layer empty.
         {
             char system_path[2048] = {};
             XPLMGetSystemPath(system_path);
-            AirspaceCache::init((std::filesystem::path(system_path) / "Resources" / "default data" / "airspaces" /
-                                 "airspace.txt")
-                                    .generic_string());
+            MapOverlayCache::init((std::filesystem::path(system_path) / "Resources" / "default data" / "airspaces" /
+                                   "airspace.txt")
+                                      .generic_string(),
+                                  FlightLogger::config_dir() + "coastlines.dat");
         }
         XPLMDebugString("[xp_pilot] XPluginStart: load_settings\n");
         load_settings();
@@ -226,7 +228,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 PLUGIN_API void XPluginStop()
 {
     LogbookUI::stop();
-    AirspaceCache::stop();
+    MapOverlayCache::stop();
     FlightLogger::stop();
     AutoQNH::stop();
     if (s_cmd_logbook)

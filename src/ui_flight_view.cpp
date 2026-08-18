@@ -17,7 +17,7 @@
  */
 
 #include "ui_flight_view.hpp"
-#include "airspace_cache.hpp"
+#include "map_overlay_cache.hpp"
 #include "flight_logger_logic.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
@@ -61,6 +61,42 @@ ImU32 airspace_color(const std::string &airspace_class)
 {
     const bool restricted = airspace_class == "R" || airspace_class == "P" || airspace_class == "Q";
     return restricted ? Theme::map_airspace_restricted : Theme::map_airspace_controlled;
+}
+
+// Water first, so airspaces and the track sit on top of it. Lakes are closed rings and
+// get filled — a filled shape reads as water without needing a legend. Coastlines are
+// open lines; the shared teal is what marks them as water's edge.
+void draw_water(ImDrawList *dl, const ImVec2 &origin, const std::vector<GeoOutline> &outlines,
+                const FlightLoggerLogic::MapViewport &viewport)
+{
+    std::vector<ImVec2> projected;
+    for (const auto &outline : outlines)
+    {
+        projected.clear();
+        projected.reserve(outline.points.size());
+        for (const auto &point : outline.points)
+        {
+            float x, y;
+            FlightLoggerLogic::project_to_pixel(viewport, point.lat, point.lon, x, y);
+            projected.push_back(ImVec2(origin.x + x, origin.y + y));
+        }
+        if (projected.size() < 2)
+            continue;
+
+        if (outline.is_lake)
+        {
+            // Lake outlines are concave often enough that the convex filler would
+            // produce visible spikes.
+            dl->AddConcavePolyFilled(projected.data(), static_cast<int>(projected.size()), Theme::map_water);
+            dl->AddPolyline(projected.data(), static_cast<int>(projected.size()), Theme::map_coastline,
+                            ImDrawFlags_Closed, 1.f);
+        }
+        else
+        {
+            dl->AddPolyline(projected.data(), static_cast<int>(projected.size()), Theme::map_coastline,
+                            ImDrawFlags_None, 1.2f);
+        }
+    }
 }
 
 // Airspace outlines under the track. They come from X-Plane's own database, so this
@@ -242,9 +278,9 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     // everything from here on is clipped to the map rectangle.
     ImGui::PushClipRect(origin, ImVec2(origin.x + map_w, origin.y + map_h), true);
 
-    const AirspaceBounds airspace_bounds{bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max};
-    const auto           airspaces = AirspaceCache::for_bounds(airspace_bounds);
-    draw_airspaces(dl, origin, airspaces, viewport);
+    const auto overlay = MapOverlayCache::for_bounds(bounds.lat_min, bounds.lat_max, bounds.lon_min, bounds.lon_max);
+    draw_water(dl, origin, overlay.outlines, viewport);
+    draw_airspaces(dl, origin, overlay.airspaces, viewport);
 
     int lowest_ft  = flight.track.front().alt_ft;
     int highest_ft = lowest_ft;
@@ -290,10 +326,8 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     draw_scale_bar(dl, origin, bounds, viewport, map_w, map_h);
     ImGui::PopClipRect();
 
-    if (!airspaces.empty())
-    {
-        Ui::text_dim("Airspace outlines from X-Plane's database: blue = controlled, red = restricted");
-    }
+    if (!overlay.airspaces.empty() || !overlay.outlines.empty())
+        Ui::text_dim("Violet = controlled airspace, red = restricted, teal = water");
 
     if (flight.paused_sec > 0)
     {
