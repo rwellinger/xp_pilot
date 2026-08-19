@@ -3,7 +3,7 @@
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
 
-### Unreleased
+### What's New in v1.7.0
 
   - **The track map is now a real map** — the logbook's route view used to be a bare line on a flat background. It now draws the flight over geographic and aeronautical context, entirely from local data: no network connection, no API key, and it works with the sim offline.
     - **Airspaces** are read from X-Plane's own database (`Resources/default data/airspaces/`). Violet outlines mark controlled airspace, red marks restricted, prohibited and danger areas.
