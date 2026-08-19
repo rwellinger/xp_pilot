@@ -183,26 +183,7 @@ Landings that cannot be matched to a runway — grass strips, water landings, he
 
 The in-sim window is laid out like a tablet: a live status bar across the top, and a home screen of four tiles that lead into the detail screens.
 
-```
-┌─ xp_pilot ────────────────────────────────────────────────┐
-│  C172  HB-XYZ   LSZH -> 47.458, 8.548  HDG 093     ● REC  │
-│  ALTITUDE       IAS           V/S            BLOCK        │
-│  5400 ft        118 kts       +420 fpm       0h 47m       │
-├───────────────────────────────────────────────────────────┤
-│                                                           │
-│      ┌──────────────┐        ┌──────────────┐             │
-│      │    <plane>   │        │    <book>    │             │
-│      │     LIVE     │        │   LOGBOOK    │             │
-│      │  recording   │        │  47 flights  │             │
-│      └──────────────┘        └──────────────┘             │
-│      ┌──────────────┐        ┌──────────────┐             │
-│      │   <archive>  │        │    <gear>    │             │
-│      │   ARCHIVE    │        │   SETTINGS   │             │
-│      │ 12 archived  │        │ Auto QNH on  │             │
-│      └──────────────┘        └──────────────┘             │
-│                                                           │
-└───────────────────────────────────────────────────────────┘
-```
+![Logbook home screen](images/001_home.jpg)
 
 Each tile carries an icon — a departing aircraft for Live, a book for Logbook, an archive box, and a gear for Settings.
 
