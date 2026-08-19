@@ -91,7 +91,9 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Shows the flight in progress live in the logbook window — no need to land first
 - Opens the live position or a recorded touchdown point on a [SkyVector](https://skyvector.com/) aeronautical chart in the browser
 
-![Logbook Window](logbook.jpg)
+![Logbook home screen](images/001_home.jpg)
+
+![Logbook flight detail](images/002_Flightlog.jpg)
 
 <details>
 <summary><strong>Live view of the running flight</strong></summary>
