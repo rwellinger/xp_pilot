@@ -39,6 +39,7 @@ set(IMGUI_SOURCES
 add_library(xp_pilot MODULE
     src/main.cpp
     src/auto_qnh.cpp
+    src/airport_lookup.cpp
     src/flight_logger.cpp
     src/flight_store_migration.cpp
     src/html_report.cpp

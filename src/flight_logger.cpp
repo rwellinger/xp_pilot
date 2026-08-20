@@ -16,18 +16,16 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "airport_lookup.hpp"
 #include "flight_logger.hpp"
-#include "flight_store_migration.hpp"
 #include "flight_logger_logic.hpp"
+#include "flight_store_migration.hpp"
 #include "html_report.hpp"
-#include "runway_data.hpp"
-#include "runway_geometry.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <XPLM/XPLMDataAccess.h>
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
-#include <XPLM/XPLMNavigation.h>
 #include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMProcessing.h>
 #include <XPLM/XPLMUtilities.h>
@@ -41,9 +39,7 @@
 #include <fstream>
 #include <imgui.h>
 #include <json.hpp>
-#include <mutex>
 #include <sstream>
-#include <thread>
 
 using json = nlohmann::json;
 
@@ -62,7 +58,6 @@ static std::vector<ProfileEntry>                 s_icao_map;
 static std::string                               s_default_shutdown = "engine";
 static std::string                               s_config_dir; // bundled config (landing profiles), next to the plugin
 static std::string                               s_output_dir; // user data (flights, reports, index, settings) in Output
-static std::string                               s_apt_dat_path; // X-Plane's global airport database
 static bool                                      s_lb_needs_refresh = true;
 
 static void load_profiles()
@@ -265,29 +260,9 @@ static bool shutdown_triggered(const std::string &plane_icao)
 // AIRPORT LOOKUP
 // ════════════════════════════════════════════════════════════════
 
-static std::string get_airport_id()
-{
-    // XPLMFindNavAid is expensive — cache result with 5-second TTL
-    static std::string cached_id;
-    static time_t      last_check = 0;
-    time_t             now        = std::time(nullptr);
-    if (now - last_check < 5)
-        return cached_id;
-    last_check = now;
-
-    float      lat = static_cast<float>(dr_d(dr_lat));
-    float      lon = static_cast<float>(dr_d(dr_lon));
-    XPLMNavRef ref = XPLMFindNavAid(nullptr, nullptr, &lat, &lon, nullptr, xplm_Nav_Airport);
-    if (ref == XPLM_NAV_NOT_FOUND)
-    {
-        cached_id = "";
-        return "";
-    }
-    char outID[32] = {};
-    XPLMGetNavAidInfo(ref, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, outID, nullptr, nullptr);
-    cached_id = outID;
-    return cached_id;
-}
+// The lookup module has no datarefs of its own; this is the seam that feeds it the
+// aircraft's current position.
+static std::string get_airport_id() { return AirportLookup::nearest_airport_id(dr_d(dr_lat), dr_d(dr_lon)); }
 
 // ════════════════════════════════════════════════════════════════
 // OVERLAY
@@ -302,7 +277,6 @@ static bool s_write_enabled         = true;
 static bool s_html_report_enabled   = true;
 static bool s_messages_enabled      = true;
 static bool s_landing_popup_enabled = true;
-static bool          s_runway_analysis_enabled = true;
 static PopupPosition s_popup_position          = POPUP_POSITION_DEFAULT;
 
 static double monotonic_clock()
@@ -330,8 +304,8 @@ void FlightLogger::set_messages_enabled(bool on) { s_messages_enabled = on; }
 bool FlightLogger::messages_enabled() { return s_messages_enabled; }
 void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled = on; }
 bool FlightLogger::landing_popup_enabled() { return s_landing_popup_enabled; }
-void FlightLogger::set_runway_analysis_enabled(bool on) { s_runway_analysis_enabled = on; }
-bool FlightLogger::runway_analysis_enabled() { return s_runway_analysis_enabled; }
+void FlightLogger::set_runway_analysis_enabled(bool on) { AirportLookup::set_analysis_enabled(on); }
+bool FlightLogger::runway_analysis_enabled() { return AirportLookup::analysis_enabled(); }
 void          FlightLogger::set_popup_position(PopupPosition p) { s_popup_position = p; }
 PopupPosition FlightLogger::popup_position() { return s_popup_position; }
 
@@ -1036,81 +1010,6 @@ static void update_track_sample()
         s_max_speed_kts = spd_kts;
 }
 
-// ── Runway preload ───────────────────────────────────────────────────────────
-// Scanning apt.dat costs ~100 ms, far too much for the frame in which the aircraft
-// touches down. So the destination's runways are fetched on a worker thread during
-// the approach; the touchdown itself then only does arithmetic on the cached data.
-
-static std::mutex          s_runway_cache_mutex;
-static std::string         s_runway_cache_icao;  // guarded by s_runway_cache_mutex
-static std::vector<Runway> s_runway_cache;       // guarded by s_runway_cache_mutex
-static std::thread         s_runway_loader;
-static std::string         s_runway_loader_icao; // flight-loop thread only
-
-static void request_runway_preload(const std::string &icao)
-{
-    if (!s_runway_analysis_enabled || icao.empty() || icao == s_runway_loader_icao)
-        return;
-    if (s_runway_loader.joinable())
-        return; // a load is still in flight; the next approach will pick this one up
-
-    // The worker reads s_runway_loader_icao and s_apt_dat_path rather than capturing
-    // them: constructing captures could throw, and an exception escaping a thread
-    // entry point terminates X-Plane. Both are written before the thread starts and
-    // only rewritten after it has been joined.
-    s_runway_loader_icao = icao;
-    s_runway_loader      = std::thread(
-        []() noexcept
-        {
-            try
-            {
-                const std::string &wanted = s_runway_loader_icao;
-                auto               found  = RunwayData::load_runways(s_apt_dat_path, {wanted});
-                auto               it     = found.find(wanted);
-
-                std::lock_guard<std::mutex> lock(s_runway_cache_mutex);
-                s_runway_cache_icao = wanted;
-                s_runway_cache      = (it != found.end()) ? it->second : std::vector<Runway>();
-            }
-            catch (...)
-            {
-                XPLMDebugString("[xp_pilot] Runway preload failed\n");
-            }
-        });
-}
-
-// Wait for a pending preload so the cache is complete. Called off the flight loop.
-static void join_runway_loader()
-{
-    if (s_runway_loader.joinable())
-        s_runway_loader.join();
-    s_runway_loader_icao.clear();
-}
-
-static std::vector<Runway> cached_runways_for(const std::string &icao)
-{
-    std::lock_guard<std::mutex> lock(s_runway_cache_mutex);
-    return (icao == s_runway_cache_icao) ? s_runway_cache : std::vector<Runway>();
-}
-
-// Place a touchdown on its runway. Leaves the landing untouched when the airport is
-// not in the cache — the shutdown pass fills those in.
-static void apply_runway_fix(LandingData &ld)
-{
-    if (!s_runway_analysis_enabled || ld.is_rotorcraft || ld.airport_icao.empty())
-        return;
-
-    const std::vector<Runway> runways = cached_runways_for(ld.airport_icao);
-    if (runways.empty())
-        return;
-
-    const RunwayFix fix  = RunwayGeometry::locate_touchdown(runways, ld.lat, ld.lon, ld.heading_true);
-    ld.runway_ident      = fix.runway_ident;
-    ld.runway_offset_m   = fix.centerline_offset_m;
-    ld.runway_distance_m = fix.distance_from_thr_m;
-    ld.runway_length_m   = fix.runway_length_m;
-}
-
 // Vertical speed derived from the AGL ring buffer — smoother than the raw dataref,
 // which spikes on gear compression. Falls back to the dataref while the buffer fills.
 static float smoothed_vertical_speed_fpm(float agl_m)
@@ -1220,7 +1119,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
     s_ld_captured.airport_icao = get_airport_id();
-    apply_runway_fix(s_ld_captured);
+    AirportLookup::apply_runway_fix(s_ld_captured);
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = s_ld_captured.airport_icao;
     s_state        = State::Landed;
@@ -1248,7 +1147,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     s_ld_captured.bounce_count = 0;
     s_ld_captured.airport_icao = get_airport_id();
     s_ld_captured_valid        = true;
-    apply_runway_fix(s_ld_captured);
+    AirportLookup::apply_runway_fix(s_ld_captured);
 
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = s_ld_captured.airport_icao;
@@ -1293,7 +1192,7 @@ static void handle_airborne_state(const Frame &f)
     // them cached. ~2000 ft AGL leaves roughly a minute of margin.
     constexpr float APPROACH_PRELOAD_AGL_M = 610.f;
     if (f.agl < APPROACH_PRELOAD_AGL_M)
-        request_runway_preload(get_airport_id());
+        AirportLookup::request_runway_preload(get_airport_id());
 
     if (s_is_rotorcraft)
     {
@@ -1456,50 +1355,6 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
 }
 
 // ════════════════════════════════════════════════════════════════
-// RUNWAY ANALYSIS
-// ════════════════════════════════════════════════════════════════
-
-// Catch the touchdowns the approach preload didn't cover — a touch-and-go at a field
-// the aircraft descended into too quickly, or a second airport later in the flight.
-// Runs at shutdown, where a file scan costs nothing.
-static void resolve_runways_for_landings()
-{
-    join_runway_loader();
-    if (!s_runway_analysis_enabled || s_landings.empty())
-        return;
-
-    std::set<std::string> icaos;
-    for (const auto &ld : s_landings)
-    {
-        // A rotorcraft set-down has no runway to be measured against.
-        if (!ld.is_rotorcraft && ld.runway_ident.empty() && !ld.airport_icao.empty())
-            icaos.insert(ld.airport_icao);
-    }
-    if (icaos.empty())
-        return;
-
-    const auto runways_by_airport = RunwayData::load_runways(s_apt_dat_path, icaos);
-    if (runways_by_airport.empty())
-    {
-        XPLMDebugString("[xp_pilot] Runway analysis: no airport data found\n");
-        return;
-    }
-
-    for (auto &ld : s_landings)
-    {
-        auto it = runways_by_airport.find(ld.airport_icao);
-        if (ld.is_rotorcraft || !ld.runway_ident.empty() || it == runways_by_airport.end())
-            continue;
-
-        const RunwayFix fix = RunwayGeometry::locate_touchdown(it->second, ld.lat, ld.lon, ld.heading_true);
-        ld.runway_ident      = fix.runway_ident;
-        ld.runway_offset_m   = fix.centerline_offset_m;
-        ld.runway_distance_m = fix.distance_from_thr_m;
-        ld.runway_length_m   = fix.runway_length_m;
-    }
-}
-
-// ════════════════════════════════════════════════════════════════
 // JSON SAVE + FINALIZE
 // ════════════════════════════════════════════════════════════════
 
@@ -1657,7 +1512,7 @@ static void finalize_flight()
     if (s_arrival_icao.empty() && !s_last_gnd_apt.empty())
         s_arrival_icao = s_last_gnd_apt;
 
-    resolve_runways_for_landings();
+    AirportLookup::resolve_runways(s_landings);
 
     auto filename = save_flight();
     if (filename.empty())
@@ -1775,9 +1630,9 @@ void FlightLogger::init()
     XPLMGetSystemPath(systemPathRaw);
     std::filesystem::path outputPath = std::filesystem::path(systemPathRaw) / "Output" / "x_pilot_reports";
     s_output_dir                     = outputPath.generic_string() + "/";
-    s_apt_dat_path = (std::filesystem::path(systemPathRaw) / "Global Scenery" / "Global Airports" / "Earth nav data" /
-                      "apt.dat")
-                         .generic_string();
+    AirportLookup::init((std::filesystem::path(systemPathRaw) / "Global Scenery" / "Global Airports" /
+                         "Earth nav data" / "apt.dat")
+                            .generic_string());
     XPLMDebugString(("[xp_pilot] config_dir: " + s_config_dir + "\n").c_str());
     XPLMDebugString(("[xp_pilot] output_dir: " + s_output_dir + "\n").c_str());
 
@@ -1806,5 +1661,5 @@ void FlightLogger::stop()
 {
     XPLMUnregisterFlightLoopCallback(triggers_cb, nullptr);
     // The worker touches statics of this translation unit — it must not outlive unload.
-    join_runway_loader();
+    AirportLookup::stop();
 }
