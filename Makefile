@@ -1,7 +1,11 @@
 SHELL := /bin/bash
 
-XPLANE_ROOT := /Users/robertw/X-Plane 12
-PLUGIN_DIR  := $(XPLANE_ROOT)/Resources/available plugins/xp_pilot
+# Override on machines with a different install path: XPLANE_ROOT="/path/to/X-Plane 12" make install
+XPLANE_ROOT ?= /Users/robertw/X-Plane 12
+# The directory X-Plane actually loads plugins from. With XPLaunch this is a symlink
+# into xplaunchData/Plugins, which the copy follows. "available plugins" is a parking
+# spot X-Plane never reads — installing there leaves the running plugin untouched.
+PLUGIN_DIR  := $(XPLANE_ROOT)/Resources/plugins/xp_pilot
 
 SKUNK_DIR := build/skunkcrafts
 
@@ -129,14 +133,12 @@ install:
 	@xattr -dr com.apple.quarantine "$(PLUGIN_DIR)/mac_x64/xp_pilot.xpl" 2>/dev/null || true
 	@codesign --force --deep --sign - "$(PLUGIN_DIR)/mac_x64/xp_pilot.xpl"
 	@echo "Signed:    $(PLUGIN_DIR)/mac_x64/xp_pilot.xpl"
-	@echo "Installed: $(PLUGIN_DIR)/mac_x64/xp_pilot.xpl"
-	@if [ ! -f "$(PLUGIN_DIR)/data/flight_logger_profiles.json" ]; then \
-	    mkdir -p "$(PLUGIN_DIR)/data"; \
-	    cp data/flight_logger_profiles.json "$(PLUGIN_DIR)/data/"; \
-	    echo "Installed: $(PLUGIN_DIR)/data/flight_logger_profiles.json"; \
-	else \
-	    echo "Profiles JSON already exists – not overwritten."; \
-	fi
+	@echo "Installed: $$(cd "$(PLUGIN_DIR)/mac_x64" && pwd -P)/xp_pilot.xpl"
+	@# Bundled, read-only config: it ships with the plugin, so an update has to reach it.
+	@# User data lives under Output/x_pilot_reports and is never touched here.
+	@mkdir -p "$(PLUGIN_DIR)/data"
+	@cp data/flight_logger_profiles.json "$(PLUGIN_DIR)/data/"
+	@echo "Installed: $(PLUGIN_DIR)/data/flight_logger_profiles.json"
 	@# Generated map data — always refreshed, unlike the profiles a user may have edited.
 	@mkdir -p "$(PLUGIN_DIR)/data"
 	@cp data/coastlines.dat data/cities.dat "$(PLUGIN_DIR)/data/"
