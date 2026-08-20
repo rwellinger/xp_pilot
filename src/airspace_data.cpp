@@ -16,10 +16,9 @@ bool parse_point(const std::string &line, AirspacePoint &out)
 {
     int  lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec;
     char lat_hemisphere, lon_hemisphere;
-    // The conversion is checked: anything but all eight fields rejects the line, which
-    // is what the strtol advice is meant to protect against.
-    if (sscanf(line.c_str(), "DP %d:%d:%d %c %d:%d:%d %c", &lat_deg, &lat_min, &lat_sec, // NOLINT(bugprone-unchecked-string-to-number-conversion)
-               &lat_hemisphere, &lon_deg, &lon_min, &lon_sec, &lon_hemisphere) != 8)
+    // NOLINTNEXTLINE(bugprone-unchecked-string-to-number-conversion) — result checked
+    if (sscanf(line.c_str(), "DP %d:%d:%d %c %d:%d:%d %c", &lat_deg, &lat_min, &lat_sec, &lat_hemisphere, &lon_deg,
+               &lon_min, &lon_sec, &lon_hemisphere) != 8)
         return false;
 
     out.lat = lat_deg + lat_min / 60.0 + lat_sec / 3600.0;
