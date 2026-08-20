@@ -18,8 +18,10 @@
 
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
+#include "airport_lookup.hpp"
 #include "flight_logger.hpp"
 #include "ui_landing_popup.hpp"
+#include "ui_overlay.hpp"
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
@@ -162,28 +164,28 @@ static void draw_settings_screen()
     ImGui::Unindent();
     ImGui::EndDisabled();
 
-    value = FlightLogger::messages_enabled();
+    value = Overlay::enabled();
     if (ImGui::Checkbox("Show flight logger status messages on screen", &value))
     {
-        FlightLogger::set_messages_enabled(value);
+        Overlay::set_enabled(value);
         Settings::save();
     }
 
     Ui::section_header(ICON_FA_PLANE_DEP, "Landing Rating");
 
-    value = FlightLogger::landing_popup_enabled();
+    value = LandingPopup::enabled();
     if (ImGui::Checkbox("Show landing rating popup after touchdown", &value))
     {
-        FlightLogger::set_landing_popup_enabled(value);
+        LandingPopup::set_enabled(value);
         Settings::save();
     }
 
-    int position = static_cast<int>(FlightLogger::popup_position());
+    int position = static_cast<int>(LandingPopup::position());
     ImGui::SetNextItemWidth(Theme::scaled(180.f));
     if (ImGui::Combo("Popup position", &position, popup_position_labels().data(),
                      static_cast<int>(popup_position_labels().size())))
     {
-        FlightLogger::set_popup_position(static_cast<PopupPosition>(position));
+        LandingPopup::set_position(static_cast<PopupPosition>(position));
         Settings::save();
     }
 
@@ -192,10 +194,10 @@ static void draw_settings_screen()
     Ui::help_marker("Also available as the command \"xp_pilot/logbook/show_last_landing\",\n"
                     "which can be bound to a key in X-Plane's keyboard settings.");
 
-    value = FlightLogger::runway_analysis_enabled();
+    value = AirportLookup::analysis_enabled();
     if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &value))
     {
-        FlightLogger::set_runway_analysis_enabled(value);
+        AirportLookup::set_analysis_enabled(value);
         Settings::save();
     }
     Ui::help_marker("Locates each touchdown on the runway it was made on.\n"

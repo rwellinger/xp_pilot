@@ -32,59 +32,6 @@
 #include <cstdio>  // snprintf
 #include <cstring> // strncpy
 #include <filesystem>
-#include <fstream>
-#include <json.hpp>
-
-using json = nlohmann::json;
-
-// ── Settings persistence ─────────────────────────────────────────────────────
-
-static std::string settings_path() { return FlightLogger::output_dir() + "settings.json"; }
-
-static void load_settings()
-{
-    std::ifstream f(settings_path());
-    if (!f.is_open())
-        return;
-    try
-    {
-        json j;
-        f >> j;
-        AutoQNH::set_enabled(j.value("auto_qnh", false));
-        AutoQNH::set_messages_enabled(j.value("qnh_messages", true));
-        AutoQNH::set_transition_altitude_ft(j.value("qnh_transition_altitude_ft", 18000));
-        FlightLogger::set_write_enabled(j.value("write_logs", true));
-        FlightLogger::set_html_report_enabled(j.value("html_report", true));
-        FlightLogger::set_messages_enabled(j.value("log_messages", true));
-        FlightLogger::set_landing_popup_enabled(j.value("landing_popup", true));
-        FlightLogger::set_runway_analysis_enabled(j.value("runway_analysis", true));
-        FlightLogger::set_popup_position(
-            popup_position_from_string(j.value("popup_position", popup_position_to_string(POPUP_POSITION_DEFAULT))));
-        Theme::set_ui_scale(j.value("ui_scale", 1.0f));
-    }
-    catch (...)
-    {
-        XPLMDebugString("[xp_pilot] Failed to parse settings.json\n");
-    }
-}
-
-void Settings::save()
-{
-    json j;
-    j["auto_qnh"]                   = AutoQNH::enabled();
-    j["qnh_messages"]               = AutoQNH::messages_enabled();
-    j["qnh_transition_altitude_ft"] = AutoQNH::transition_altitude_ft();
-    j["write_logs"]                 = FlightLogger::write_enabled();
-    j["html_report"]                = FlightLogger::html_report_enabled();
-    j["log_messages"]               = FlightLogger::messages_enabled();
-    j["landing_popup"]              = FlightLogger::landing_popup_enabled();
-    j["runway_analysis"]            = FlightLogger::runway_analysis_enabled();
-    j["popup_position"]             = popup_position_to_string(FlightLogger::popup_position());
-    j["ui_scale"]                   = Theme::ui_scale();
-    std::ofstream f(settings_path());
-    if (f.is_open())
-        f << j.dump(2);
-}
 
 // ── Draw callback: overlay + popup (registered once) ─────────────────────────
 
@@ -188,8 +135,8 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
                                   FlightLogger::config_dir() + "coastlines.dat",
                                   FlightLogger::config_dir() + "cities.dat");
         }
-        XPLMDebugString("[xp_pilot] XPluginStart: load_settings\n");
-        load_settings();
+        XPLMDebugString("[xp_pilot] XPluginStart: Settings::load\n");
+        Settings::load();
 
         XPLMRegisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
 

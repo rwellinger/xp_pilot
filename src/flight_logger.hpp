@@ -111,14 +111,6 @@ void set_write_enabled(bool on);
 bool write_enabled();
 void set_html_report_enabled(bool on);
 bool html_report_enabled();
-void set_messages_enabled(bool on);
-bool messages_enabled();
-void set_landing_popup_enabled(bool on);
-bool landing_popup_enabled();
-void set_runway_analysis_enabled(bool on);
-bool runway_analysis_enabled();
-void          set_popup_position(PopupPosition p);
-PopupPosition popup_position();
 
 // ── Profile access (for HTML report generation) ───────────────────────────────
 std::string        get_profile_name(const std::string &plane_icao);

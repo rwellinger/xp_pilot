@@ -271,14 +271,6 @@ void FlightLogger::set_write_enabled(bool on) { s_write_enabled = on; }
 bool FlightLogger::write_enabled() { return s_write_enabled; }
 void FlightLogger::set_html_report_enabled(bool on) { s_html_report_enabled = on; }
 bool FlightLogger::html_report_enabled() { return s_html_report_enabled; }
-void FlightLogger::set_messages_enabled(bool on) { Overlay::set_enabled(on); }
-bool FlightLogger::messages_enabled() { return Overlay::enabled(); }
-void FlightLogger::set_landing_popup_enabled(bool on) { LandingPopup::set_enabled(on); }
-bool FlightLogger::landing_popup_enabled() { return LandingPopup::enabled(); }
-void FlightLogger::set_runway_analysis_enabled(bool on) { AirportLookup::set_analysis_enabled(on); }
-bool FlightLogger::runway_analysis_enabled() { return AirportLookup::analysis_enabled(); }
-void          FlightLogger::set_popup_position(PopupPosition p) { LandingPopup::set_position(p); }
-PopupPosition FlightLogger::popup_position() { return LandingPopup::position(); }
 
 // ════════════════════════════════════════════════════════════════
 // LANDING POPUP REPLAY
