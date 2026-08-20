@@ -474,6 +474,19 @@ std::string runway_flight_json()
         "wind_status":"STEADY","time":1755337100}]})";
 }
 
+// A v5 rotorcraft landing: the metrics that decide a helicopter set-down.
+std::string rotorcraft_flight_json()
+{
+    return R"({"version":5,"date":"2026-08-20","start_utc":"14:00","end_utc":"14:25",
+      "departure_icao":"LSZB","arrival_icao":"LSZB","aircraft_icao":"EC30",
+      "aircraft_category":"rotorcraft",
+      "start_time":1755691200,"end_time":1755692700,"block_time_min":25,
+      "landings":[{"fpm":-1.0,"g_force":1.01,"ias_kts":0.0,"ground_speed_kts":6.0,
+        "bank_deg":-9.0,"yaw_rate_deg_s":3.5,"is_rotorcraft":true,
+        "lat":46.9141,"lon":7.4971,"heading_true":90.0,"airport_icao":"LSZB",
+        "rating":"HARD LANDING!","wind_status":"CALM","time":1755692600}]})";
+}
+
 std::string render_report(const FlightData &fd, const fs::path &root, const std::string &jname)
 {
     std::array<int, 4> thresholds{-100, -250, -350, -600};
@@ -586,4 +599,48 @@ TEST_CASE("HtmlReport::generate: a pre-v3 flight shows no speed or runway rows",
     CHECK(html.find("50ft gate") == std::string::npos);
 
     fs::remove_all(root);
+}
+
+
+TEST_CASE("parse_flight_json: reads the rotorcraft touchdown attitude", "[parse]")
+{
+    FlightData fd = parse_flight_json(rotorcraft_flight_json(), "x.json");
+
+    REQUIRE(fd.landings.size() == 1);
+    const LandingData &ld = fd.landings[0];
+    CHECK(ld.is_rotorcraft);
+    CHECK(ld.bank_deg == Catch::Approx(-9.0f));
+    CHECK(ld.yaw_rate_deg_s == Catch::Approx(3.5f));
+    CHECK(ld.ground_speed_kts == Catch::Approx(6.0f));
+}
+
+TEST_CASE("HtmlReport::generate: a rotorcraft landing shows drift, bank and yaw rate", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string jname = "2026-08-20_LSZB_LSZB_EC30.json";
+
+    std::string html = render_report(parse_flight_json(rotorcraft_flight_json(), jname), root, jname);
+
+    CHECK(html.find("Drift at touchdown") != std::string::npos);
+    CHECK(html.find("Bank at touchdown") != std::string::npos);
+    CHECK(html.find("Yaw rate at touchdown") != std::string::npos);
+    // Rendered by magnitude, so a left bank reads the same as a right one.
+    CHECK(html.find("9.0&deg;") != std::string::npos);
+    // The flare metrics stay out of a rotorcraft report.
+    CHECK(html.find("Float time") == std::string::npos);
+    CHECK(html.find("Pitch at TD") == std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: a fixed-wing flight shows no rotorcraft rows", "[report]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string jname = "2026-08-16_LSGG_LSZB_DA42.json";
+
+    std::string html = render_report(parse_flight_json(runway_flight_json(), jname), root, jname);
+
+    CHECK(html.find("Drift at touchdown") == std::string::npos);
+    CHECK(html.find("Bank at touchdown") == std::string::npos);
+    CHECK(html.find("Yaw rate at touchdown") == std::string::npos);
 }

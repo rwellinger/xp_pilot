@@ -22,6 +22,7 @@
 #include <catch2/catch_amalgamated.hpp>
 #include <json.hpp>
 
+#include <array>
 #include <fstream>
 #include <map>
 #include <string>
@@ -329,4 +330,108 @@ TEST_CASE("fixed-wing types are not caught by a helicopter match string", "[flig
 
     for (const char *icao : {"C172", "PA28", "SR22", "TBM9", "B738", "A320", "A333", "B77W", "E170"})
         CHECK(category_of(mapping, icao) == "fixed_wing");
+}
+
+// ── Rotorcraft landing rating ────────────────────────────────────────────────
+// The regression these guard: the rating used to come from descent rate alone. A
+// helicopter set down from the hover has a descent rate near zero, so every landing —
+// including one that slid sideways onto the skids — came out as "BUTTER!".
+
+namespace
+{
+
+// Thresholds of the turbine_helicopter profile in data/flight_logger_profiles.json.
+constexpr std::array<int, 4> TURBINE_HELI_FPM{-75, -150, -300, -500};
+
+// A textbook set-down: no descent to speak of, no drift, level, no yaw.
+FlightLoggerLogic::RotorcraftTouchdown clean_touchdown()
+{
+    FlightLoggerLogic::RotorcraftTouchdown touchdown;
+    touchdown.descent_fpm    = -1.f;
+    touchdown.drift_kts      = 0.f;
+    touchdown.bank_deg       = 0.5f;
+    touchdown.yaw_rate_deg_s = 0.5f;
+    touchdown.g_force        = 1.01f;
+    return touchdown;
+}
+
+int rate(const FlightLoggerLogic::RotorcraftTouchdown &touchdown)
+{
+    return FlightLoggerLogic::rotorcraft_rating_index(touchdown, TURBINE_HELI_FPM);
+}
+
+} // namespace
+
+TEST_CASE("a clean set-down is still rated BUTTER", "[flight_logger][rating]")
+{
+    REQUIRE(rate(clean_touchdown()) == 0);
+    REQUIRE(std::string(FlightLoggerLogic::rating_label(0)) == "BUTTER!");
+}
+
+TEST_CASE("drift and bank sink the rating despite a gentle descent", "[flight_logger][rating]")
+{
+    // The landing from the bug report: -1 fpm and 1.01 G, but visibly sliding and banked.
+    auto touchdown           = clean_touchdown();
+    touchdown.drift_kts      = 6.f;
+    touchdown.bank_deg       = 9.f;
+
+    CHECK(rate(touchdown) > 0);
+    CHECK(std::string(FlightLoggerLogic::rating_label(rate(touchdown))) == "HARD LANDING!");
+}
+
+TEST_CASE("each criterion on its own can drive the rating", "[flight_logger][rating]")
+{
+    auto drifting        = clean_touchdown();
+    drifting.drift_kts   = 12.f;
+    CHECK(rate(drifting) == 4);
+
+    auto banked      = clean_touchdown();
+    banked.bank_deg  = 11.f;
+    CHECK(rate(banked) == 4);
+
+    auto yawing            = clean_touchdown();
+    yawing.yaw_rate_deg_s  = 16.f;
+    CHECK(rate(yawing) == 4);
+
+    auto slammed      = clean_touchdown();
+    slammed.g_force   = 1.9f;
+    CHECK(rate(slammed) == 4);
+
+    auto dropped          = clean_touchdown();
+    dropped.descent_fpm   = -600.f;
+    CHECK(rate(dropped) == 4);
+}
+
+TEST_CASE("the worst criterion decides, a good one cannot rescue it", "[flight_logger][rating]")
+{
+    auto touchdown      = clean_touchdown();
+    touchdown.bank_deg  = 5.f; // ACCEPTABLE on its own
+
+    CHECK(rate(touchdown) == 2);
+
+    touchdown.yaw_rate_deg_s = 16.f; // WASTED on its own
+    CHECK(rate(touchdown) == 4);     // and it wins over the otherwise clean numbers
+}
+
+TEST_CASE("a deliberate run-on landing is not judged as drift", "[flight_logger][rating]")
+{
+    // Rolling on at 20 kts is a technique, not a mistake — grading it against the drift
+    // limits would fail every run-on landing.
+    auto touchdown       = clean_touchdown();
+    touchdown.drift_kts  = 20.f;
+    CHECK(rate(touchdown) == 0);
+
+    // Just below the run-on threshold it counts as drift again.
+    touchdown.drift_kts = FlightLoggerLogic::ROTORCRAFT_RUN_ON_KTS - 1.f;
+    CHECK(rate(touchdown) == 4);
+}
+
+TEST_CASE("negative bank and yaw are graded by magnitude", "[flight_logger][rating]")
+{
+    auto left_bank      = clean_touchdown();
+    left_bank.bank_deg  = -9.f;
+    auto right_bank     = clean_touchdown();
+    right_bank.bank_deg = 9.f;
+
+    CHECK(rate(left_bank) == rate(right_bank));
 }

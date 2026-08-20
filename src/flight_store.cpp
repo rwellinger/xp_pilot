@@ -75,6 +75,8 @@ json landings_to_json(const std::vector<LandingData> &landings)
                            {"float_time", ld.float_time},
                            {"ias_kts", ld.ias_kts},
                            {"ground_speed_kts", ld.ground_speed_kts},
+                           {"bank_deg", ld.bank_deg},
+                           {"yaw_rate_deg_s", ld.yaw_rate_deg_s},
                            {"lat", ld.lat},
                            {"lon", ld.lon},
                            {"heading_true", ld.heading_true},
@@ -117,7 +119,7 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
         path = flights_dir + base + "_" + std::to_string(flight.start_time) + ".json";
 
     json obj;
-    obj["version"]           = 4;
+    obj["version"]           = 5;
     obj["date"]              = flight.date;
     obj["start_utc"]         = flight.start_utc;
     obj["end_utc"]           = flight.end_utc;

@@ -200,6 +200,8 @@ static XPLMDataRef dr_nav_light    = nullptr;
 static XPLMDataRef dr_acf_icao     = nullptr; // byte
 static XPLMDataRef dr_acf_tail     = nullptr; // byte
 static XPLMDataRef dr_is_heli      = nullptr; // int, X-Plane's own airframe category
+static XPLMDataRef dr_roll         = nullptr; // deg, bank angle
+static XPLMDataRef dr_yaw_rate     = nullptr; // deg/sec
 
 static void find_datarefs()
 {
@@ -228,6 +230,8 @@ static void find_datarefs()
     dr_acf_icao     = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     dr_acf_tail     = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
     dr_is_heli      = XPLMFindDataRef("sim/aircraft2/metadata/is_helicopter");
+    dr_roll         = XPLMFindDataRef("sim/flightmodel/position/phi");
+    dr_yaw_rate     = XPLMFindDataRef("sim/flightmodel/position/R");
 }
 
 static float  dr_f(XPLMDataRef dr) { return dr ? XPLMGetDataf(dr) : 0.0f; }
@@ -349,6 +353,10 @@ struct RingBuf
 
 static RingBuf     s_agl_buf{30};
 static RingBuf     s_g_buf{30};
+// Attitude at the moment of contact decides a rotorcraft landing, and a single jittery
+// frame should not decide it — so both are smoothed the same way as the G-force.
+static RingBuf     s_roll_buf{30};
+static RingBuf     s_yaw_rate_buf{30};
 static float       s_float_timer = 0;
 static float       s_float_final = 0;
 static bool        s_prev_on_any = false;
@@ -401,15 +409,10 @@ static std::string eval_rating(float fpm, float crosswind_kts, const std::string
     }
     float xw_factor = 1.f + (xw_abs / 30.f) * 0.4f * scale;
     float eff_fpm   = fpm / xw_factor;
-    if (eff_fpm >= static_cast<float>(p[0]) && eff_fpm <= 0.f)
-        return "BUTTER!";
-    if (eff_fpm >= static_cast<float>(p[1]) && eff_fpm < static_cast<float>(p[0]))
-        return "GREAT LANDING!";
-    if (eff_fpm >= static_cast<float>(p[2]) && eff_fpm < static_cast<float>(p[1]))
-        return "ACCEPTABLE";
-    if (eff_fpm >= static_cast<float>(p[3]) && eff_fpm < static_cast<float>(p[2]))
-        return "HARD LANDING!";
-    return "WASTED!";
+    // Climbing on contact is not a landing anyone got right.
+    if (eff_fpm > 0.f)
+        return FlightLoggerLogic::rating_label(4);
+    return FlightLoggerLogic::rating_label(FlightLoggerLogic::grade_descent(eff_fpm, p));
 }
 
 static void calc_wind(float spd, float wind_dir, float hdg, float &hw_out, float &xw_out)
@@ -423,6 +426,8 @@ static void landing_arm()
 {
     s_agl_buf.clear();
     s_g_buf.clear();
+    s_roll_buf.clear();
+    s_yaw_rate_buf.clear();
     s_float_timer       = 0;
     s_float_final       = 0;
     s_ld_armed          = true;
@@ -697,6 +702,8 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
     ld.agl_ft           = f.agl * 3.28084f;
     ld.ias_kts          = dr_f(dr_ias);
     ld.ground_speed_kts = dr_f(dr_gs) * 1.94384f;
+    ld.bank_deg         = s_roll_buf.avg();
+    ld.yaw_rate_deg_s   = s_yaw_rate_buf.avg();
     ld.lat              = dr_d(dr_lat);
     ld.lon              = dr_d(dr_lon);
     ld.heading_true     = dr_f(dr_truepsi);
@@ -797,8 +804,15 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
 
     auto pname   = get_rating_profile_name(s_aircraft_icao, true);
     auto pthresh = get_profile_thresholds(pname);
-    s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts),
-                                             s_ld_captured.wind_status, pthresh);
+
+    FlightLoggerLogic::RotorcraftTouchdown touchdown;
+    touchdown.descent_fpm    = s_ld_captured.fpm;
+    touchdown.drift_kts      = s_ld_captured.ground_speed_kts;
+    touchdown.bank_deg       = s_ld_captured.bank_deg;
+    touchdown.yaw_rate_deg_s = s_ld_captured.yaw_rate_deg_s;
+    touchdown.g_force        = s_ld_captured.g_force;
+    s_ld_captured.rating =
+        FlightLoggerLogic::rating_label(FlightLoggerLogic::rotorcraft_rating_index(touchdown, pthresh));
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = 0;
     s_ld_captured.airport_icao = get_airport_id();
@@ -842,6 +856,8 @@ static void handle_airborne_state(const Frame &f)
     {
         s_agl_buf.push(f.agl, f.localtime);
         s_g_buf.push(f.gforce, f.localtime);
+        s_roll_buf.push(dr_f(dr_roll), f.localtime);
+        s_yaw_rate_buf.push(dr_f(dr_yaw_rate), f.localtime);
     }
 
     // Fetch the destination's runways early enough that the touchdown frame finds
