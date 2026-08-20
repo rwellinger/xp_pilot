@@ -21,11 +21,10 @@
 #include "flight_logger_logic.hpp"
 #include "flight_store_migration.hpp"
 #include "html_report.hpp"
-#include "ui_theme.hpp"
-#include "ui_widgets.hpp"
+#include "sim_clock.hpp"
+#include "ui_landing_popup.hpp"
+#include "ui_overlay.hpp"
 #include <XPLM/XPLMDataAccess.h>
-#include <XPLM/XPLMDisplay.h>
-#include <XPLM/XPLMGraphics.h>
 #include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMProcessing.h>
 #include <XPLM/XPLMUtilities.h>
@@ -37,7 +36,6 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
-#include <imgui.h>
 #include <json.hpp>
 #include <sstream>
 
@@ -264,338 +262,26 @@ static bool shutdown_triggered(const std::string &plane_icao)
 // aircraft's current position.
 static std::string get_airport_id() { return AirportLookup::nearest_airport_id(dr_d(dr_lat), dr_d(dr_lon)); }
 
-// ════════════════════════════════════════════════════════════════
-// OVERLAY
-// ════════════════════════════════════════════════════════════════
-
-static std::string s_overlay_text;
-static double      s_overlay_until = 0;
-static float       s_overlay_r = 1, s_overlay_g = 1, s_overlay_b = 1;
-
 // ── Feature toggles (persisted via settings.json) ─────────────────────────────
-static bool s_write_enabled         = true;
-static bool s_html_report_enabled   = true;
-static bool s_messages_enabled      = true;
-static bool s_landing_popup_enabled = true;
-static PopupPosition s_popup_position          = POPUP_POSITION_DEFAULT;
-
-static double monotonic_clock()
-{
-    static XPLMDataRef dr = XPLMFindDataRef("sim/time/total_running_time_sec");
-    return static_cast<double>(XPLMGetDataf(dr));
-}
-
-static void show_overlay(const std::string &text, float sec, float r = 1.f, float g = 1.f, float b = 1.f)
-{
-    if (!s_messages_enabled)
-        return;
-    s_overlay_text  = text;
-    s_overlay_until = monotonic_clock() + sec;
-    s_overlay_r     = r;
-    s_overlay_g     = g;
-    s_overlay_b     = b;
-}
+static bool s_write_enabled       = true;
+static bool s_html_report_enabled = true;
 
 void FlightLogger::set_write_enabled(bool on) { s_write_enabled = on; }
 bool FlightLogger::write_enabled() { return s_write_enabled; }
 void FlightLogger::set_html_report_enabled(bool on) { s_html_report_enabled = on; }
 bool FlightLogger::html_report_enabled() { return s_html_report_enabled; }
-void FlightLogger::set_messages_enabled(bool on) { s_messages_enabled = on; }
-bool FlightLogger::messages_enabled() { return s_messages_enabled; }
-void FlightLogger::set_landing_popup_enabled(bool on) { s_landing_popup_enabled = on; }
-bool FlightLogger::landing_popup_enabled() { return s_landing_popup_enabled; }
+void FlightLogger::set_messages_enabled(bool on) { Overlay::set_enabled(on); }
+bool FlightLogger::messages_enabled() { return Overlay::enabled(); }
+void FlightLogger::set_landing_popup_enabled(bool on) { LandingPopup::set_enabled(on); }
+bool FlightLogger::landing_popup_enabled() { return LandingPopup::enabled(); }
 void FlightLogger::set_runway_analysis_enabled(bool on) { AirportLookup::set_analysis_enabled(on); }
 bool FlightLogger::runway_analysis_enabled() { return AirportLookup::analysis_enabled(); }
-void          FlightLogger::set_popup_position(PopupPosition p) { s_popup_position = p; }
-PopupPosition FlightLogger::popup_position() { return s_popup_position; }
-
-void FlightLogger::draw_overlay()
-{
-    if (s_overlay_text.empty())
-        return;
-    if (monotonic_clock() > s_overlay_until)
-    {
-        s_overlay_text.clear();
-        return;
-    }
-
-    int sw = 0, sh = 0;
-    XPLMGetScreenSize(&sw, &sh);
-
-    XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
-    float c[4] = {s_overlay_r, s_overlay_g, s_overlay_b, 1.0f};
-    int   x    = sw / 2 - 150;
-    int   y    = static_cast<int>(static_cast<float>(sh) * 0.12f);
-    XPLMDrawString(c, x, y, const_cast<char *>(s_overlay_text.c_str()), nullptr, xplmFont_Proportional);
-}
+void          FlightLogger::set_popup_position(PopupPosition p) { LandingPopup::set_position(p); }
+PopupPosition FlightLogger::popup_position() { return LandingPopup::position(); }
 
 // ════════════════════════════════════════════════════════════════
-// LANDING POPUP
+// LANDING POPUP REPLAY
 // ════════════════════════════════════════════════════════════════
-
-static LandingData s_popup_ld;
-static bool        s_popup_active = false;
-static double      s_popup_until  = 0;
-
-bool FlightLogger::popup_active()
-{
-    if (s_popup_active && monotonic_clock() > s_popup_until)
-        s_popup_active = false;
-    return s_popup_active;
-}
-
-// Screen point the popup is pinned to, paired with the pivot below. The top row keeps
-// the 12% inset the popup always had; the other edges use a flat margin.
-static ImVec2 popup_anchor(float screen_w, float screen_h)
-{
-    constexpr float EDGE_MARGIN_PX = 40.f;
-    const float     top_y          = screen_h * 0.12f;
-    const float     bottom_y       = screen_h - EDGE_MARGIN_PX;
-
-    switch (s_popup_position)
-    {
-    case PopupPosition::TopLeft:
-        return {EDGE_MARGIN_PX, top_y};
-    case PopupPosition::TopRight:
-        return {screen_w - EDGE_MARGIN_PX, top_y};
-    case PopupPosition::Center:
-        return {screen_w * 0.5f, screen_h * 0.5f};
-    case PopupPosition::BottomLeft:
-        return {EDGE_MARGIN_PX, bottom_y};
-    case PopupPosition::BottomCenter:
-        return {screen_w * 0.5f, bottom_y};
-    case PopupPosition::BottomRight:
-        return {screen_w - EDGE_MARGIN_PX, bottom_y};
-    case PopupPosition::TopCenter:
-        break;
-    }
-    return {screen_w * 0.5f, top_y};
-}
-
-// Which corner of the window sits on the anchor: 0 = left/top, 1 = right/bottom.
-static ImVec2 popup_pivot()
-{
-    switch (s_popup_position)
-    {
-    case PopupPosition::TopLeft:
-        return {0.f, 0.f};
-    case PopupPosition::TopRight:
-        return {1.f, 0.f};
-    case PopupPosition::Center:
-        return {0.5f, 0.5f};
-    case PopupPosition::BottomLeft:
-        return {0.f, 1.f};
-    case PopupPosition::BottomCenter:
-        return {0.5f, 1.f};
-    case PopupPosition::BottomRight:
-        return {1.f, 1.f};
-    case PopupPosition::TopCenter:
-        break;
-    }
-    return {0.5f, 0.f};
-}
-
-// The rating headline on a tinted bar in its own colour.
-static void draw_popup_rating_banner(const ImVec4 &col, float content_w)
-{
-    constexpr float BANNER_H = 40.f;
-
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImDrawList  *dl     = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(origin, ImVec2(origin.x + content_w, origin.y + BANNER_H),
-                      ImGui::GetColorU32(ImVec4(col.x, col.y, col.z, 0.16f)), 6.f);
-    dl->AddRectFilled(origin, ImVec2(origin.x + 5.f, origin.y + BANNER_H), ImGui::GetColorU32(col), 6.f);
-
-    ImGui::PushStyleColor(ImGuiCol_Text, col);
-    ImGui::SetWindowFontScale(1.45f);
-    const float text_w = ImGui::CalcTextSize(s_popup_ld.rating.c_str()).x;
-    const float text_h = ImGui::GetTextLineHeight();
-    ImGui::SetCursorScreenPos(
-        ImVec2(origin.x + (content_w - text_w) * 0.5f, origin.y + (BANNER_H - text_h) * 0.5f));
-    ImGui::TextUnformatted(s_popup_ld.rating.c_str());
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopStyleColor();
-
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + BANNER_H));
-}
-
-static void draw_popup_metrics(float content_w)
-{
-    const ImVec4 white{0.92f, 0.94f, 0.98f, 1.f};
-    const int    columns = s_popup_ld.is_rotorcraft ? 2 : 3;
-    const float  cell_w  = content_w / static_cast<float>(columns);
-    char         value[64];
-
-    const ImVec2 row_origin = ImGui::GetCursorPos();
-
-    snprintf(value, sizeof(value), "%.0f fpm", s_popup_ld.fpm);
-    Ui::metric_cell("VERTICAL SPEED", value, Theme::rating_color(s_popup_ld.rating), cell_w);
-
-    snprintf(value, sizeof(value), "%.2f G", s_popup_ld.g_force);
-    Ui::metric_cell("G-FORCE", value, white, cell_w);
-
-    if (!s_popup_ld.is_rotorcraft)
-    {
-        snprintf(value, sizeof(value), "%.1f s", s_popup_ld.float_time);
-        Ui::metric_cell("FLOAT", value, white, cell_w);
-    }
-
-    // Two stacked rows of cells; the helper only advances horizontally.
-    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 2.2f));
-
-    if (s_popup_ld.ias_kts > 0.f)
-    {
-        snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ias_kts);
-        Ui::metric_cell("TOUCHDOWN IAS", value, white, cell_w);
-
-        snprintf(value, sizeof(value), "%.0f kts", s_popup_ld.ground_speed_kts);
-        Ui::metric_cell("GROUND SPEED", value, white, cell_w);
-    }
-
-    if (s_popup_ld.bounce_count > 0)
-    {
-        snprintf(value, sizeof(value), "%d", s_popup_ld.bounce_count);
-        Ui::metric_cell("BOUNCES", value, ImVec4(1.f, 0.5f, 0.2f, 1.f), cell_w);
-    }
-    else if (!s_popup_ld.is_rotorcraft)
-    {
-        snprintf(value, sizeof(value), "%d kts %s", std::abs(s_popup_ld.crosswind_kts),
-                 s_popup_ld.crosswind_side.c_str());
-        Ui::metric_cell("CROSSWIND", value, white, cell_w);
-    }
-
-    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 4.4f));
-
-    if (!s_popup_ld.is_rotorcraft && !s_popup_ld.flare.empty())
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.80f, 0.88f, 1.f));
-        ImGui::TextUnformatted(s_popup_ld.flare.c_str());
-        ImGui::PopStyleColor();
-    }
-}
-
-// Plan view of the runway with the touchdown marked. Same idea as the HTML report:
-// along-track to scale, lateral deviation exaggerated so metres stay visible.
-static void draw_popup_runway_diagram(float content_w)
-{
-    constexpr float STRIP_H        = 46.f;
-    constexpr float LATERAL_SPAN_M = 20.f;
-    constexpr float TOUCHDOWN_ZONE_M = 300.f;
-
-    if (s_popup_ld.runway_length_m <= 0.f)
-        return;
-
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
-    char header[96];
-    snprintf(header, sizeof(header), "RUNWAY %s  --  %.0f m usable", s_popup_ld.runway_ident.c_str(),
-             s_popup_ld.runway_length_m);
-    ImGui::TextUnformatted(header);
-    ImGui::PopStyleColor();
-
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImDrawList  *dl     = ImGui::GetWindowDrawList();
-    const float  mid_y  = origin.y + STRIP_H * 0.5f;
-    const float  half_h = STRIP_H * 0.5f;
-
-    dl->AddRectFilled(origin, ImVec2(origin.x + content_w, origin.y + STRIP_H), IM_COL32(48, 48, 52, 255), 3.f);
-
-    const float zone_w =
-        std::min(content_w, TOUCHDOWN_ZONE_M / s_popup_ld.runway_length_m * content_w);
-    dl->AddRectFilled(origin, ImVec2(origin.x + zone_w, origin.y + STRIP_H), IM_COL32(80, 78, 50, 255), 3.f);
-
-    constexpr float DASH_PITCH_PX = 26.f;
-    constexpr float DASH_LEN_PX   = 14.f;
-    const float     dash_end_x    = origin.x + content_w - 12.f;
-    const int       dash_count    = static_cast<int>((content_w - 24.f) / DASH_PITCH_PX);
-    for (int i = 0; i < dash_count; ++i)
-    {
-        const float x = origin.x + 12.f + static_cast<float>(i) * DASH_PITCH_PX;
-        dl->AddLine(ImVec2(x, mid_y), ImVec2(std::min(x + DASH_LEN_PX, dash_end_x), mid_y),
-                    IM_COL32(215, 215, 215, 255), 1.5f);
-    }
-
-    dl->AddRectFilled(origin, ImVec2(origin.x + 4.f, origin.y + STRIP_H), IM_COL32(255, 255, 255, 255));
-
-    const float along_pct =
-        std::min(1.f, std::max(0.f, s_popup_ld.runway_distance_m / s_popup_ld.runway_length_m));
-    const float offset_clamped =
-        std::min(LATERAL_SPAN_M, std::max(-LATERAL_SPAN_M, s_popup_ld.runway_offset_m));
-    const ImVec2 marker(origin.x + along_pct * content_w, mid_y + (offset_clamped / LATERAL_SPAN_M) * half_h);
-
-    dl->AddCircleFilled(marker, 6.f, IM_COL32(224, 122, 60, 255));
-    dl->AddCircle(marker, 6.f, IM_COL32(255, 255, 255, 255), 0, 1.5f);
-
-    ImGui::Dummy(ImVec2(content_w, STRIP_H + 2.f));
-
-    char caption[128];
-    snprintf(caption, sizeof(caption), "%.0f m past threshold  |  %.0f m %s of centerline",
-             s_popup_ld.runway_distance_m, std::abs(s_popup_ld.runway_offset_m),
-             s_popup_ld.runway_offset_m > 0 ? "right" : "left");
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.66f, 0.75f, 1.f));
-    ImGui::TextUnformatted(caption);
-    ImGui::PopStyleColor();
-}
-
-void FlightLogger::draw_popup()
-{
-    if (!popup_active())
-        return;
-
-    int sw = 0, sh = 0;
-    XPLMGetScreenSize(&sw, &sh);
-
-    const float  popup_w = 470.f;
-    const ImVec2 anchor  = popup_anchor(static_cast<float>(sw), static_cast<float>(sh));
-    const ImVec2 pivot   = popup_pivot();
-    // Positioning by pivot lets the bottom and centre placements work without knowing
-    // the auto-sized window height in advance.
-    ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, pivot);
-    ImGui::SetNextWindowSize(ImVec2(popup_w, 0.f), ImGuiCond_Always);
-
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.09f, 0.11f, 0.18f, 0.94f));
-    ImGui::PushStyleColor(ImGuiCol_Border, Theme::rating_color(s_popup_ld.rating));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.f, 14.f));
-
-    ImGui::Begin("##landing_popup", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_AlwaysAutoResize);
-
-    const float content_w = ImGui::GetContentRegionAvail().x;
-
-    draw_popup_rating_banner(Theme::rating_color(s_popup_ld.rating), content_w);
-    ImGui::Spacing();
-    draw_popup_metrics(content_w);
-    if (!s_popup_ld.runway_ident.empty())
-    {
-        ImGui::Spacing();
-        draw_popup_runway_diagram(content_w);
-    }
-
-    ImGui::End();
-    ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor(2);
-}
-
-static void arm_popup(const LandingData &ld)
-{
-    s_popup_ld     = ld;
-    s_popup_active = true;
-    s_popup_until  = monotonic_clock() + 15.0;
-}
-
-// Automatic popup after touchdown. When the user turned it off the landing is still
-// remembered, so the replay command can summon it on demand.
-static void show_popup(const LandingData &ld)
-{
-    if (!s_landing_popup_enabled)
-    {
-        s_popup_ld = ld;
-        return;
-    }
-    arm_popup(ld);
-}
 
 // Newest logged flight that actually contains a landing, so the popup can be replayed
 // in a fresh X-Plane session. Filenames start with the date, so descending name order
@@ -635,19 +321,16 @@ static bool load_last_logged_landing(LandingData &out)
 
 bool FlightLogger::replay_last_landing_popup()
 {
-    if (!s_popup_ld.rating.empty())
-    {
-        arm_popup(s_popup_ld);
+    if (LandingPopup::replay_remembered())
         return true;
-    }
 
     LandingData last;
     if (!load_last_logged_landing(last))
     {
-        show_overlay("No landing recorded yet", 5.f, 1.f, 0.8f, 0.2f);
+        Overlay::show("No landing recorded yet", 5.f, 1.f, 0.8f, 0.2f);
         return false;
     }
-    arm_popup(last);
+    LandingPopup::show(last);
     return true;
 }
 
@@ -914,7 +597,7 @@ static void handle_engine_edge_detection(bool on_gnd)
     if (s_write_enabled)
     {
         const char *label = started_up ? "DEP cached: " : "ARR cached: ";
-        show_overlay(std::string(label) + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
+        Overlay::show(std::string(label) + (apt.empty() ? "?" : apt), 4.f, 0.2f, 1.f, 0.4f);
     }
 }
 
@@ -940,7 +623,7 @@ static void handle_idle_state(const Frame &f)
         s_state          = State::Airborne;
         landing_arm();
         if (s_write_enabled)
-            show_overlay("REC  Flight recording started", 5.f);
+            Overlay::show("REC  Flight recording started", 5.f);
         XPLMDebugString("[xp_pilot] State: Idle -> Airborne (rotorcraft, skipped Rolling)\n");
         return;
     }
@@ -968,7 +651,7 @@ static void handle_rolling_state(const Frame &f)
     s_state = State::Airborne;
     landing_arm();
     if (s_write_enabled)
-        show_overlay("REC  Flight recording started", 5.f);
+        Overlay::show("REC  Flight recording started", 5.f);
     XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
 }
 
@@ -1081,7 +764,7 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     const float Q    = dr_f(dr_Q);
     const float Qrad = dr_f(dr_Qrad);
     if (s_float_timer > 0.f && s_float_final == 0.f)
-        s_float_final = static_cast<float>(monotonic_clock()) - s_float_timer;
+        s_float_final = static_cast<float>(SimClock::seconds()) - s_float_timer;
     candidate.pitch_deg    = Q;
     candidate.pitch_rate   = Qrad;
     candidate.float_time   = s_float_final;
@@ -1123,7 +806,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = s_ld_captured.airport_icao;
     s_state        = State::Landed;
-    show_popup(s_ld_captured);
+    LandingPopup::post(s_ld_captured);
     landing_arm();
     XPLMDebugString("[xp_pilot] State: Airborne -> Landed\n");
 }
@@ -1152,7 +835,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = s_ld_captured.airport_icao;
     s_state        = State::Landed;
-    show_popup(s_ld_captured);
+    LandingPopup::post(s_ld_captured);
     landing_arm();
     XPLMDebugString("[xp_pilot] State: Airborne -> Landed (rotorcraft)\n");
 }
@@ -1210,7 +893,7 @@ static void handle_airborne_state(const Frame &f)
     s_prev_vs_fpm  = vs_fpm;
 
     if (s_ld_armed && f.agl <= GATE_AGL_M && s_float_timer == 0.f)
-        s_float_timer = static_cast<float>(monotonic_clock());
+        s_float_timer = static_cast<float>(SimClock::seconds());
 
     capture_main_gear_touchdown(f, on_any);
 
@@ -1236,7 +919,7 @@ static void handle_landed_state(const Frame &f)
         s_state = State::Airborne;
         landing_arm();
         if (s_write_enabled)
-            show_overlay("REC  Touch-and-Go", 4.f);
+            Overlay::show("REC  Touch-and-Go", 4.f);
         XPLMDebugString("[xp_pilot] State: Landed -> Airborne (T&G)\n");
         return;
     }
@@ -1319,7 +1002,7 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
 {
     // Both logger features off → no state machine work this frame.
     // Reset any mid-flight state so re-enabling starts cleanly from Idle.
-    const bool logger_active = s_write_enabled || s_landing_popup_enabled;
+    const bool logger_active = s_write_enabled || LandingPopup::enabled();
     if (!logger_active)
     {
         if (s_state != State::Idle)
@@ -1517,7 +1200,7 @@ static void finalize_flight()
     auto filename = save_flight();
     if (filename.empty())
     {
-        show_overlay("! Flight save ERROR", 8.f, 1.f, 0.2f, 0.2f);
+        Overlay::show("! Flight save ERROR", 8.f, 1.f, 0.2f, 0.2f);
         session_reset();
         return;
     }
@@ -1535,7 +1218,7 @@ static void finalize_flight()
 
     std::string dep = s_departure_icao.empty() ? "?" : s_departure_icao;
     std::string arr = s_arrival_icao.empty() ? "?" : s_arrival_icao;
-    show_overlay("Flight saved: " + dep + " -> " + arr, 8.f, 0.2f, 1.f, 0.4f);
+    Overlay::show("Flight saved: " + dep + " -> " + arr, 8.f, 0.2f, 1.f, 0.4f);
 
     s_lb_needs_refresh = true;
     session_reset();
@@ -1608,7 +1291,7 @@ void FlightLogger::regen_all_reports()
     char msg[64];
     snprintf(msg, sizeof(msg), "[xp_pilot] Regenerated %d reports\n", count);
     XPLMDebugString(msg);
-    show_overlay(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
+    Overlay::show(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
 }
 
 void FlightLogger::init()

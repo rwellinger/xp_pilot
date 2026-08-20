@@ -52,6 +52,9 @@ add_library(xp_pilot MODULE
     src/ui_flight_list.cpp
     src/ui_flight_view.cpp
     src/ui_home.cpp
+    src/sim_clock.cpp
+    src/ui_landing_popup.cpp
+    src/ui_overlay.cpp
     src/ui_theme.cpp
     src/ui_widgets.cpp
     ${IMGUI_SOURCES}

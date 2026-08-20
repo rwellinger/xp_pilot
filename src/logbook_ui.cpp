@@ -19,6 +19,7 @@
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "ui_landing_popup.hpp"
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
@@ -470,7 +471,7 @@ void LogbookUI::init()
 void LogbookUI::draw()
 {
     // Called every frame from main draw callback (xplm_Phase_Window)
-    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !FlightLogger::popup_active())
+    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !LandingPopup::active())
         return;
 
     if (FlightLogger::lb_needs_refresh())
@@ -479,7 +480,7 @@ void LogbookUI::draw()
         FlightListScreen::reload(s_logbook);
     }
 
-    if (!s_logbook_open && !FlightLogger::popup_active())
+    if (!s_logbook_open && !LandingPopup::active())
         return;
 
     int screen_left, screen_top, screen_right, screen_bottom;
@@ -536,7 +537,7 @@ void LogbookUI::draw()
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
 
-    FlightLogger::draw_popup();
+    LandingPopup::draw();
 
     if (s_logbook_open)
     {

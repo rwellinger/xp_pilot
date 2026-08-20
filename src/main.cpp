@@ -20,6 +20,7 @@
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "logbook_ui.hpp"
+#include "ui_overlay.hpp"
 #include "ui_theme.hpp"
 #include "settings.hpp"
 #include <XPLM/XPLMDisplay.h>
@@ -90,7 +91,7 @@ void Settings::save()
 static int DrawCallback(XPLMDrawingPhase, int, void *)
 {
     AutoQNH::draw();
-    FlightLogger::draw_overlay();
+    Overlay::draw();
     LogbookUI::draw();
     return 1;
 }

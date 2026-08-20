@@ -76,11 +76,6 @@ namespace FlightLogger
 void init();
 void stop();
 
-// ── Draw callbacks (call from registered XPLM draw callback) ─────────────────
-void draw_overlay();
-void draw_popup();
-bool popup_active();
-
 // Re-show the most recent landing popup — bound to a command so it can be summoned
 // for screenshots. Falls back to the newest logged flight when this X-Plane session
 // has no landing yet. Returns false when there is nothing to show.
