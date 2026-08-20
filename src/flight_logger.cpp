@@ -19,6 +19,7 @@
 #include "airport_lookup.hpp"
 #include "flight_logger.hpp"
 #include "flight_logger_logic.hpp"
+#include "flight_store.hpp"
 #include "flight_store_migration.hpp"
 #include "html_report.hpp"
 #include "sim_clock.hpp"
@@ -283,49 +284,13 @@ PopupPosition FlightLogger::popup_position() { return LandingPopup::position(); 
 // LANDING POPUP REPLAY
 // ════════════════════════════════════════════════════════════════
 
-// Newest logged flight that actually contains a landing, so the popup can be replayed
-// in a fresh X-Plane session. Filenames start with the date, so descending name order
-// visits the most recent flights first.
-static bool load_last_logged_landing(LandingData &out)
-{
-    const std::string        fdir = s_output_dir + "flights/";
-    std::vector<std::string> fnames;
-
-    std::error_code ec;
-    auto            dit = std::filesystem::directory_iterator(fdir, ec);
-    if (ec)
-        return false;
-    for (const auto &entry : dit)
-    {
-        const std::string name = entry.path().filename().string();
-        if (entry.is_regular_file() && name.size() > 5 && name.substr(name.size() - 5) == ".json")
-            fnames.push_back(name);
-    }
-    std::sort(fnames.rbegin(), fnames.rend());
-
-    for (const auto &fname : fnames)
-    {
-        std::ifstream f(fdir + fname);
-        if (!f.is_open())
-            continue;
-        const std::string content((std::istreambuf_iterator<char>(f)), {});
-        const FlightData  fd = parse_flight_json(content, fname);
-        if (!fd.landings.empty())
-        {
-            out = fd.landings.back();
-            return true;
-        }
-    }
-    return false;
-}
-
 bool FlightLogger::replay_last_landing_popup()
 {
     if (LandingPopup::replay_remembered())
         return true;
 
     LandingData last;
-    if (!load_last_logged_landing(last))
+    if (!FlightStore::load_last_landing(s_output_dir, last))
     {
         Overlay::show("No landing recorded yet", 5.f, 1.f, 0.8f, 0.2f);
         return false;
@@ -1041,111 +1006,6 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
 // JSON SAVE + FINALIZE
 // ════════════════════════════════════════════════════════════════
 
-static std::string save_flight()
-{
-    std::string dep  = s_departure_icao.empty() ? "ZZZZ" : s_departure_icao;
-    std::string arr  = s_arrival_icao.empty() ? "ZZZZ" : s_arrival_icao;
-    std::string icao = s_aircraft_icao.empty() ? "UNKN" : s_aircraft_icao;
-
-    char       date_buf[16];
-    struct tm *tm = gmtime(&s_start_time);
-    strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", tm);
-    char sut[8], eut[8];
-    strftime(sut, sizeof(sut), "%H:%M", tm);
-    struct tm *tm2 = gmtime(&s_end_time);
-    strftime(eut, sizeof(eut), "%H:%M", tm2);
-
-    char base[256];
-    snprintf(base, sizeof(base), "%s_%s_%s_%s", date_buf, dep.c_str(), arr.c_str(), icao.c_str());
-    std::string fdir = s_output_dir + "flights/";
-    std::string path = fdir + base + ".json";
-    // Avoid overwrite
-    if (std::ifstream(path).good())
-    {
-        path = fdir + base + "_" + std::to_string(s_start_time) + ".json";
-    }
-
-    json obj;
-    obj["version"]         = 4;
-    obj["date"]            = date_buf;
-    obj["start_utc"]       = sut;
-    obj["end_utc"]         = eut;
-    obj["departure_icao"]  = dep;
-    obj["arrival_icao"]    = arr;
-    obj["aircraft_icao"]     = icao;
-    obj["aircraft_tail"]     = s_aircraft_tail;
-    obj["aircraft_category"] = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
-    obj["start_time"]        = (long long)s_start_time;
-    obj["end_time"]        = (long long)s_end_time;
-    obj["block_time_min"]  = block_time_minutes();
-    obj["block_time_sec"]  = block_time_seconds();
-    obj["paused_sec"]      = paused_seconds();
-    obj["max_altitude_ft"] = s_max_altitude_ft;
-    obj["max_speed_kts"]   = s_max_speed_kts;
-    obj["fuel_used_kg"]    = 0;
-
-    json track_arr = json::array();
-    for (auto &tp : s_track)
-    {
-        track_arr.push_back({{"t", tp.t},
-                             {"lat", tp.lat},
-                             {"lon", tp.lon},
-                             {"alt", tp.alt_ft},
-                             {"spd", tp.spd_kts},
-                             {"vs", tp.vs_fpm}});
-    }
-    obj["track"] = track_arr;
-
-    json pause_arr = json::array();
-    for (auto &p : s_pauses)
-    {
-        pause_arr.push_back({{"t", (long long)p.t}, {"sec", p.sec}, {"lat", p.lat}, {"lon", p.lon}});
-    }
-    obj["pauses"] = pause_arr;
-
-    json ldg_arr = json::array();
-    for (auto &ld : s_landings)
-    {
-        ldg_arr.push_back({{"fpm", ld.fpm},
-                           {"g_force", ld.g_force},
-                           {"pitch_deg", ld.pitch_deg},
-                           {"pitch_rate", ld.pitch_rate},
-                           {"agl_ft", ld.agl_ft},
-                           {"gate_ias_kts", ld.gate_ias_kts},
-                           {"gate_fpm", ld.gate_fpm},
-                           {"float_time", ld.float_time},
-                           {"ias_kts", ld.ias_kts},
-                           {"ground_speed_kts", ld.ground_speed_kts},
-                           {"lat", ld.lat},
-                           {"lon", ld.lon},
-                           {"heading_true", ld.heading_true},
-                           {"airport_icao", ld.airport_icao},
-                           {"runway_ident", ld.runway_ident},
-                           {"runway_offset_m", ld.runway_offset_m},
-                           {"runway_distance_m", ld.runway_distance_m},
-                           {"runway_length_m", ld.runway_length_m},
-                           {"time", (long long)ld.time},
-                           {"wind_speed_kts", ld.wind_speed_kts},
-                           {"wind_dir_mag", ld.wind_dir_mag},
-                           {"wind_status", ld.wind_status},
-                           {"headwind_kts", ld.headwind_kts},
-                           {"crosswind_kts", ld.crosswind_kts},
-                           {"crosswind_side", ld.crosswind_side},
-                           {"bounce_count", ld.bounce_count},
-                           {"is_rotorcraft", ld.is_rotorcraft},
-                           {"flare", ld.flare},
-                           {"rating", ld.rating}});
-    }
-    obj["landings"] = ldg_arr;
-
-    std::ofstream f(path);
-    if (!f.is_open())
-        return "";
-    f << obj.dump();
-
-    return path.substr(path.rfind('/') + 1);
-}
-
 // Assemble the current session state into a FlightData. Used both for the finished
 // flight and — with end_time set to "now" — for the live in-progress snapshot.
 static FlightData build_flight_data(time_t end_time)
@@ -1197,16 +1057,16 @@ static void finalize_flight()
 
     AirportLookup::resolve_runways(s_landings);
 
-    auto filename = save_flight();
+    FlightData fd = build_flight_data(s_end_time);
+
+    const std::string filename = FlightStore::save(fd, s_output_dir);
     if (filename.empty())
     {
         Overlay::show("! Flight save ERROR", 8.f, 1.f, 0.2f, 0.2f);
         session_reset();
         return;
     }
-
-    FlightData fd = build_flight_data(s_end_time);
-    fd.filename   = filename;
+    fd.filename = filename;
 
     if (s_html_report_enabled)
     {
