@@ -20,6 +20,13 @@
 #include "flight_logger_logic.hpp"
 
 #include <catch2/catch_amalgamated.hpp>
+#include <json.hpp>
+
+#include <fstream>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 using FlightLoggerLogic::is_plausible_speed_sample;
 using FlightLoggerLogic::MAX_IAS_STEP_PER_SAMPLE;
@@ -252,4 +259,74 @@ TEST_CASE("projection places both sides of the date line side by side", "[flight
 
     REQUIRE(east_x > west_x);                     // continues east, does not jump back
     REQUIRE(east_x - west_x < 1000.f);            // and not across the whole map
+}
+
+// ── Aircraft profile mapping ─────────────────────────────────────────────────
+// The regression these guard: a helicopter whose ICAO is missing from
+// flight_logger_profiles.json resolves to a fixed-wing profile. It then takes the
+// fixed-wing state path, which only starts recording above 30 kts ground speed — a
+// helicopter lifting off from a hover never gets there, so its flight is silently
+// never written. The AW139 (A139) and the Guimbal Cabri G2 (G2CA) hit exactly that.
+
+namespace
+{
+
+struct ProfileMapping
+{
+    std::vector<std::pair<std::string, std::string>> aircraft;   // match string -> profile name
+    std::map<std::string, std::string>               categories; // profile name -> category
+};
+
+ProfileMapping load_profile_mapping()
+{
+    std::ifstream file(std::string(XP_PILOT_SOURCE_DIR) + "/data/flight_logger_profiles.json");
+    REQUIRE(file.is_open());
+    nlohmann::json j;
+    file >> j;
+
+    ProfileMapping mapping;
+    for (auto &[name, value] : j["profiles"].items())
+        mapping.categories[name] = value.is_object() ? value.value("category", "fixed_wing") : "fixed_wing";
+    for (auto &entry : j["aircraft"])
+        mapping.aircraft.emplace_back(entry.value("match", ""), entry.value("profile", "medium_ga"));
+    return mapping;
+}
+
+// Mirrors get_profile_name() in flight_logger.cpp: first entry in file order whose
+// match string is contained in the ICAO wins, medium_ga otherwise.
+std::string category_of(const ProfileMapping &mapping, const std::string &icao)
+{
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (FlightLoggerLogic::icao_matches_profile(icao, match))
+            return mapping.categories.at(profile);
+    return mapping.categories.count("medium_ga") ? mapping.categories.at("medium_ga") : "fixed_wing";
+}
+
+} // namespace
+
+TEST_CASE("every helicopter in the profile list resolves to a rotorcraft profile", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    // An earlier fixed-wing entry containing the same substring would shadow a
+    // helicopter, and the shadowed type would silently stop being recorded.
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (mapping.categories.at(profile) == "rotorcraft")
+            CHECK(category_of(mapping, match) == "rotorcraft");
+}
+
+TEST_CASE("helicopters flown in the sim are covered by the profile list", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    for (const char *icao : {"R22", "R44", "R66", "G2CA", "EC30", "H130", "A109", "A139", "S76", "H145", "B407"})
+        CHECK(category_of(mapping, icao) == "rotorcraft");
+}
+
+TEST_CASE("fixed-wing types are not caught by a helicopter match string", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    for (const char *icao : {"C172", "PA28", "SR22", "TBM9", "B738", "A320", "A333", "B77W", "E170"})
+        CHECK(category_of(mapping, icao) == "fixed_wing");
 }

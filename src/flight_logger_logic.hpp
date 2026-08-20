@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 // Pure sampling and track-geometry logic for the flight logger — no XPLM dependency,
@@ -49,6 +50,15 @@ inline bool is_plausible_speed_sample(int speed_kts, int previous_speed_kts, boo
     if (!has_previous)
         return true;
     return std::abs(speed_kts - previous_speed_kts) <= MAX_IAS_STEP_PER_SAMPLE;
+}
+
+// Aircraft-to-profile matching as flight_logger_profiles.json defines it: a match string
+// counts when it appears anywhere in the aircraft's ICAO code, so "R22" also catches a
+// model reporting "R22B". Entries are scanned in file order and the first hit wins,
+// which is why the list puts the more specific codes first.
+inline bool icao_matches_profile(const std::string &aircraft_icao, const std::string &match_string)
+{
+    return !match_string.empty() && aircraft_icao.find(match_string) != std::string::npos;
 }
 
 // Geographic extent of a track, already padded for display. Degenerate tracks (empty,

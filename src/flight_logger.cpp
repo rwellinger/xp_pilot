@@ -131,7 +131,7 @@ static void load_profiles()
 static std::string get_profile_name(const std::string &plane_icao)
 {
     for (auto &e : s_icao_map)
-        if (plane_icao.find(e.match) != std::string::npos)
+        if (FlightLoggerLogic::icao_matches_profile(plane_icao, e.match))
             return e.profile_name;
     return s_profiles.count("medium_ga") ? "medium_ga" : "fallback";
 }
@@ -152,10 +152,21 @@ static std::string get_profile_category(const std::string &name)
     return "fixed_wing";
 }
 
+// A helicopter recognised only by the sim keeps the generic fixed-wing profile, whose
+// thresholds are far too lax for a set-down. Fall back to the turbine profile so the
+// rating stays meaningful until the type earns its own entry.
+static std::string get_rating_profile_name(const std::string &plane_icao, bool is_rotorcraft)
+{
+    std::string name = get_profile_name(plane_icao);
+    if (!is_rotorcraft || get_profile_category(name) == "rotorcraft")
+        return name;
+    return s_profiles.count("turbine_helicopter") ? "turbine_helicopter" : name;
+}
+
 static std::string get_shutdown_trigger(const std::string &plane_icao)
 {
     for (auto &e : s_icao_map)
-        if (plane_icao.find(e.match) != std::string::npos && !e.shutdown_trigger.empty())
+        if (FlightLoggerLogic::icao_matches_profile(plane_icao, e.match) && !e.shutdown_trigger.empty())
             return e.shutdown_trigger;
     return s_default_shutdown;
 }
@@ -188,6 +199,7 @@ static XPLMDataRef dr_eng_running  = nullptr; // int array
 static XPLMDataRef dr_nav_light    = nullptr;
 static XPLMDataRef dr_acf_icao     = nullptr; // byte
 static XPLMDataRef dr_acf_tail     = nullptr; // byte
+static XPLMDataRef dr_is_heli      = nullptr; // int, X-Plane's own airframe category
 
 static void find_datarefs()
 {
@@ -215,6 +227,7 @@ static void find_datarefs()
     dr_nav_light    = XPLMFindDataRef("sim/cockpit/electrical/nav_lights_on");
     dr_acf_icao     = XPLMFindDataRef("sim/aircraft/view/acf_ICAO");
     dr_acf_tail     = XPLMFindDataRef("sim/aircraft/view/acf_tailnum");
+    dr_is_heli      = XPLMFindDataRef("sim/aircraft2/metadata/is_helicopter");
 }
 
 static float  dr_f(XPLMDataRef dr) { return dr ? XPLMGetDataf(dr) : 0.0f; }
@@ -562,9 +575,12 @@ static void handle_engine_edge_detection(bool on_gnd)
 
 static void handle_idle_state(const Frame &f)
 {
-    const std::string icao    = dr_str(dr_acf_icao);
-    const std::string pname   = get_profile_name(icao);
-    const bool        is_heli = get_profile_category(pname) == "rotorcraft";
+    const std::string icao  = dr_str(dr_acf_icao);
+    const std::string pname = get_profile_name(icao);
+    // X-Plane knows the airframe category itself, so an unlisted ICAO no longer ends up
+    // in the fixed-wing path — where a helicopter lifting off from a hover would never
+    // reach the rolling speed that starts a recording.
+    const bool is_heli = get_profile_category(pname) == "rotorcraft" || dr_i(dr_is_heli) != 0;
 
     if (is_heli)
     {
@@ -752,7 +768,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
         return;
 
-    auto pname   = get_profile_name(s_aircraft_icao);
+    auto pname   = get_rating_profile_name(s_aircraft_icao, s_is_rotorcraft);
     auto pthresh = get_profile_thresholds(pname);
     s_ld_captured.rating =
         eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts), s_ld_captured.wind_status, pthresh);
@@ -779,7 +795,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     fill_landing_metrics(s_ld_captured, f);
     s_ld_captured.is_rotorcraft = true;
 
-    auto pname   = get_profile_name(s_aircraft_icao);
+    auto pname   = get_rating_profile_name(s_aircraft_icao, true);
     auto pthresh = get_profile_thresholds(pname);
     s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts),
                                              s_ld_captured.wind_status, pthresh);
@@ -831,7 +847,7 @@ static void handle_airborne_state(const Frame &f)
     // Fetch the destination's runways early enough that the touchdown frame finds
     // them cached. ~2000 ft AGL leaves roughly a minute of margin.
     constexpr float APPROACH_PRELOAD_AGL_M = 610.f;
-    if (f.agl < APPROACH_PRELOAD_AGL_M)
+    if (!s_is_rotorcraft && f.agl < APPROACH_PRELOAD_AGL_M)
         AirportLookup::request_runway_preload(get_airport_id());
 
     if (s_is_rotorcraft)
@@ -1062,7 +1078,7 @@ static void finalize_flight()
 
     if (s_html_report_enabled)
     {
-        auto pname   = get_profile_name(s_aircraft_icao);
+        auto pname   = get_rating_profile_name(s_aircraft_icao, s_is_rotorcraft);
         auto pthresh = get_profile_thresholds(pname);
         HtmlReport::generate(fd, s_output_dir, filename, pname, pthresh);
         HtmlReport::generate_index(s_output_dir);
@@ -1134,7 +1150,7 @@ void FlightLogger::regen_all_reports()
             continue;
         std::string c((std::istreambuf_iterator<char>(f)), {});
         auto        fd      = parse_flight_json(c, fname);
-        auto        pname   = get_profile_name(fd.aircraft_icao);
+        auto        pname   = get_rating_profile_name(fd.aircraft_icao, fd.aircraft_category == "rotorcraft");
         auto        pthresh = get_profile_thresholds(pname);
         HtmlReport::generate(fd, s_output_dir, fname, pname, pthresh);
         ++count;
