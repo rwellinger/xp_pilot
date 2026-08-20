@@ -106,7 +106,9 @@ void draw_rating_banner(const ImVec4 &col, float content_w)
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopStyleColor();
 
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + BANNER_H));
+    // Claim the banner strip as a real item so the auto-sized window knows its height.
+    ImGui::SetCursorScreenPos(origin);
+    ImGui::Dummy(ImVec2(content_w, BANNER_H));
 }
 
 void draw_metrics(float content_w)
@@ -116,7 +118,7 @@ void draw_metrics(float content_w)
     const float  cell_w  = content_w / static_cast<float>(columns);
     char         value[64];
 
-    const ImVec2 row_origin = ImGui::GetCursorPos();
+    const ImVec2 first_row = Ui::begin_metric_row();
 
     snprintf(value, sizeof(value), "%.0f fpm", s_landing.fpm);
     Ui::metric_cell("VERTICAL SPEED", value, Theme::rating_color(s_landing.rating), cell_w);
@@ -130,31 +132,52 @@ void draw_metrics(float content_w)
         Ui::metric_cell("FLOAT", value, white, cell_w);
     }
 
-    // Two stacked rows of cells; the helper only advances horizontally.
-    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 2.2f));
+    Ui::end_metric_row(first_row);
 
-    if (s_landing.ias_kts > 0.f)
-    {
-        snprintf(value, sizeof(value), "%.0f kts", s_landing.ias_kts);
-        Ui::metric_cell("TOUCHDOWN IAS", value, white, cell_w);
-
-        snprintf(value, sizeof(value), "%.0f kts", s_landing.ground_speed_kts);
-        Ui::metric_cell("GROUND SPEED", value, white, cell_w);
-    }
-
-    if (s_landing.bounce_count > 0)
+    auto bounce_cell = [&]()
     {
         snprintf(value, sizeof(value), "%d", s_landing.bounce_count);
         Ui::metric_cell("BOUNCES", value, ImVec4(1.f, 0.5f, 0.2f, 1.f), cell_w);
-    }
-    else if (!s_landing.is_rotorcraft)
+    };
+
+    const bool show_speeds    = s_landing.ias_kts > 0.f;
+    const bool show_bounces   = s_landing.bounce_count > 0;
+    const bool show_crosswind = !show_bounces && !s_landing.is_rotorcraft;
+    // A rotorcraft row holds only two cells, so its bounce count gets a row of its own
+    // instead of overflowing the popup width.
+    const bool bounces_in_own_row = show_bounces && s_landing.is_rotorcraft && show_speeds;
+
+    if (show_speeds || show_crosswind || (show_bounces && !bounces_in_own_row))
     {
-        snprintf(value, sizeof(value), "%d kts %s", std::abs(s_landing.crosswind_kts),
-                 s_landing.crosswind_side.c_str());
-        Ui::metric_cell("CROSSWIND", value, white, cell_w);
+        const ImVec2 second_row = Ui::begin_metric_row();
+
+        if (show_speeds)
+        {
+            snprintf(value, sizeof(value), "%.0f kts", s_landing.ias_kts);
+            Ui::metric_cell("TOUCHDOWN IAS", value, white, cell_w);
+
+            snprintf(value, sizeof(value), "%.0f kts", s_landing.ground_speed_kts);
+            Ui::metric_cell("GROUND SPEED", value, white, cell_w);
+        }
+
+        if (show_bounces && !bounces_in_own_row)
+            bounce_cell();
+        else if (show_crosswind)
+        {
+            snprintf(value, sizeof(value), "%d kts %s", std::abs(s_landing.crosswind_kts),
+                     s_landing.crosswind_side.c_str());
+            Ui::metric_cell("CROSSWIND", value, white, cell_w);
+        }
+
+        Ui::end_metric_row(second_row);
     }
 
-    ImGui::SetCursorPos(ImVec2(row_origin.x, row_origin.y + ImGui::GetTextLineHeightWithSpacing() * 4.4f));
+    if (bounces_in_own_row)
+    {
+        const ImVec2 bounce_row = Ui::begin_metric_row();
+        bounce_cell();
+        Ui::end_metric_row(bounce_row);
+    }
 
     if (!s_landing.is_rotorcraft && !s_landing.flare.empty())
     {
