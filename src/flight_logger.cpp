@@ -128,7 +128,7 @@ static void load_profiles()
     }
 }
 
-std::string FlightLogger::get_profile_name(const std::string &plane_icao)
+static std::string get_profile_name(const std::string &plane_icao)
 {
     for (auto &e : s_icao_map)
         if (plane_icao.find(e.match) != std::string::npos)
@@ -136,7 +136,7 @@ std::string FlightLogger::get_profile_name(const std::string &plane_icao)
     return s_profiles.count("medium_ga") ? "medium_ga" : "fallback";
 }
 
-std::array<int, 4> FlightLogger::get_profile_thresholds(const std::string &name)
+static std::array<int, 4> get_profile_thresholds(const std::string &name)
 {
     auto it = s_profiles.find(name);
     if (it != s_profiles.end())
@@ -144,7 +144,7 @@ std::array<int, 4> FlightLogger::get_profile_thresholds(const std::string &name)
     return {-125, -250, -350, -600};
 }
 
-std::string FlightLogger::get_profile_category(const std::string &name)
+static std::string get_profile_category(const std::string &name)
 {
     auto it = s_profile_category.find(name);
     if (it != s_profile_category.end())
@@ -563,8 +563,8 @@ static void handle_engine_edge_detection(bool on_gnd)
 static void handle_idle_state(const Frame &f)
 {
     const std::string icao    = dr_str(dr_acf_icao);
-    const std::string pname   = FlightLogger::get_profile_name(icao);
-    const bool        is_heli = FlightLogger::get_profile_category(pname) == "rotorcraft";
+    const std::string pname   = get_profile_name(icao);
+    const bool        is_heli = get_profile_category(pname) == "rotorcraft";
 
     if (is_heli)
     {
@@ -752,8 +752,8 @@ static void finalize_landing_on_nose_gear(bool on_all)
     if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
         return;
 
-    auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
-    auto pthresh = FlightLogger::get_profile_thresholds(pname);
+    auto pname   = get_profile_name(s_aircraft_icao);
+    auto pthresh = get_profile_thresholds(pname);
     s_ld_captured.rating =
         eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts), s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
@@ -779,8 +779,8 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     fill_landing_metrics(s_ld_captured, f);
     s_ld_captured.is_rotorcraft = true;
 
-    auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
-    auto pthresh = FlightLogger::get_profile_thresholds(pname);
+    auto pname   = get_profile_name(s_aircraft_icao);
+    auto pthresh = get_profile_thresholds(pname);
     s_ld_captured.rating       = eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts),
                                              s_ld_captured.wind_status, pthresh);
     s_ld_captured.time         = std::time(nullptr);
@@ -1062,8 +1062,8 @@ static void finalize_flight()
 
     if (s_html_report_enabled)
     {
-        auto pname   = FlightLogger::get_profile_name(s_aircraft_icao);
-        auto pthresh = FlightLogger::get_profile_thresholds(pname);
+        auto pname   = get_profile_name(s_aircraft_icao);
+        auto pthresh = get_profile_thresholds(pname);
         HtmlReport::generate(fd, s_output_dir, filename, pname, pthresh);
         HtmlReport::generate_index(s_output_dir);
     }

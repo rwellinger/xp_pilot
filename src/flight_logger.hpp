@@ -112,9 +112,4 @@ bool write_enabled();
 void set_html_report_enabled(bool on);
 bool html_report_enabled();
 
-// ── Profile access (for HTML report generation) ───────────────────────────────
-std::string        get_profile_name(const std::string &plane_icao);
-std::array<int, 4> get_profile_thresholds(const std::string &profile_name);
-std::string        get_profile_category(const std::string &profile_name); // "fixed_wing" | "rotorcraft"
-
 } // namespace FlightLogger

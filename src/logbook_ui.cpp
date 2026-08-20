@@ -587,7 +587,8 @@ void LogbookUI::stop()
     }
 }
 
-void LogbookUI::open()
+// Only toggle() opens the window; the plugin menu and command both go through it.
+static void open()
 {
     s_logbook_open = true;
 
