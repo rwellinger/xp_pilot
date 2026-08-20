@@ -17,6 +17,7 @@
  */
 
 #include "flight_logger.hpp"
+#include "flight_store_migration.hpp"
 #include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include "runway_data.hpp"
@@ -1755,67 +1756,6 @@ void FlightLogger::regen_all_reports()
     show_overlay(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
 }
 
-// Move one file, falling back to copy + remove when source and destination are on
-// different volumes (rename then fails with cross_device_link). Soft-fails.
-static void move_file(const std::filesystem::path &src, const std::filesystem::path &dst)
-{
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    if (!fs::exists(src, ec))
-        return;
-    fs::create_directories(dst.parent_path(), ec);
-    ec.clear();
-    fs::rename(src, dst, ec);
-    if (!ec)
-        return;
-    ec.clear();
-    fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
-    if (ec)
-    {
-        XPLMDebugString(("[xp_pilot] migrate: cannot move " + src.filename().string() + ": " + ec.message() + "\n").c_str());
-        return;
-    }
-    ec.clear();
-    fs::remove(src, ec);
-}
-
-// One-time migration of user data from the old in-plugin location (<plugin>/data)
-// to X-Plane's Output dir. Guarded by a marker so it runs only once. The bundled
-// landing profiles stay in the plugin and are deliberately not moved.
-static void migrate_user_data_to_output(const std::filesystem::path &config_dir,
-                                        const std::filesystem::path &output_dir)
-{
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    const fs::path  marker = output_dir / ".migrated";
-    if (fs::exists(marker, ec))
-        return;
-
-    auto move_matching = [](const fs::path &src_dir, const fs::path &dst_dir, const std::string &ext) {
-        std::error_code it_ec;
-        auto            it = fs::directory_iterator(src_dir, it_ec);
-        if (it_ec)
-            return;
-        for (auto &entry : it)
-        {
-            if (!entry.is_regular_file())
-                continue;
-            const std::string name = entry.path().filename().string();
-            if (name.size() > ext.size() && name.compare(name.size() - ext.size(), ext.size(), ext) == 0)
-                move_file(entry.path(), dst_dir / name);
-        }
-    };
-
-    move_matching(config_dir / "flights", output_dir / "flights", ".json");
-    move_matching(config_dir / "flights" / "archived", output_dir / "flights" / "archived", ".json");
-    move_matching(config_dir / "reports", output_dir / "reports", ".html");
-    move_matching(config_dir / "reports" / "archived", output_dir / "reports" / "archived", ".html");
-    move_file(config_dir / "index.html", output_dir / "index.html");
-    move_file(config_dir / "settings.json", output_dir / "settings.json");
-
-    std::ofstream(marker) << "migrated\n";
-}
-
 void FlightLogger::init()
 {
     // Bundled config (landing profiles) lives next to the plugin binary.
@@ -1854,7 +1794,7 @@ void FlightLogger::init()
     if (ec)
         XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
 
-    migrate_user_data_to_output(configPath, outputPath);
+    FlightStore::migrate_user_data_to_output(configPath, outputPath);
 
     find_datarefs();
     load_profiles();
