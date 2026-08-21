@@ -2,6 +2,11 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.7.1
+
+  - **General improvements** of performance and stability
+    - **Fixed: Helicopter support** useful parameters in landing rate for helicopters
+    - **Fixed: Position Save** Window position and size is saved now after close
 
 ### What's New in v1.7.0
 
