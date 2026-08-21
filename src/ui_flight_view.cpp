@@ -466,11 +466,8 @@ void FlightView::draw_landings(const FlightData &flight)
         char stats[160];
         if (landing.is_rotorcraft)
         {
-            if (landing.bounce_count > 0)
-                snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  %d bounce%s", landing.fpm, landing.g_force,
-                         landing.bounce_count, landing.bounce_count == 1 ? "" : "s");
-            else
-                snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G", landing.fpm, landing.g_force);
+            snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  %.0f kts drift  |  %.1f deg bank", landing.fpm,
+                     landing.g_force, landing.ground_speed_kts, std::abs(landing.bank_deg));
         }
         else if (landing.bounce_count > 0)
             snprintf(stats, sizeof(stats), "  %.0f fpm  |  %.2f G  |  Float %.1f s  |  %d bounce%s", landing.fpm,

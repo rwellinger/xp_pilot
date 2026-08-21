@@ -16,20 +16,11 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#include "sim_clock.hpp"
+#include <XPLM/XPLMDataAccess.h>
 
-// logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
-// Opens/closes via menu or keyboard command.
-
-namespace LogbookUI
+double SimClock::seconds()
 {
-void init(); // call after FlightLogger::init()
-void stop();
-void toggle();
-void draw(); // call every frame from main draw callback
-
-// Restore the default UI scale and recentre the window at its default size. Reachable
-// from the plugin menu and a command, so an oversized window can always be recovered
-// without editing settings.json.
-void reset_layout();
-} // namespace LogbookUI
+    static XPLMDataRef dr = XPLMFindDataRef("sim/time/total_running_time_sec");
+    return static_cast<double>(XPLMGetDataf(dr));
+}

@@ -17,19 +17,20 @@
  */
 
 #pragma once
+#include "html_report.hpp"
+#include <string>
 
-// logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
-// Opens/closes via menu or keyboard command.
-
-namespace LogbookUI
+// Reading and writing the flight log on disk. Owns the JSON format — over 3000
+// users have logs in it, so its field names and fallbacks are compatibility surface.
+namespace FlightStore
 {
-void init(); // call after FlightLogger::init()
-void stop();
-void toggle();
-void draw(); // call every frame from main draw callback
 
-// Restore the default UI scale and recentre the window at its default size. Reachable
-// from the plugin menu and a command, so an oversized window can always be recovered
-// without editing settings.json.
-void reset_layout();
-} // namespace LogbookUI
+// Write one flight to <output_dir>/flights/. Returns the bare filename, or an empty
+// string when the file could not be opened.
+std::string save(const FlightData &flight, const std::string &output_dir);
+
+// Newest logged flight that actually contains a landing, so the popup can be replayed
+// in a fresh X-Plane session. False when no logged flight has one.
+bool load_last_landing(const std::string &output_dir, LandingData &out);
+
+} // namespace FlightStore

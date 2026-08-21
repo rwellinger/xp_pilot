@@ -64,6 +64,8 @@ struct LandingData
     float       float_time       = 0;
     float       ias_kts          = 0; // 0 for flights logged before v3
     float       ground_speed_kts = 0;
+    float       bank_deg         = 0; // roll at touchdown; 0 for flights logged before v5
+    float       yaw_rate_deg_s   = 0; // yaw rate at touchdown; 0 for flights logged before v5
     double      lat = 0, lon = 0; // touchdown position
     float       heading_true     = 0;
     time_t      time             = 0;

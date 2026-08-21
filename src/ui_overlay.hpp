@@ -17,19 +17,22 @@
  */
 
 #pragma once
+#include <string>
 
-// logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
-// Opens/closes via menu or keyboard command.
-
-namespace LogbookUI
+// Transient status text drawn over the sim by X-Plane's own text renderer, not ImGui.
+// One message at a time; a new one replaces whatever is still showing.
+namespace Overlay
 {
-void init(); // call after FlightLogger::init()
-void stop();
-void toggle();
-void draw(); // call every frame from main draw callback
 
-// Restore the default UI scale and recentre the window at its default size. Reachable
-// from the plugin menu and a command, so an oversized window can always be recovered
-// without editing settings.json.
-void reset_layout();
-} // namespace LogbookUI
+// Show text for `seconds`. Silently does nothing while messages are disabled.
+void show(const std::string &text, float seconds, float red = 1.f, float green = 1.f, float blue = 1.f);
+
+// Call from a registered XPLM draw callback.
+void draw();
+
+// Owns the "show status messages" toggle, persisted via settings.json. Gating happens
+// in show(), so a disabled overlay stays silent no matter which module posts to it.
+void set_enabled(bool on);
+bool enabled();
+
+} // namespace Overlay

@@ -39,7 +39,10 @@ set(IMGUI_SOURCES
 add_library(xp_pilot MODULE
     src/main.cpp
     src/auto_qnh.cpp
+    src/airport_lookup.cpp
     src/flight_logger.cpp
+    src/flight_store.cpp
+    src/flight_store_migration.cpp
     src/html_report.cpp
     src/runway_data.cpp
     src/airspace_data.cpp
@@ -50,6 +53,10 @@ add_library(xp_pilot MODULE
     src/ui_flight_list.cpp
     src/ui_flight_view.cpp
     src/ui_home.cpp
+    src/settings.cpp
+    src/sim_clock.cpp
+    src/ui_landing_popup.cpp
+    src/ui_overlay.cpp
     src/ui_theme.cpp
     src/ui_widgets.cpp
     ${IMGUI_SOURCES}

@@ -18,7 +18,17 @@
 
 #pragma once
 
+// User settings, persisted as JSON under X-Plane's Output dir. Each setting is owned
+// by the module implementing its feature; this is only the binding to the file.
 namespace Settings
 {
+
+// Apply settings.json over the module defaults. Missing keys and an unreadable or
+// malformed file leave the defaults in place. Requires FlightLogger::init() to have
+// run, because the path is derived from its output dir.
+void load();
+
+// Write every setting. Called after each change — the whole file is rewritten.
 void save();
+
 } // namespace Settings

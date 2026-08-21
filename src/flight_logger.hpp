@@ -76,11 +76,6 @@ namespace FlightLogger
 void init();
 void stop();
 
-// ── Draw callbacks (call from registered XPLM draw callback) ─────────────────
-void draw_overlay();
-void draw_popup();
-bool popup_active();
-
 // Re-show the most recent landing popup — bound to a command so it can be summoned
 // for screenshots. Falls back to the newest logged flight when this X-Plane session
 // has no landing yet. Returns false when there is nothing to show.
@@ -116,18 +111,5 @@ void set_write_enabled(bool on);
 bool write_enabled();
 void set_html_report_enabled(bool on);
 bool html_report_enabled();
-void set_messages_enabled(bool on);
-bool messages_enabled();
-void set_landing_popup_enabled(bool on);
-bool landing_popup_enabled();
-void set_runway_analysis_enabled(bool on);
-bool runway_analysis_enabled();
-void          set_popup_position(PopupPosition p);
-PopupPosition popup_position();
-
-// ── Profile access (for HTML report generation) ───────────────────────────────
-std::string        get_profile_name(const std::string &plane_icao);
-std::array<int, 4> get_profile_thresholds(const std::string &profile_name);
-std::string        get_profile_category(const std::string &profile_name); // "fixed_wing" | "rotorcraft"
 
 } // namespace FlightLogger

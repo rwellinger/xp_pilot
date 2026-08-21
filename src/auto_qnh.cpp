@@ -194,7 +194,6 @@ void AutoQNH::stop()
         XPLMUnregisterCommandHandler(s_cmd_fl, CmdSetFL, 1, nullptr);
 }
 
-void AutoQNH::toggle() { s_enabled = !s_enabled; }
 bool AutoQNH::enabled() { return s_enabled; }
 void AutoQNH::set_enabled(bool on) { s_enabled = on; }
 void AutoQNH::set_messages_enabled(bool on) { s_messages_enabled = on; }

@@ -22,8 +22,10 @@
 #include "html_report.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 // Pure sampling and track-geometry logic for the flight logger — no XPLM dependency,
@@ -49,6 +51,81 @@ inline bool is_plausible_speed_sample(int speed_kts, int previous_speed_kts, boo
     if (!has_previous)
         return true;
     return std::abs(speed_kts - previous_speed_kts) <= MAX_IAS_STEP_PER_SAMPLE;
+}
+
+// Aircraft-to-profile matching as flight_logger_profiles.json defines it: a match string
+// counts when it appears anywhere in the aircraft's ICAO code, so "R22" also catches a
+// model reporting "R22B". Entries are scanned in file order and the first hit wins,
+// which is why the list puts the more specific codes first.
+inline bool icao_matches_profile(const std::string &aircraft_icao, const std::string &match_string)
+{
+    return !match_string.empty() && aircraft_icao.find(match_string) != std::string::npos;
+}
+
+// ── Landing rating ───────────────────────────────────────────────────────────
+
+// Worst to best in the order the ratings are handed out; the index into this table is
+// what the criteria below produce.
+inline const char *rating_label(int index)
+{
+    static const char *labels[] = {"BUTTER!", "GREAT LANDING!", "ACCEPTABLE", "HARD LANDING!", "WASTED!"};
+    return labels[std::clamp(index, 0, 4)];
+}
+
+// One touchdown as a helicopter is judged: descent rate alone says almost nothing about
+// a set-down from the hover, where it is always near zero. What ruins a rotorcraft
+// landing is sliding, touching down banked, or letting the tail swing round.
+struct RotorcraftTouchdown
+{
+    float descent_fpm    = 0; // negative
+    float drift_kts      = 0; // ground speed at the moment of contact
+    float bank_deg       = 0; // absolute roll angle
+    float yaw_rate_deg_s = 0; // absolute yaw rate
+    float g_force        = 0;
+};
+
+// Sliding sideways onto the skids is what rolls a helicopter over, so drift is graded
+// tightly. Above this speed the forward movement is a deliberate run-on landing rather
+// than drift, and grading it would fail every intentional one.
+inline constexpr float ROTORCRAFT_RUN_ON_KTS = 15.f;
+
+// Each row is the upper bound for BUTTER, GREAT, ACCEPTABLE and HARD; anything beyond
+// the last entry is WASTED.
+inline constexpr float ROTORCRAFT_DRIFT_LIMITS_KTS[4]    = {1.f, 3.f, 6.f, 10.f};
+inline constexpr float ROTORCRAFT_BANK_LIMITS_DEG[4]     = {2.f, 4.f, 7.f, 10.f};
+inline constexpr float ROTORCRAFT_YAW_LIMITS_DEG_S[4]    = {2.f, 5.f, 10.f, 15.f};
+inline constexpr float ROTORCRAFT_G_FORCE_LIMITS[4]      = {1.15f, 1.3f, 1.5f, 1.8f};
+
+inline int grade_against(float value, const float (&limits)[4])
+{
+    for (int index = 0; index < 4; ++index)
+        if (value <= limits[index])
+            return index;
+    return 4;
+}
+
+// Descent rate keeps the per-aircraft thresholds from flight_logger_profiles.json, which
+// are negative fpm values ordered from gentlest to harshest.
+inline int grade_descent(float descent_fpm, const std::array<int, 4> &fpm_thresholds)
+{
+    for (int index = 0; index < 4; ++index)
+        if (descent_fpm >= static_cast<float>(fpm_thresholds[index]))
+            return index;
+    return 4;
+}
+
+// The worst single criterion decides: a gentle descent must not paper over a landing
+// that slid or came down banked. Crosswind deliberately plays no part — it is measured
+// against the nose heading, which for a helicopter says nothing about the touchdown.
+inline int rotorcraft_rating_index(const RotorcraftTouchdown &touchdown, const std::array<int, 4> &fpm_thresholds)
+{
+    int worst = grade_descent(touchdown.descent_fpm, fpm_thresholds);
+    worst     = std::max(worst, grade_against(std::abs(touchdown.bank_deg), ROTORCRAFT_BANK_LIMITS_DEG));
+    worst     = std::max(worst, grade_against(std::abs(touchdown.yaw_rate_deg_s), ROTORCRAFT_YAW_LIMITS_DEG_S));
+    worst     = std::max(worst, grade_against(touchdown.g_force, ROTORCRAFT_G_FORCE_LIMITS));
+    if (touchdown.drift_kts < ROTORCRAFT_RUN_ON_KTS)
+        worst = std::max(worst, grade_against(touchdown.drift_kts, ROTORCRAFT_DRIFT_LIMITS_KTS));
+    return worst;
 }
 
 // Geographic extent of a track, already padded for display. Degenerate tracks (empty,

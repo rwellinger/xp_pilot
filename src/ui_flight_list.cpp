@@ -377,7 +377,9 @@ void FlightListScreen::reload(FlightList &list)
     clear_selection(list);
 }
 
-void FlightListScreen::ensure_loaded(FlightList &list)
+// Reads the directory only if it has not been read yet. draw() is the only caller,
+// so the list loads itself on first display.
+static void ensure_loaded(FlightListScreen::FlightList &list)
 {
     if (!list.loaded)
         reload(list);

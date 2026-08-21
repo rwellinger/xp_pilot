@@ -17,19 +17,14 @@
  */
 
 #pragma once
+#include <filesystem>
 
-// logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
-// Opens/closes via menu or keyboard command.
-
-namespace LogbookUI
+namespace FlightStore
 {
-void init(); // call after FlightLogger::init()
-void stop();
-void toggle();
-void draw(); // call every frame from main draw callback
 
-// Restore the default UI scale and recentre the window at its default size. Reachable
-// from the plugin menu and a command, so an oversized window can always be recovered
-// without editing settings.json.
-void reset_layout();
-} // namespace LogbookUI
+// One-time migration of user data from the old in-plugin location (<plugin>/data)
+// to X-Plane's Output dir. Guarded by a marker file so it runs only once. The
+// bundled landing profiles stay in the plugin and are deliberately not moved.
+void migrate_user_data_to_output(const std::filesystem::path &config_dir, const std::filesystem::path &output_dir);
+
+} // namespace FlightStore

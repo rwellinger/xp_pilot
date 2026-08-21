@@ -60,9 +60,7 @@ inline constexpr ImVec4 text{0.894f, 0.914f, 0.949f, 1.00f};
 inline constexpr ImVec4 text_dim{0.545f, 0.600f, 0.686f, 1.00f};
 
 inline constexpr ImVec4 accent{0.239f, 0.545f, 0.992f, 1.00f};
-inline constexpr ImVec4 success{0.208f, 0.769f, 0.420f, 1.00f};
 inline constexpr ImVec4 warning{0.961f, 0.647f, 0.141f, 1.00f};
-inline constexpr ImVec4 danger{0.957f, 0.282f, 0.243f, 1.00f};
 inline constexpr ImVec4 recording{0.957f, 0.282f, 0.243f, 1.00f};
 
 // Track map

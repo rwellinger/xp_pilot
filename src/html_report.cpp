@@ -343,8 +343,21 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
         out += b;
     }
 
+    // Drift, bank and yaw rate are what a rotorcraft set-down is judged on; a fixed-wing
+    // landing has the flare metrics below instead.
+    if (ld.is_rotorcraft)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Drift at touchdown</td><td><b>%.0f kts</b></td></tr>", ld.ground_speed_kts);
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Bank at touchdown</td><td><b>%.1f&deg;</b></td></tr>", std::abs(ld.bank_deg));
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Yaw rate at touchdown</td><td><b>%.1f&deg;/s</b></td></tr>",
+                 std::abs(ld.yaw_rate_deg_s));
+        out += b;
+    }
+
     // Pitch / flare / float / 50-ft-gate are flare-specific metrics — not meaningful for
-    // a rotorcraft set-down, where descent rate alone defines the landing quality.
+    // a rotorcraft set-down.
     if (!ld.is_rotorcraft)
     {
         std::string pitch_label = pitch_label_for(ld.pitch_deg);
@@ -787,6 +800,8 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.float_time       = lj.value("float_time", 0.0f);
                 ld.ias_kts          = lj.value("ias_kts", 0.0f) * ias_scale;
                 ld.ground_speed_kts = lj.value("ground_speed_kts", 0.0f);
+                ld.bank_deg         = lj.value("bank_deg", 0.0f);
+                ld.yaw_rate_deg_s   = lj.value("yaw_rate_deg_s", 0.0f);
                 ld.lat              = lj.value("lat", 0.0);
                 ld.lon              = lj.value("lon", 0.0);
                 ld.heading_true     = lj.value("heading_true", 0.0f);

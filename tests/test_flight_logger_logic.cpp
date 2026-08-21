@@ -20,6 +20,14 @@
 #include "flight_logger_logic.hpp"
 
 #include <catch2/catch_amalgamated.hpp>
+#include <json.hpp>
+
+#include <array>
+#include <fstream>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 using FlightLoggerLogic::is_plausible_speed_sample;
 using FlightLoggerLogic::MAX_IAS_STEP_PER_SAMPLE;
@@ -252,4 +260,178 @@ TEST_CASE("projection places both sides of the date line side by side", "[flight
 
     REQUIRE(east_x > west_x);                     // continues east, does not jump back
     REQUIRE(east_x - west_x < 1000.f);            // and not across the whole map
+}
+
+// ── Aircraft profile mapping ─────────────────────────────────────────────────
+// The regression these guard: a helicopter whose ICAO is missing from
+// flight_logger_profiles.json resolves to a fixed-wing profile. It then takes the
+// fixed-wing state path, which only starts recording above 30 kts ground speed — a
+// helicopter lifting off from a hover never gets there, so its flight is silently
+// never written. The AW139 (A139) and the Guimbal Cabri G2 (G2CA) hit exactly that.
+
+namespace
+{
+
+struct ProfileMapping
+{
+    std::vector<std::pair<std::string, std::string>> aircraft;   // match string -> profile name
+    std::map<std::string, std::string>               categories; // profile name -> category
+};
+
+ProfileMapping load_profile_mapping()
+{
+    std::ifstream file(std::string(XP_PILOT_SOURCE_DIR) + "/data/flight_logger_profiles.json");
+    REQUIRE(file.is_open());
+    nlohmann::json j;
+    file >> j;
+
+    ProfileMapping mapping;
+    for (auto &[name, value] : j["profiles"].items())
+        mapping.categories[name] = value.is_object() ? value.value("category", "fixed_wing") : "fixed_wing";
+    for (auto &entry : j["aircraft"])
+        mapping.aircraft.emplace_back(entry.value("match", ""), entry.value("profile", "medium_ga"));
+    return mapping;
+}
+
+// Mirrors get_profile_name() in flight_logger.cpp: first entry in file order whose
+// match string is contained in the ICAO wins, medium_ga otherwise.
+std::string category_of(const ProfileMapping &mapping, const std::string &icao)
+{
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (FlightLoggerLogic::icao_matches_profile(icao, match))
+            return mapping.categories.at(profile);
+    return mapping.categories.count("medium_ga") ? mapping.categories.at("medium_ga") : "fixed_wing";
+}
+
+} // namespace
+
+TEST_CASE("every helicopter in the profile list resolves to a rotorcraft profile", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    // An earlier fixed-wing entry containing the same substring would shadow a
+    // helicopter, and the shadowed type would silently stop being recorded.
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (mapping.categories.at(profile) == "rotorcraft")
+            CHECK(category_of(mapping, match) == "rotorcraft");
+}
+
+TEST_CASE("helicopters flown in the sim are covered by the profile list", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    for (const char *icao : {"R22", "R44", "R66", "G2CA", "EC30", "H130", "A109", "A139", "S76", "H145", "B407"})
+        CHECK(category_of(mapping, icao) == "rotorcraft");
+}
+
+TEST_CASE("fixed-wing types are not caught by a helicopter match string", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    for (const char *icao : {"C172", "PA28", "SR22", "TBM9", "B738", "A320", "A333", "B77W", "E170"})
+        CHECK(category_of(mapping, icao) == "fixed_wing");
+}
+
+// ── Rotorcraft landing rating ────────────────────────────────────────────────
+// The regression these guard: the rating used to come from descent rate alone. A
+// helicopter set down from the hover has a descent rate near zero, so every landing —
+// including one that slid sideways onto the skids — came out as "BUTTER!".
+
+namespace
+{
+
+// Thresholds of the turbine_helicopter profile in data/flight_logger_profiles.json.
+constexpr std::array<int, 4> TURBINE_HELI_FPM{-75, -150, -300, -500};
+
+// A textbook set-down: no descent to speak of, no drift, level, no yaw.
+FlightLoggerLogic::RotorcraftTouchdown clean_touchdown()
+{
+    FlightLoggerLogic::RotorcraftTouchdown touchdown;
+    touchdown.descent_fpm    = -1.f;
+    touchdown.drift_kts      = 0.f;
+    touchdown.bank_deg       = 0.5f;
+    touchdown.yaw_rate_deg_s = 0.5f;
+    touchdown.g_force        = 1.01f;
+    return touchdown;
+}
+
+int rate(const FlightLoggerLogic::RotorcraftTouchdown &touchdown)
+{
+    return FlightLoggerLogic::rotorcraft_rating_index(touchdown, TURBINE_HELI_FPM);
+}
+
+} // namespace
+
+TEST_CASE("a clean set-down is still rated BUTTER", "[flight_logger][rating]")
+{
+    REQUIRE(rate(clean_touchdown()) == 0);
+    REQUIRE(std::string(FlightLoggerLogic::rating_label(0)) == "BUTTER!");
+}
+
+TEST_CASE("drift and bank sink the rating despite a gentle descent", "[flight_logger][rating]")
+{
+    // The landing from the bug report: -1 fpm and 1.01 G, but visibly sliding and banked.
+    auto touchdown           = clean_touchdown();
+    touchdown.drift_kts      = 6.f;
+    touchdown.bank_deg       = 9.f;
+
+    CHECK(rate(touchdown) > 0);
+    CHECK(std::string(FlightLoggerLogic::rating_label(rate(touchdown))) == "HARD LANDING!");
+}
+
+TEST_CASE("each criterion on its own can drive the rating", "[flight_logger][rating]")
+{
+    auto drifting        = clean_touchdown();
+    drifting.drift_kts   = 12.f;
+    CHECK(rate(drifting) == 4);
+
+    auto banked      = clean_touchdown();
+    banked.bank_deg  = 11.f;
+    CHECK(rate(banked) == 4);
+
+    auto yawing            = clean_touchdown();
+    yawing.yaw_rate_deg_s  = 16.f;
+    CHECK(rate(yawing) == 4);
+
+    auto slammed      = clean_touchdown();
+    slammed.g_force   = 1.9f;
+    CHECK(rate(slammed) == 4);
+
+    auto dropped          = clean_touchdown();
+    dropped.descent_fpm   = -600.f;
+    CHECK(rate(dropped) == 4);
+}
+
+TEST_CASE("the worst criterion decides, a good one cannot rescue it", "[flight_logger][rating]")
+{
+    auto touchdown      = clean_touchdown();
+    touchdown.bank_deg  = 5.f; // ACCEPTABLE on its own
+
+    CHECK(rate(touchdown) == 2);
+
+    touchdown.yaw_rate_deg_s = 16.f; // WASTED on its own
+    CHECK(rate(touchdown) == 4);     // and it wins over the otherwise clean numbers
+}
+
+TEST_CASE("a deliberate run-on landing is not judged as drift", "[flight_logger][rating]")
+{
+    // Rolling on at 20 kts is a technique, not a mistake — grading it against the drift
+    // limits would fail every run-on landing.
+    auto touchdown       = clean_touchdown();
+    touchdown.drift_kts  = 20.f;
+    CHECK(rate(touchdown) == 0);
+
+    // Just below the run-on threshold it counts as drift again.
+    touchdown.drift_kts = FlightLoggerLogic::ROTORCRAFT_RUN_ON_KTS - 1.f;
+    CHECK(rate(touchdown) == 4);
+}
+
+TEST_CASE("negative bank and yaw are graded by magnitude", "[flight_logger][rating]")
+{
+    auto left_bank      = clean_touchdown();
+    left_bank.bank_deg  = -9.f;
+    auto right_bank     = clean_touchdown();
+    right_bank.bank_deg = 9.f;
+
+    CHECK(rate(left_bank) == rate(right_bank));
 }

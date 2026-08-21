@@ -18,7 +18,10 @@
 
 #include "logbook_ui.hpp"
 #include "auto_qnh.hpp"
+#include "airport_lookup.hpp"
 #include "flight_logger.hpp"
+#include "ui_landing_popup.hpp"
+#include "ui_overlay.hpp"
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
@@ -136,53 +139,46 @@ static void draw_live_screen(const FlightLogger::LiveFlight &live)
     FlightView::draw_landings(flight);
 }
 
+// One settings toggle: reads the module that owns it, writes the change back and
+// persists it. Every checkbox on this screen follows the same three steps.
+static void setting_checkbox(const char *label, bool (*get)(), void (*set)(bool))
+{
+    bool value = get();
+    if (ImGui::Checkbox(label, &value))
+    {
+        set(value);
+        Settings::save();
+    }
+}
+
 static void draw_settings_screen()
 {
     Ui::section_header(ICON_FA_FILE_LINES, "Flight Log Writer");
 
-    bool       value;
     const bool write_on = FlightLogger::write_enabled();
-
-    value = write_on;
-    if (ImGui::Checkbox("Write flight logs to disk (JSON)", &value))
-    {
-        FlightLogger::set_write_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Write flight logs to disk (JSON)", FlightLogger::write_enabled,
+                     FlightLogger::set_write_enabled);
 
     ImGui::BeginDisabled(!write_on);
     ImGui::Indent();
-    value = FlightLogger::html_report_enabled();
-    if (ImGui::Checkbox("Also generate HTML report", &value))
-    {
-        FlightLogger::set_html_report_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Also generate HTML report", FlightLogger::html_report_enabled,
+                     FlightLogger::set_html_report_enabled);
     ImGui::Unindent();
     ImGui::EndDisabled();
 
-    value = FlightLogger::messages_enabled();
-    if (ImGui::Checkbox("Show flight logger status messages on screen", &value))
-    {
-        FlightLogger::set_messages_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Show flight logger status messages on screen", Overlay::enabled, Overlay::set_enabled);
 
     Ui::section_header(ICON_FA_PLANE_DEP, "Landing Rating");
 
-    value = FlightLogger::landing_popup_enabled();
-    if (ImGui::Checkbox("Show landing rating popup after touchdown", &value))
-    {
-        FlightLogger::set_landing_popup_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Show landing rating popup after touchdown", LandingPopup::enabled,
+                     LandingPopup::set_enabled);
 
-    int position = static_cast<int>(FlightLogger::popup_position());
+    int position = static_cast<int>(LandingPopup::position());
     ImGui::SetNextItemWidth(Theme::scaled(180.f));
     if (ImGui::Combo("Popup position", &position, popup_position_labels().data(),
                      static_cast<int>(popup_position_labels().size())))
     {
-        FlightLogger::set_popup_position(static_cast<PopupPosition>(position));
+        LandingPopup::set_position(static_cast<PopupPosition>(position));
         Settings::save();
     }
 
@@ -191,31 +187,17 @@ static void draw_settings_screen()
     Ui::help_marker("Also available as the command \"xp_pilot/logbook/show_last_landing\",\n"
                     "which can be bound to a key in X-Plane's keyboard settings.");
 
-    value = FlightLogger::runway_analysis_enabled();
-    if (ImGui::Checkbox("Analyze touchdown point and centerline deviation", &value))
-    {
-        FlightLogger::set_runway_analysis_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Analyze touchdown point and centerline deviation", AirportLookup::analysis_enabled,
+                     AirportLookup::set_analysis_enabled);
     Ui::help_marker("Locates each touchdown on the runway it was made on.\n"
                     "Reads X-Plane's global airport database once per flight,\n"
                     "after the engines are shut down.");
 
     Ui::section_header(ICON_FA_STOPWATCH, "Auto QNH");
 
-    value = AutoQNH::enabled();
-    if (ImGui::Checkbox("Enable Auto QNH (sync pilot/copilot altimeter)", &value))
-    {
-        AutoQNH::set_enabled(value);
-        Settings::save();
-    }
-
-    value = AutoQNH::messages_enabled();
-    if (ImGui::Checkbox("Show QNH warning messages on screen", &value))
-    {
-        AutoQNH::set_messages_enabled(value);
-        Settings::save();
-    }
+    setting_checkbox("Enable Auto QNH (sync pilot/copilot altimeter)", AutoQNH::enabled, AutoQNH::set_enabled);
+    setting_checkbox("Show QNH warning messages on screen", AutoQNH::messages_enabled,
+                     AutoQNH::set_messages_enabled);
 
     int transition_altitude = AutoQNH::transition_altitude_ft();
     ImGui::SetNextItemWidth(Theme::scaled(140.f));
@@ -470,7 +452,7 @@ void LogbookUI::init()
 void LogbookUI::draw()
 {
     // Called every frame from main draw callback (xplm_Phase_Window)
-    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !FlightLogger::popup_active())
+    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !LandingPopup::active())
         return;
 
     if (FlightLogger::lb_needs_refresh())
@@ -479,7 +461,7 @@ void LogbookUI::draw()
         FlightListScreen::reload(s_logbook);
     }
 
-    if (!s_logbook_open && !FlightLogger::popup_active())
+    if (!s_logbook_open && !LandingPopup::active())
         return;
 
     int screen_left, screen_top, screen_right, screen_bottom;
@@ -536,7 +518,7 @@ void LogbookUI::draw()
     ImGui_ImplOpenGL2_NewFrame();
     ImGui::NewFrame();
 
-    FlightLogger::draw_popup();
+    LandingPopup::draw();
 
     if (s_logbook_open)
     {
@@ -605,7 +587,8 @@ void LogbookUI::stop()
     }
 }
 
-void LogbookUI::open()
+// Only toggle() opens the window; the plugin menu and command both go through it.
+static void open()
 {
     s_logbook_open = true;
 

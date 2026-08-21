@@ -18,18 +18,11 @@
 
 #pragma once
 
-// logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
-// Opens/closes via menu or keyboard command.
-
-namespace LogbookUI
+namespace SimClock
 {
-void init(); // call after FlightLogger::init()
-void stop();
-void toggle();
-void draw(); // call every frame from main draw callback
 
-// Restore the default UI scale and recentre the window at its default size. Reachable
-// from the plugin menu and a command, so an oversized window can always be recovered
-// without editing settings.json.
-void reset_layout();
-} // namespace LogbookUI
+// Seconds since X-Plane started. Monotonic and unaffected by wall-clock changes,
+// which is what the UI timeouts and the flare timer need.
+double seconds();
+
+} // namespace SimClock

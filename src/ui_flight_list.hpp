@@ -53,9 +53,6 @@ struct FlightList
 // Re-reads the directory and drops any selection.
 void reload(FlightList &list);
 
-// Reads the directory only if it has not been read yet.
-void ensure_loaded(FlightList &list);
-
 // Number of flights on disk, without parsing them — for the home screen tiles.
 size_t count_on_disk(const std::string &subdir);
 
