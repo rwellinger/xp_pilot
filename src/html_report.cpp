@@ -54,6 +54,29 @@ const char *wind_condition_to_string(WindCondition c)
     return "STEADY";
 }
 
+MeteoCondition meteo_condition_from_string(const std::string &s)
+{
+    if (s == "VMC")
+        return MeteoCondition::Vmc;
+    if (s == "IMC")
+        return MeteoCondition::Imc;
+    return MeteoCondition::Unknown;
+}
+
+const char *meteo_condition_to_string(MeteoCondition c)
+{
+    switch (c)
+    {
+    case MeteoCondition::Vmc:
+        return "VMC";
+    case MeteoCondition::Imc:
+        return "IMC";
+    case MeteoCondition::Unknown:
+        return "";
+    }
+    return "";
+}
+
 // ── Pause resolution ──────────────────────────────────────────────────────────
 
 namespace
@@ -320,6 +343,64 @@ WindDisplay format_wind_display(const LandingData &ld)
 }
 } // namespace
 
+namespace
+{
+std::string gear_label_for(const LandingData &ld)
+{
+    if (!ld.gear_retractable)
+        return "Fixed";
+    if (ld.gear_deploy_ratio >= 0.99f)
+        return "Down and locked";
+
+    char b[128];
+    snprintf(b, sizeof(b), "<span style=\"color:#ff8000\">NOT fully down &mdash; %.0f%%</span>",
+             ld.gear_deploy_ratio * 100.f);
+    return b;
+}
+
+// A selection made after the 50-ft gate still shows up as a mismatch between what was
+// actually deployed at touchdown and what the handle had asked for at the gate — flaps
+// still travelling through the flare count as a late change either way.
+constexpr float FLAP_CHANGE_TOLERANCE = 0.05f;
+
+std::string flap_label_for(const LandingData &ld)
+{
+    char b[128];
+    snprintf(b, sizeof(b), "%.0f%% deployed", ld.flap_ratio * 100.f);
+    std::string label = b;
+    if (std::abs(ld.flap_ratio - ld.gate_flap_ratio) > FLAP_CHANGE_TOLERANCE)
+        label += " &mdash; <span style=\"color:#e07a3c\">changed below 50 ft</span>";
+    return label;
+}
+
+std::string speedbrake_label_for(const LandingData &ld)
+{
+    if (ld.speedbrake_ratio < -0.2f)
+        return "Armed";
+    if (ld.speedbrake_ratio > 0.05f)
+        return "Deployed";
+    return "Retracted";
+}
+
+std::string weather_label_for(const LandingData &ld)
+{
+    char b[256];
+    snprintf(b, sizeof(b), "<b>%s</b> &mdash; %.1f km visibility", meteo_condition_to_string(ld.meteo),
+             ld.visibility_m / 1000.f);
+    std::string label = b;
+    if (ld.has_ceiling)
+    {
+        snprintf(b, sizeof(b), ", ceiling %.0f ft AGL", ld.ceiling_ft_agl);
+        label += b;
+    }
+    snprintf(b, sizeof(b), ", %.0f&deg;C", ld.oat_c);
+    label += b;
+    if (ld.precipitation_ratio > 0.05f)
+        label += ", in precipitation";
+    return label;
+}
+} // namespace
+
 static std::string landing_card(const LandingData &ld, const std::string &profile_name, const std::array<int, 4> &p)
 {
     auto        rc = rating_color(ld.rating);
@@ -384,6 +465,26 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
         out += b;
     }
 
+    // Gear, flaps and speedbrake are a fixed-wing concern; a helicopter has none of them
+    // in a form worth reporting.
+    if (ld.has_configuration && !ld.is_rotorcraft)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Gear</td><td><b>%s</b></td></tr>", gear_label_for(ld).c_str());
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Flaps</td><td><b>%s</b></td></tr>", flap_label_for(ld).c_str());
+        out += b;
+        snprintf(b, sizeof(b), "<tr><td>Speedbrake</td><td><b>%s</b></td></tr>", speedbrake_label_for(ld).c_str());
+        out += b;
+    }
+
+    if (ld.has_configuration)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Flown by</td><td><b%s>%s</b></td></tr>",
+                 ld.autopilot_engaged ? " style=\"color:#e07a3c\"" : "",
+                 ld.autopilot_engaged ? "Autopilot &mdash; autoland" : "Hand-flown");
+        out += b;
+    }
+
     if (!ld.runway_ident.empty())
     {
         snprintf(b, sizeof(b), "<tr><td>Runway</td><td><b>%s</b> &mdash; %.0f m usable</td></tr>",
@@ -420,6 +521,12 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
     out += b;
     snprintf(b, sizeof(b), "<tr><td>Crosswind</td><td><b>%s</b></td></tr>", w.xw.c_str());
     out += b;
+
+    if (ld.meteo != MeteoCondition::Unknown)
+    {
+        snprintf(b, sizeof(b), "<tr><td>Conditions</td><td>%s</td></tr>", weather_label_for(ld).c_str());
+        out += b;
+    }
 
     char thresh[128];
     snprintf(thresh, sizeof(thresh), "Butter &gt;%d / Great &gt;%d / Acceptable &gt;%d / Hard &gt;%d", p[0], p[1], p[2],
@@ -822,6 +929,22 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.runway_offset_m   = lj.value("runway_offset_m", 0.0f);
                 ld.runway_distance_m = lj.value("runway_distance_m", 0.0f);
                 ld.runway_length_m   = lj.value("runway_length_m", 0.0f);
+
+                ld.has_configuration = lj.value("has_configuration", false);
+                ld.gear_retractable  = lj.value("gear_retractable", false);
+                ld.gear_deploy_ratio = lj.value("gear_deploy_ratio", 0.0f);
+                ld.flap_ratio        = lj.value("flap_ratio", 0.0f);
+                ld.gate_flap_ratio   = lj.value("gate_flap_ratio", 0.0f);
+                ld.speedbrake_ratio  = lj.value("speedbrake_ratio", 0.0f);
+                ld.autopilot_engaged = lj.value("autopilot_engaged", false);
+
+                ld.meteo               = meteo_condition_from_string(lj.value("meteo", ""));
+                ld.visibility_m        = lj.value("visibility_m", 0.0f);
+                ld.ceiling_ft_agl      = lj.value("ceiling_ft_agl", 0.0f);
+                ld.has_ceiling         = lj.value("has_ceiling", false);
+                ld.oat_c               = lj.value("oat_c", 0.0f);
+                ld.precipitation_ratio = lj.value("precipitation_ratio", 0.0f);
+
                 fd.landings.push_back(ld);
             }
         }

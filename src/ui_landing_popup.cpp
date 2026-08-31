@@ -150,8 +150,28 @@ void draw_rotorcraft_metrics(float cell_w)
     Ui::end_metric_row(third_row);
 }
 
+// The context the numbers don't carry: what the weather was and who was flying.
+std::string fixed_wing_context_line()
+{
+    if (!s_landing.has_configuration)
+        return "";
+
+    std::string line = meteo_condition_to_string(s_landing.meteo);
+    char        part[64];
+    snprintf(part, sizeof(part), "Flaps %.0f%%", s_landing.flap_ratio * 100.f);
+    if (!line.empty())
+        line += "  \xc2\xb7  ";
+    line += part;
+    if (s_landing.gear_retractable && s_landing.gear_deploy_ratio < 0.99f)
+        line += "  \xc2\xb7  GEAR NOT DOWN";
+    if (s_landing.autopilot_engaged)
+        line += "  \xc2\xb7  AUTOLAND";
+    return line;
+}
+
 void draw_fixed_wing_metrics(float cell_w)
 {
+    using namespace FlightLoggerLogic;
     const ImVec4 white{0.92f, 0.94f, 0.98f, 1.f};
     char         value[64];
 
@@ -159,7 +179,7 @@ void draw_fixed_wing_metrics(float cell_w)
     snprintf(value, sizeof(value), "%.0f fpm", s_landing.fpm);
     Ui::metric_cell("VERTICAL SPEED", value, Theme::rating_color(s_landing.rating), cell_w);
     snprintf(value, sizeof(value), "%.2f G", s_landing.g_force);
-    Ui::metric_cell("G-FORCE", value, white, cell_w);
+    Ui::metric_cell("G-FORCE", value, grade_color(grade_against(s_landing.g_force, FIXED_WING_G_FORCE_LIMITS)), cell_w);
     snprintf(value, sizeof(value), "%.1f s", s_landing.float_time);
     Ui::metric_cell("FLOAT", value, white, cell_w);
     Ui::end_metric_row(first_row);
@@ -190,6 +210,14 @@ void draw_fixed_wing_metrics(float cell_w)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.80f, 0.88f, 1.f));
         ImGui::TextUnformatted(s_landing.flare.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    const std::string context = fixed_wing_context_line();
+    if (!context.empty())
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.58f, 0.63f, 0.72f, 1.f));
+        ImGui::TextUnformatted(context.c_str());
         ImGui::PopStyleColor();
     }
 }

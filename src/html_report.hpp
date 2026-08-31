@@ -35,6 +35,18 @@ enum class WindCondition : std::uint8_t
 WindCondition wind_condition_from_string(const std::string &s);
 const char   *wind_condition_to_string(WindCondition c);
 
+// ── Meteorological conditions at touchdown ───────────────────────────────────
+
+enum class MeteoCondition : std::uint8_t
+{
+    Unknown, // flights logged before weather was recorded
+    Vmc,
+    Imc
+};
+
+MeteoCondition meteo_condition_from_string(const std::string &s);
+const char    *meteo_condition_to_string(MeteoCondition c);
+
 // ── Data structures shared between flight_logger and logbook_ui ───────────────
 
 struct TrackPoint
@@ -75,6 +87,25 @@ struct LandingData
     int         crosswind_kts    = 0;
     int         bounce_count     = 0;
     bool        is_rotorcraft    = false;
+
+    // Aircraft configuration at touchdown. Flights logged before v6 leave these at their
+    // defaults, which `has_configuration` distinguishes from a genuine clean/gear-up read.
+    bool  has_configuration  = false;
+    bool  gear_retractable   = false;
+    float gear_deploy_ratio  = 0; // least-extended gear leg; 1 = down and locked
+    float flap_ratio         = 0; // actual flap system deployment, 0 = clean, 1 = full
+    float gate_flap_ratio    = 0; // flap handle at the 50-ft gate, for late-change detection
+    float speedbrake_ratio   = 0; // negative = ARMED, positive = deployed
+    bool  autopilot_engaged  = false; // autopilot master still on at touchdown: an autoland
+
+    // Weather at touchdown; `meteo` is Unknown for flights logged before v6.
+    MeteoCondition meteo               = MeteoCondition::Unknown;
+    float          visibility_m        = 0;
+    float          ceiling_ft_agl      = 0; // lowest broken/overcast layer above the airport
+    bool           has_ceiling         = false;
+    float          oat_c               = 0;
+    float          precipitation_ratio = 0; // 0..1, rain on the windshield
+
     std::string flare;
     std::string rating;
     std::string wind_status;
