@@ -128,6 +128,72 @@ inline int rotorcraft_rating_index(const RotorcraftTouchdown &touchdown, const s
     return worst;
 }
 
+// ── Fixed-wing landing rating ────────────────────────────────────────────────
+
+// One touchdown as a fixed-wing aircraft is judged. Descent rate is the primary
+// criterion, but a gentle-looking rate can still hide a jarring arrival: an aircraft
+// that drops the last foot flat records a modest fpm and a hefty vertical acceleration.
+struct FixedWingTouchdown
+{
+    float         descent_fpm   = 0; // negative
+    float         g_force       = 0; // smoothed vertical acceleration around contact
+    float         crosswind_kts = 0;
+    WindCondition wind          = WindCondition::Steady;
+};
+
+// Upper bounds for BUTTER, GREAT, ACCEPTABLE and HARD; beyond the last entry is WASTED.
+// Anchored on the flight-data-monitoring convention of 2.1 G for a hard landing and
+// 2.6 G for a severe one, with the two gentler steps interpolated below.
+inline constexpr float FIXED_WING_G_FORCE_LIMITS[4] = {1.4f, 1.7f, 2.1f, 2.6f};
+
+// A crosswind makes the same descent rate a better piece of flying, so the rate is
+// relaxed by up to 40% in a full 30-knot crosswind. Calm air earns no allowance at all.
+inline float crosswind_allowance(float crosswind_kts, WindCondition wind)
+{
+    float scale = 0.f;
+    switch (wind)
+    {
+    case WindCondition::Calm:
+        scale = 0.f;
+        break;
+    case WindCondition::Light:
+        scale = 0.5f;
+        break;
+    case WindCondition::Steady:
+        scale = 1.f;
+        break;
+    }
+    const float capped = std::min(std::abs(crosswind_kts), 30.f);
+    return 1.f + (capped / 30.f) * 0.4f * scale;
+}
+
+// The worst of descent rate and vertical acceleration decides, mirroring how the
+// rotorcraft rating treats its criteria.
+inline int fixed_wing_rating_index(const FixedWingTouchdown &touchdown, const std::array<int, 4> &fpm_thresholds)
+{
+    const float effective_fpm = touchdown.descent_fpm / crosswind_allowance(touchdown.crosswind_kts, touchdown.wind);
+    // Climbing on contact is not a landing anyone got right.
+    if (effective_fpm > 0.f)
+        return 4;
+    int worst = grade_descent(effective_fpm, fpm_thresholds);
+    return std::max(worst, grade_against(touchdown.g_force, FIXED_WING_G_FORCE_LIMITS));
+}
+
+// ── Meteorological conditions ────────────────────────────────────────────────
+
+// Below these the approach was flown in instrument conditions. The boundary follows the
+// usual VMC minima for controlled airspace rather than any single national rule — it is
+// logbook context, not a legal determination.
+inline constexpr float VMC_MIN_VISIBILITY_M   = 5000.f;
+inline constexpr float VMC_MIN_CEILING_FT_AGL = 1500.f;
+
+inline bool is_instrument_conditions(float visibility_m, float ceiling_ft_agl, bool has_ceiling)
+{
+    if (visibility_m < VMC_MIN_VISIBILITY_M)
+        return true;
+    return has_ceiling && ceiling_ft_agl < VMC_MIN_CEILING_FT_AGL;
+}
+
 // Geographic extent of a track, already padded for display. Degenerate tracks (empty,
 // or every sample at the same spot) still yield a non-zero span, so callers can divide
 // by it without guarding.

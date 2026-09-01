@@ -87,6 +87,20 @@ FlightData sample_flight()
     ld.runway_offset_m   = -1.5f;
     ld.runway_distance_m = 310.f;
     ld.runway_length_m   = 3900.f;
+
+    ld.has_configuration    = true;
+    ld.gear_retractable     = true;
+    ld.gear_deploy_ratio    = 1.f;
+    ld.flap_ratio           = 1.f;
+    ld.gate_flap_ratio      = 1.f;
+    ld.speedbrake_ratio     = -0.5f;
+    ld.autopilot_engaged    = false;
+    ld.meteo                = MeteoCondition::Imc;
+    ld.visibility_m         = 3200.f;
+    ld.ceiling_ft_agl       = 700.f;
+    ld.has_ceiling          = true;
+    ld.oat_c                = 8.f;
+    ld.precipitation_ratio  = 0.3f;
     fd.landings.push_back(ld);
 
     return fd;
@@ -105,15 +119,15 @@ json written_json(const TempOutputDir &dir, const std::string &filename)
 
 // The flight JSON is compatibility surface: over 3000 users have logs in it, and a
 // renamed or dropped key silently breaks their existing logbook.
-TEST_CASE("FlightStore::save writes the v5 field set", "[flight_store][format]")
+TEST_CASE("FlightStore::save writes the v6 field set", "[flight_store][format]")
 {
-    TempOutputDir dir("v5_fields");
+    TempOutputDir dir("v6_fields");
     const auto    filename = FlightStore::save(sample_flight(), dir.path());
     REQUIRE(filename == "2026-04-01_LSZB_LSGG_DA42.json");
 
     const json j = written_json(dir, filename);
 
-    CHECK(j["version"] == 5);
+    CHECK(j["version"] == 6);
     CHECK(j["date"] == "2026-04-01");
     CHECK(j["start_utc"] == "08:15");
     CHECK(j["end_utc"] == "09:42");
@@ -147,7 +161,10 @@ TEST_CASE("FlightStore::save writes the v5 field set", "[flight_store][format]")
                             "runway_distance_m", "runway_length_m", "time",         "wind_speed_kts",
                             "wind_dir_mag",  "wind_status",    "headwind_kts",      "crosswind_kts",
                             "crosswind_side", "bounce_count",  "is_rotorcraft",     "flare",
-                            "rating",        "bank_deg",       "yaw_rate_deg_s"})
+                            "rating",        "bank_deg",       "yaw_rate_deg_s",    "has_configuration",
+                            "gear_retractable", "gear_deploy_ratio", "flap_ratio",  "gate_flap_ratio",
+                            "speedbrake_ratio", "autopilot_engaged", "meteo",       "visibility_m",
+                            "ceiling_ft_agl", "has_ceiling",   "oat_c",             "precipitation_ratio"})
         CHECK(j["landings"][0].contains(key));
 }
 
@@ -203,6 +220,20 @@ TEST_CASE("FlightStore::save round-trips through parse_flight_json", "[flight_st
     CHECK(a.runway_distance_m == Catch::Approx(b.runway_distance_m));
     CHECK(a.bank_deg == Catch::Approx(b.bank_deg));
     CHECK(a.yaw_rate_deg_s == Catch::Approx(b.yaw_rate_deg_s));
+
+    CHECK(a.has_configuration == b.has_configuration);
+    CHECK(a.gear_retractable == b.gear_retractable);
+    CHECK(a.gear_deploy_ratio == Catch::Approx(b.gear_deploy_ratio));
+    CHECK(a.flap_ratio == Catch::Approx(b.flap_ratio));
+    CHECK(a.gate_flap_ratio == Catch::Approx(b.gate_flap_ratio));
+    CHECK(a.speedbrake_ratio == Catch::Approx(b.speedbrake_ratio));
+    CHECK(a.autopilot_engaged == b.autopilot_engaged);
+    CHECK(a.meteo == b.meteo);
+    CHECK(a.visibility_m == Catch::Approx(b.visibility_m));
+    CHECK(a.ceiling_ft_agl == Catch::Approx(b.ceiling_ft_agl));
+    CHECK(a.has_ceiling == b.has_ceiling);
+    CHECK(a.oat_c == Catch::Approx(b.oat_c));
+    CHECK(a.precipitation_ratio == Catch::Approx(b.precipitation_ratio));
 }
 
 // Empty codes have been stored as placeholders since v1; they also form the filename.

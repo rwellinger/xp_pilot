@@ -203,6 +203,22 @@ static XPLMDataRef dr_is_heli      = nullptr; // int, X-Plane's own airframe cat
 static XPLMDataRef dr_roll         = nullptr; // deg, bank angle
 static XPLMDataRef dr_yaw_rate     = nullptr; // deg/sec
 
+// Configuration at touchdown
+static XPLMDataRef dr_gear_deploy   = nullptr; // float[10], 0 = up, 1 = down
+static XPLMDataRef dr_gear_type     = nullptr; // int[10], 0 = leg not present
+static XPLMDataRef dr_gear_retract  = nullptr; // int, airframe has retractable gear
+static XPLMDataRef dr_flap_deploy   = nullptr; // ratio, actual flap system position
+static XPLMDataRef dr_flap_handle   = nullptr; // ratio, flap handle position
+static XPLMDataRef dr_speedbrake    = nullptr; // ratio, negative = ARMED
+static XPLMDataRef dr_autopilot     = nullptr; // enum: off=0, flight director=1, on=2
+
+// Weather at touchdown
+static XPLMDataRef dr_visibility_sm = nullptr; // statute miles
+static XPLMDataRef dr_cloud_base    = nullptr; // float[3], MSL meters
+static XPLMDataRef dr_cloud_cover   = nullptr; // float[3], 0..1
+static XPLMDataRef dr_oat           = nullptr; // deg C
+static XPLMDataRef dr_precip        = nullptr; // ratio, rain on the windshield
+
 static void find_datarefs()
 {
     dr_gs           = XPLMFindDataRef("sim/flightmodel/position/groundspeed");
@@ -232,6 +248,20 @@ static void find_datarefs()
     dr_is_heli      = XPLMFindDataRef("sim/aircraft2/metadata/is_helicopter");
     dr_roll         = XPLMFindDataRef("sim/flightmodel/position/phi");
     dr_yaw_rate     = XPLMFindDataRef("sim/flightmodel/position/R");
+
+    dr_gear_deploy  = XPLMFindDataRef("sim/flightmodel2/gear/deploy_ratio");
+    dr_gear_type    = XPLMFindDataRef("sim/aircraft/parts/acf_gear_type");
+    dr_gear_retract = XPLMFindDataRef("sim/aircraft/gear/acf_gear_retract");
+    dr_flap_deploy  = XPLMFindDataRef("sim/cockpit2/controls/flap_system_deploy_ratio");
+    dr_flap_handle  = XPLMFindDataRef("sim/cockpit2/controls/flap_handle_request_ratio");
+    dr_speedbrake   = XPLMFindDataRef("sim/cockpit2/controls/speedbrake_ratio");
+    dr_autopilot    = XPLMFindDataRef("sim/cockpit/autopilot/autopilot_mode");
+
+    dr_visibility_sm = XPLMFindDataRef("sim/weather/aircraft/visibility_reported_sm");
+    dr_cloud_base    = XPLMFindDataRef("sim/weather/aircraft/cloud_base_msl_m");
+    dr_cloud_cover   = XPLMFindDataRef("sim/weather/aircraft/cloud_coverage_percent");
+    dr_oat           = XPLMFindDataRef("sim/weather/aircraft/temperature_ambient_deg_c");
+    dr_precip        = XPLMFindDataRef("sim/weather/aircraft/precipitation_on_aircraft_ratio");
 }
 
 static float  dr_f(XPLMDataRef dr) { return dr ? XPLMGetDataf(dr) : 0.0f; }
@@ -260,6 +290,62 @@ static bool any_engine_running()
 }
 
 static bool nav_light_on() { return dr_nav_light ? XPLMGetDatai(dr_nav_light) != 0 : true; }
+
+// X-Plane sizes both gear arrays at ten legs regardless of the airframe, and the unused
+// slots read zero — so the least-extended *present* leg is what "gear down" means here.
+static float gear_deploy_ratio_min()
+{
+    if (!dr_gear_deploy || !dr_gear_type)
+        return 0.f;
+
+    constexpr int MAX_GEAR_LEGS = 10;
+    float         deploy[MAX_GEAR_LEGS] = {};
+    int           type[MAX_GEAR_LEGS]   = {};
+    XPLMGetDatavf(dr_gear_deploy, deploy, 0, MAX_GEAR_LEGS);
+    XPLMGetDatavi(dr_gear_type, type, 0, MAX_GEAR_LEGS);
+
+    float least = 1.f;
+    bool  found = false;
+    for (int leg = 0; leg < MAX_GEAR_LEGS; ++leg)
+    {
+        if (type[leg] == 0)
+            continue;
+        found = true;
+        least = std::min(least, deploy[leg]);
+    }
+    return found ? least : 0.f;
+}
+
+// The reported ceiling: the lowest broken-or-worse layer, in feet above the given field
+// elevation. Scattered and few layers don't make a ceiling and are ignored.
+static bool ceiling_above_field_ft(float field_elevation_m, float &ceiling_ft_out)
+{
+    if (!dr_cloud_base || !dr_cloud_cover)
+        return false;
+
+    constexpr int   MAX_CLOUD_LAYERS   = 3;
+    constexpr float BROKEN_COVERAGE    = 0.6f; // X-Plane reports coverage as 0..1
+    float           base_msl_m[MAX_CLOUD_LAYERS] = {};
+    float           coverage[MAX_CLOUD_LAYERS]   = {};
+    XPLMGetDatavf(dr_cloud_base, base_msl_m, 0, MAX_CLOUD_LAYERS);
+    XPLMGetDatavf(dr_cloud_cover, coverage, 0, MAX_CLOUD_LAYERS);
+
+    bool  found        = false;
+    float lowest_ft    = 0.f;
+    for (int layer = 0; layer < MAX_CLOUD_LAYERS; ++layer)
+    {
+        if (coverage[layer] < BROKEN_COVERAGE)
+            continue;
+        const float above_field_ft = (base_msl_m[layer] - field_elevation_m) * 3.28084f;
+        if (above_field_ft <= 0.f)
+            continue;
+        if (!found || above_field_ft < lowest_ft)
+            lowest_ft = above_field_ft;
+        found = true;
+    }
+    ceiling_ft_out = found ? lowest_ft : 0.f;
+    return found;
+}
 
 static bool shutdown_triggered(const std::string &plane_icao)
 {
@@ -374,6 +460,7 @@ static constexpr float GATE_AGL_M = 15.24f; // 50 ft
 static bool            s_gate_captured = false;
 static float           s_gate_ias_kts  = 0.f;
 static float           s_gate_fpm      = 0.f;
+static float           s_gate_flap_ratio = 0.f;
 static float           s_prev_agl_m    = 0.f; // Vorframe-Werte für die Gate-Interpolation
 static float           s_prev_ias_kts  = 0.f;
 static float           s_prev_vs_fpm   = 0.f;
@@ -390,29 +477,14 @@ static std::string eval_flare(float Q, float Qrad)
     return r + " flare";
 }
 
-static std::string eval_rating(float fpm, float crosswind_kts, const std::string &wind_status,
-                               const std::array<int, 4> &p)
+static std::string eval_rating(const LandingData &ld, const std::array<int, 4> &p)
 {
-    float xw_abs = std::min(std::abs(crosswind_kts), 30.f);
-    float scale  = 1.f;
-    switch (wind_condition_from_string(wind_status))
-    {
-    case WindCondition::Calm:
-        scale = 0.f;
-        break;
-    case WindCondition::Light:
-        scale = 0.5f;
-        break;
-    case WindCondition::Steady:
-        scale = 1.f;
-        break;
-    }
-    float xw_factor = 1.f + (xw_abs / 30.f) * 0.4f * scale;
-    float eff_fpm   = fpm / xw_factor;
-    // Climbing on contact is not a landing anyone got right.
-    if (eff_fpm > 0.f)
-        return FlightLoggerLogic::rating_label(4);
-    return FlightLoggerLogic::rating_label(FlightLoggerLogic::grade_descent(eff_fpm, p));
+    FlightLoggerLogic::FixedWingTouchdown touchdown;
+    touchdown.descent_fpm   = ld.fpm;
+    touchdown.g_force       = ld.g_force;
+    touchdown.crosswind_kts = static_cast<float>(ld.crosswind_kts);
+    touchdown.wind          = wind_condition_from_string(ld.wind_status);
+    return FlightLoggerLogic::rating_label(FlightLoggerLogic::fixed_wing_rating_index(touchdown, p));
 }
 
 static void calc_wind(float spd, float wind_dir, float hdg, float &hw_out, float &xw_out)
@@ -442,6 +514,7 @@ static void landing_arm()
     s_gate_captured     = false;
     s_gate_ias_kts      = 0.f;
     s_gate_fpm          = 0.f;
+    s_gate_flap_ratio   = 0.f;
     s_prev_agl_m        = 0.f;
     s_prev_ias_kts      = 0.f;
     s_prev_vs_fpm       = 0.f;
@@ -681,6 +754,36 @@ static float smoothed_vertical_speed_fpm(float agl_m)
     return ((agl_m - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
 }
 
+// How the aircraft was configured when it arrived. Recorded as context rather than as a
+// rating criterion — "Flaps 30, gear down, speedbrake armed" explains a landing that the
+// numbers alone don't.
+static void fill_configuration(LandingData &ld)
+{
+    ld.has_configuration = true;
+    ld.gear_retractable  = dr_i(dr_gear_retract) != 0;
+    ld.gear_deploy_ratio = gear_deploy_ratio_min();
+    ld.flap_ratio        = dr_f(dr_flap_deploy);
+    ld.gate_flap_ratio   = s_gate_flap_ratio;
+    ld.speedbrake_ratio  = dr_f(dr_speedbrake);
+    // Flight-director-only counts as hand-flown; the master must be engaged for an autoland.
+    ld.autopilot_engaged = dr_i(dr_autopilot) >= 2;
+}
+
+// Weather at the airport, not at the aircraft: the cloud base is reported MSL, so it only
+// becomes a ceiling once referenced to the elevation the aircraft just touched down at.
+static void fill_weather(LandingData &ld, const Frame &f)
+{
+    const float field_elevation_m = static_cast<float>(dr_d(dr_elevation)) - f.agl;
+
+    ld.visibility_m        = dr_f(dr_visibility_sm) * 1609.344f;
+    ld.has_ceiling         = ceiling_above_field_ft(field_elevation_m, ld.ceiling_ft_agl);
+    ld.oat_c               = dr_f(dr_oat);
+    ld.precipitation_ratio = dr_f(dr_precip);
+    ld.meteo = FlightLoggerLogic::is_instrument_conditions(ld.visibility_m, ld.ceiling_ft_agl, ld.has_ceiling)
+                   ? MeteoCondition::Imc
+                   : MeteoCondition::Vmc;
+}
+
 // Fill the airframe-agnostic landing metrics (vertical speed, G, wind). Fixed-wing
 // callers layer pitch/flare/float on top; rotorcraft callers don't.
 static void fill_landing_metrics(LandingData &ld, const Frame &f)
@@ -713,6 +816,9 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
     ld.headwind_kts   = static_cast<int>(std::lround(hw));
     ld.crosswind_kts  = static_cast<int>(std::lround(xw));
     ld.crosswind_side = (xw >= 0.f) ? "R" : "L";
+
+    fill_configuration(ld);
+    fill_weather(ld, f);
 }
 
 // Record landing metrics when main gear touches down. On bounces (multiple main-gear
@@ -775,10 +881,9 @@ static void finalize_landing_on_nose_gear(bool on_all)
     if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
         return;
 
-    auto pname   = get_rating_profile_name(s_aircraft_icao, s_is_rotorcraft);
-    auto pthresh = get_profile_thresholds(pname);
-    s_ld_captured.rating =
-        eval_rating(s_ld_captured.fpm, static_cast<float>(s_ld_captured.crosswind_kts), s_ld_captured.wind_status, pthresh);
+    auto pname           = get_rating_profile_name(s_aircraft_icao, s_is_rotorcraft);
+    auto pthresh         = get_profile_thresholds(pname);
+    s_ld_captured.rating = eval_rating(s_ld_captured, pthresh);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
     s_ld_captured.airport_icao = get_airport_id();
@@ -840,9 +945,12 @@ static void capture_fifty_foot_gate(const Frame &f, float ias_kts, float vs_fpm)
     const float descent = s_prev_agl_m - f.agl;
     const float ratio   = (descent > 0.f) ? (s_prev_agl_m - GATE_AGL_M) / descent : 0.f;
 
-    s_gate_ias_kts  = s_prev_ias_kts + (ias_kts - s_prev_ias_kts) * ratio;
-    s_gate_fpm      = s_prev_vs_fpm + (vs_fpm - s_prev_vs_fpm) * ratio;
-    s_gate_captured = true;
+    s_gate_ias_kts = s_prev_ias_kts + (ias_kts - s_prev_ias_kts) * ratio;
+    s_gate_fpm     = s_prev_vs_fpm + (vs_fpm - s_prev_vs_fpm) * ratio;
+    // The handle rather than the surfaces: a flap selection made at the gate is a late
+    // change even while the surfaces are still travelling.
+    s_gate_flap_ratio = dr_f(dr_flap_handle);
+    s_gate_captured   = true;
 }
 
 static void handle_airborne_state(const Frame &f)

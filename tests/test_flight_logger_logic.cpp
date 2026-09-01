@@ -435,3 +435,91 @@ TEST_CASE("negative bank and yaw are graded by magnitude", "[flight_logger][rati
 
     CHECK(rate(left_bank) == rate(right_bank));
 }
+
+// ── Fixed-wing rating ────────────────────────────────────────────────────────
+
+namespace
+{
+
+// Thresholds of the light_ga profile in data/flight_logger_profiles.json.
+constexpr std::array<int, 4> LIGHT_GA_FPM{-100, -200, -300, -500};
+
+// A greaser in calm air: gentle rate, barely any vertical acceleration.
+FlightLoggerLogic::FixedWingTouchdown greaser()
+{
+    FlightLoggerLogic::FixedWingTouchdown touchdown;
+    touchdown.descent_fpm   = -60.f;
+    touchdown.g_force       = 1.05f;
+    touchdown.crosswind_kts = 0.f;
+    touchdown.wind          = WindCondition::Calm;
+    return touchdown;
+}
+
+int rate_fixed_wing(const FlightLoggerLogic::FixedWingTouchdown &touchdown)
+{
+    return FlightLoggerLogic::fixed_wing_rating_index(touchdown, LIGHT_GA_FPM);
+}
+
+} // namespace
+
+TEST_CASE("a gentle touchdown in calm air is BUTTER", "[flight_logger][rating]")
+{
+    REQUIRE(rate_fixed_wing(greaser()) == 0);
+}
+
+TEST_CASE("vertical acceleration can sink a rating the descent rate would pass",
+          "[flight_logger][rating]")
+{
+    // Dropping the last foot flat: the rate still reads gently, the arrival does not.
+    auto touchdown     = greaser();
+    touchdown.g_force  = 2.2f;
+
+    CHECK(FlightLoggerLogic::grade_descent(touchdown.descent_fpm, LIGHT_GA_FPM) == 0);
+    CHECK(rate_fixed_wing(touchdown) == 3);
+}
+
+TEST_CASE("a good g-force cannot rescue a hard descent rate", "[flight_logger][rating]")
+{
+    auto touchdown          = greaser();
+    touchdown.descent_fpm   = -600.f;
+
+    CHECK(rate_fixed_wing(touchdown) == 4);
+}
+
+TEST_CASE("a crosswind buys allowance on the descent rate", "[flight_logger][rating]")
+{
+    auto calm            = greaser();
+    calm.descent_fpm     = -210.f; // ACCEPTABLE with no allowance
+
+    CHECK(rate_fixed_wing(calm) == 2);
+
+    auto gusty            = calm;
+    gusty.crosswind_kts   = 30.f;
+    gusty.wind            = WindCondition::Steady;
+
+    CHECK(rate_fixed_wing(gusty) == 1);
+}
+
+TEST_CASE("climbing on contact is never a good landing", "[flight_logger][rating]")
+{
+    auto touchdown        = greaser();
+    touchdown.descent_fpm = 20.f;
+
+    CHECK(rate_fixed_wing(touchdown) == 4);
+}
+
+// ── Meteorological conditions ────────────────────────────────────────────────
+
+TEST_CASE("instrument conditions follow visibility or ceiling", "[flight_logger][weather]")
+{
+    using FlightLoggerLogic::is_instrument_conditions;
+
+    CHECK_FALSE(is_instrument_conditions(10000.f, 4000.f, true));
+    CHECK_FALSE(is_instrument_conditions(10000.f, 0.f, false));
+
+    CHECK(is_instrument_conditions(3000.f, 4000.f, true));
+    CHECK(is_instrument_conditions(10000.f, 600.f, true));
+
+    // A low layer that isn't broken or overcast is no ceiling, so it doesn't make it IMC.
+    CHECK_FALSE(is_instrument_conditions(10000.f, 600.f, false));
+}
