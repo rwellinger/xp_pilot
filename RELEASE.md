@@ -2,6 +2,23 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.7.2
+
+  - **Every landing now records how the aircraft was configured** — the metrics said how hard you arrived, never how you had set the aircraft up to arrive. The landing card gained four rows, all sampled in the touchdown frame.
+    - **Gear** — down and locked, or how far it actually got. The reading takes the least-extended gear leg the airframe actually has, so a partial extension shows up rather than being averaged away. Fixed-gear aircraft are reported as *Fixed* instead of being judged.
+    - **Flaps** — the flap system's actual deployment. The flap handle is additionally sampled at the 50 ft gate, so a selection made in the flare is flagged as *changed below 50 ft*.
+    - **Speedbrake** — armed, deployed, or retracted.
+    - Gear, flaps and speedbrake are fixed-wing rows; a helicopter set-down omits them.
+  - **Autoland is now visible as such** — the autopilot master state is recorded at touchdown and the landing card says **Hand-flown** or **Autopilot — autoland**. A **BUTTER!** rating means rather less when the autopilot flew the landing, and until now there was no way to tell the two apart in the logbook. Flight-director-only counts as hand-flown.
+  - **The weather at touchdown is recorded** — reported visibility, the lowest broken or overcast ceiling above the airport, outside air temperature, and whether it was raining, summarised as **VMC** or **IMC** (below 5 km visibility or a ceiling under 1500 ft AGL). A −450 fpm arrival at 800 m visibility is a different piece of flying from the same figure in CAVOK, and the report now shows which one it was.
+    - The ceiling is referenced to the elevation of the airport that was landed at, not to the ground under the aircraft, so it reads as a ceiling rather than as a height above terrain. Scattered and few layers are not a ceiling and are ignored.
+  - **G-force is now a rating criterion for fixed-wing landings** — the rating followed the descent rate alone, which an aircraft dropped flat onto the runway can pass comfortably while recording a hefty vertical acceleration. Descent rate and G are now graded side by side and the **worse of the two decides**, exactly as helicopter landings have been judged since v1.7.1. The G steps are 1.4 / 1.7 / 2.1 / 2.6 for BUTTER / GREAT / ACCEPTABLE / HARD, anchored on the flight-data-monitoring convention of 2.1 G for a hard landing and 2.6 G for a severe one.
+    - Descent-rate thresholds, the per-aircraft profiles and the crosswind allowance are unchanged. A landing that was rated on its descent rate before is rated the same now unless its G reading was worse than its rate.
+    - Existing flight logs keep the rating they were stored with; regenerating an old report does not re-rate the landing.
+  - **The landing popup** colours the **G-FORCE** cell by the grade it earns on its own, like the other metrics, and adds a context line below the flare verdict: conditions, flap setting, a gear warning if applicable, and *AUTOLAND* where it applies.
+  - Flight logs written by this release use `version: 6`. The new fields are purely additive — older logs stay readable and simply omit the configuration and weather rows when their reports are regenerated, rather than showing zeros.
+  - The credit for the idea belongs to [StableApproach](https://github.com/Clamb94/StableApproach), whose published configuration files made clear which of these parameters are worth recording.
+
 ### What's New in v1.7.1
 
   - **General improvements** of performance and stability
@@ -115,9 +132,11 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Automatic flight tracking with state machine (Idle → Rolling → Airborne → Landed → Shutdown)
   - Flight data stored as JSON in `<X-Plane>/Output/x_pilot_reports/flights/`
   - HTML logbook reports with track map, landing details, wind, and block time
-  - Landing quality rating with aircraft-profile-specific thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
+  - Landing quality rating from descent rate and vertical acceleration together, with aircraft-profile-specific fpm thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
   - Touchdown speed (IAS and ground speed) and runway placement — runway identifier, distance past the threshold, runway remaining, centerline deviation
   - 50 ft gate — indicated airspeed and descent rate recorded as the approach crosses 50 ft AGL
+  - Configuration at touchdown — gear, flaps (with late-change detection against the 50 ft gate), speedbrake, and whether the autopilot flew the landing
+  - Conditions at touchdown — visibility, ceiling, temperature and precipitation, classified as VMC or IMC
   - Bounce detection — bounced landings are counted and the rating reflects the hardest touchdown
   - Touch-and-go support
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement

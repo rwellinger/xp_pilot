@@ -85,6 +85,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Captures landing data at touchdown: descent rate (fpm), G-force, pitch, float time, flare quality, wind (headwind/crosswind)
 - Records the **touchdown speed** — indicated airspeed and ground speed at the moment the gear touches
 - Places the touchdown **on the runway**: runway identifier, distance past the threshold, runway remaining, and centerline deviation
+- Records **how the aircraft was configured** and **what the weather was** — gear, flaps, speedbrake, autopilot, visibility, ceiling and temperature
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
 - Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; `index.html` lists all flights
@@ -143,6 +144,23 @@ When the main gear touches down, lifts off, and touches again before settling, e
 
 - A low-altitude rebound (AGL &lt; 5 ft) counts as a bounce.
 - A higher climb still triggers a separate Touch-and-Go entry as before.
+
+</details>
+
+<details>
+<summary><strong>Configuration and conditions at touchdown</strong></summary>
+
+The numbers alone don't explain a landing. A gentle touchdown flown by the autopilot in clear air is not the same piece of flying as the identical figures hand-flown at night in rain — so xp_pilot records the circumstances alongside the metrics.
+
+- **Gear** — down and locked, or how far it actually got. Fixed-gear aircraft are reported as such rather than being judged.
+- **Flaps** — the flap system's actual deployment at touchdown. The flap handle is also sampled at the 50 ft gate, so a selection made in the flare is flagged as *changed below 50 ft*.
+- **Speedbrake** — armed, deployed, or retracted.
+- **Flown by** — whether the autopilot master was still engaged when the gear touched. A **BUTTER!** rating means rather less if the autopilot flew the landing, and now you can see which it was. Flight-director-only counts as hand-flown.
+- **Conditions** — reported visibility, the lowest broken or overcast ceiling above the airport, outside air temperature, and whether it was raining. Summarised as **VMC** or **IMC** (below 5 km visibility or a ceiling under 1500 ft AGL).
+
+The ceiling is referenced to the elevation of the airport you landed at, not to the ground under the aircraft, so it reads as a ceiling rather than as a height above terrain.
+
+These rows appear in the HTML report's landing card; the landing popup adds a compact summary line. Landings recorded before this data existed simply omit the rows.
 
 </details>
 
@@ -251,6 +269,10 @@ Landing quality thresholds are configured per aircraft category in `data/flight_
 | `turboprop` | &lt; 150 fpm | &lt; 275 fpm | &lt; 400 fpm | &lt; 650 fpm |
 | `vlj` | &lt; 200 fpm | &lt; 350 fpm | &lt; 500 fpm | &lt; 750 fpm |
 | `heavy_jet` | &lt; 250 fpm | &lt; 400 fpm | &lt; 600 fpm | &lt; 850 fpm |
+
+Descent rate is not the only criterion. Vertical acceleration is graded alongside it — at 1.4 / 1.7 / 2.1 / 2.6 G for the same five steps — and the **worse of the two decides**, the way helicopter landings have always been judged in xp_pilot. An aircraft dropped flat onto the runway records a modest descent rate and a hefty G reading; that landing no longer passes on the rate alone. The G thresholds are the same for every profile, so they are not part of the table above.
+
+A crosswind still buys allowance on the descent rate: up to 40% in a full 30-knot crosswind, and nothing at all in calm air.
 
 The `shutdown_trigger` setting controls when a flight is finalised: `engine` (all engines off), `beacon` (beacon light off), or `nav_light` (nav lights off). Default is `engine`; can be overridden per aircraft entry.
 
