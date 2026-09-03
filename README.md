@@ -33,6 +33,7 @@ No FlyWithLua required. No account or subscription.
 - **Your data stays on your machine.** Flights, landings, and reports are plain JSON and HTML files in your X-Plane folder. No cloud, no server, no account — nothing to shut down, nothing to leak.
 - **No login, no subscription, no telemetry.** Install it and it works. You own your logbook.
 - **First-class native builds for macOS, Linux and Windows.** Universal binary on Apple Silicon and Intel Macs — a platform most X-Plane tools treat as an afterthought.
+- **It stays out of the way of your frame rate.** The plugin only asks X-Plane for a rendering path while the logbook window, the landing popup or a QNH warning is actually on screen, so flying with the window closed costs nothing.
 - **Flight recording runs offline.** No internet needed while flying, and the in-sim track map draws entirely from local data — airspaces come from X-Plane's own database, coastlines ship with the plugin. The only outbound traffic is the map tiles an HTML report fetches from [OpenFreeMap](https://openfreemap.org/) when you open it in a browser, and the SkyVector chart when you click a position link. No API key is involved, so nothing personal is ever embedded in a report you share.
 
 ## Installation
@@ -286,6 +287,8 @@ The `shutdown_trigger` setting controls when a flight is finalised: `engine` (al
 An aircraft whose ICAO code is missing from the list is no longer rated against a generic profile. It is classified from its airframe instead — maximum takeoff mass, engine count and engine type place it in one of the profiles above. A jet up to 20 t goes to `vlj` and anything heavier to `heavy_jet`, a turboprop to `turboprop`, and a piston single to `ultra_light`, `light_ga` or `medium_ga` at 600 kg and 1500 kg. A piston twin never lands in the two light profiles, whatever it weighs. Only when the sim reports no usable mass does the old `medium_ga` fallback still apply.
 
 Helicopters were already covered: X-Plane reports the airframe category itself, so an unlisted helicopter is rated against `turbine_helicopter` rather than a far too lax fixed-wing profile.
+
+Since version 1.8.0 this changes the rating of aircraft that were never on the list: most are now judged more appropriately for what they are, and some more strictly, because a lax profile had been applied where a tight one belongs. Anything you disagree with can be set by hand — see [Choosing the profile yourself](#choosing-the-profile-yourself).
 
 Every aircraft load writes the outcome to X-Plane's `Log.txt`, so a rating that looks wrong can be traced to the data behind it:
 
