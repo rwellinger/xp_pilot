@@ -1180,8 +1180,41 @@ static void record_pause_release(const Frame &f)
     prev_paused = f.paused;
 }
 
+// Set while an aircraft change is waiting to be reported. X-Plane blocks for as long as
+// a plugin sits in the load message, so the callback only raises this flag and the work
+// happens on the next flight loop, once the aircraft is up.
+static bool s_airframe_log_pending = false;
+
+// Report the airframe facts and the profile they resolve to. The profile is otherwise
+// only visible as one line in the HTML report, which leaves a surprising rating with no
+// way back to the data behind it — and the mass is logged raw so its unit stays checkable.
+static void log_airframe_now()
+{
+    const std::string icao          = dr_str(dr_acf_icao);
+    const bool        is_rotorcraft = dr_i(dr_is_heli) != 0;
+    const auto        metrics       = read_airframe_metrics();
+    const std::string profile       = resolve_landing_profile(icao, is_rotorcraft);
+    const auto        thresholds    = get_profile_thresholds(profile);
+
+    char msg[320];
+    snprintf(msg, sizeof(msg),
+             "[xp_pilot] Aircraft '%s': m_max=%.0f engines=%d %s%s -> profile %s [%d/%d/%d/%d]\n",
+             icao.empty() ? "(no ICAO)" : icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg),
+             metrics.engine_count, engine_kind_label(metrics.engine_kind), is_rotorcraft ? " rotorcraft" : "",
+             profile.c_str(), thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
+    XPLMDebugString(msg);
+}
+
 static float triggers_cb(float elapsed_real_sec, float, int, void *)
 {
+    // Ahead of the enabled check: the airframe line is a diagnostic and stays useful
+    // with both logger features switched off.
+    if (s_airframe_log_pending)
+    {
+        s_airframe_log_pending = false;
+        log_airframe_now();
+    }
+
     // Both logger features off → no state machine work this frame.
     // Reset any mid-flight state so re-enabling starts cleanly from Idle.
     const bool logger_active = s_write_enabled || LandingPopup::enabled();
@@ -1375,25 +1408,7 @@ void FlightLogger::regen_all_reports()
     Overlay::show(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
 }
 
-// Report the airframe facts and the profile they resolve to. The profile is otherwise
-// only visible as one line in the HTML report, which leaves a surprising rating with no
-// way back to the data behind it — and the mass is logged raw so its unit stays checkable.
-void FlightLogger::log_airframe()
-{
-    const std::string icao          = dr_str(dr_acf_icao);
-    const bool        is_rotorcraft = dr_i(dr_is_heli) != 0;
-    const auto        metrics       = read_airframe_metrics();
-    const std::string profile       = resolve_landing_profile(icao, is_rotorcraft);
-    const auto        thresholds    = get_profile_thresholds(profile);
-
-    char msg[320];
-    snprintf(msg, sizeof(msg),
-             "[xp_pilot] Aircraft '%s': m_max=%.0f engines=%d %s%s -> profile %s [%d/%d/%d/%d]\n",
-             icao.empty() ? "(no ICAO)" : icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg),
-             metrics.engine_count, engine_kind_label(metrics.engine_kind), is_rotorcraft ? " rotorcraft" : "",
-             profile.c_str(), thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
-    XPLMDebugString(msg);
-}
+void FlightLogger::note_aircraft_changed() { s_airframe_log_pending = true; }
 
 void FlightLogger::init()
 {

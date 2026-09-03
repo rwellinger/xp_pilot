@@ -76,9 +76,10 @@ namespace FlightLogger
 void init();
 void stop();
 
-// Log the loaded aircraft's airframe data and the landing profile it resolves to.
-// Called on every aircraft change; needs init() to have run.
-void log_airframe();
+// Note that the user's aircraft changed. The airframe data and the landing profile it
+// resolves to are logged from the next flight loop, not here: X-Plane blocks while a
+// plugin sits in the load message. Needs init() to have run.
+void note_aircraft_changed();
 
 // Re-show the most recent landing popup — bound to a command so it can be summoned
 // for screenshots. Falls back to the newest logged flight when this X-Plane session

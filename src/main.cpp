@@ -198,5 +198,5 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int message, void *param)
     // Index 0 is the user's own aircraft; the AI planes carry none of the datarefs the
     // landing profile is read from.
     if (message == XPLM_MSG_PLANE_LOADED && reinterpret_cast<intptr_t>(param) == 0)
-        FlightLogger::log_airframe();
+        FlightLogger::note_aircraft_changed();
 }
