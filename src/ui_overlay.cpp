@@ -17,6 +17,7 @@
  */
 
 #include "ui_overlay.hpp"
+#include "draw_gate.hpp"
 #include "sim_clock.hpp"
 #include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
@@ -43,17 +44,25 @@ void Overlay::show(const std::string &text, float seconds, float red, float gree
     s_red   = red;
     s_green = green;
     s_blue  = blue;
+    DrawGate::refresh();
+}
+
+bool Overlay::visible()
+{
+    if (s_text.empty())
+        return false;
+    if (SimClock::seconds() > s_until)
+    {
+        s_text.clear();
+        return false;
+    }
+    return true;
 }
 
 void Overlay::draw()
 {
-    if (s_text.empty())
+    if (!visible())
         return;
-    if (SimClock::seconds() > s_until)
-    {
-        s_text.clear();
-        return;
-    }
 
     int screen_w = 0, screen_h = 0;
     XPLMGetScreenSize(&screen_w, &screen_h);

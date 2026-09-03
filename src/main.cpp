@@ -18,12 +18,11 @@
 
 #include "map_overlay_cache.hpp"
 #include "auto_qnh.hpp"
+#include "draw_gate.hpp"
 #include "flight_logger.hpp"
 #include "logbook_ui.hpp"
-#include "ui_overlay.hpp"
 #include "ui_theme.hpp"
 #include "settings.hpp"
-#include <XPLM/XPLMDisplay.h>
 #include <XPLM/XPLMGraphics.h>
 #include <XPLM/XPLMMenus.h>
 #include <XPLM/XPLMPlugin.h>
@@ -33,16 +32,6 @@
 #include <cstdio>  // snprintf
 #include <cstring> // strncpy
 #include <filesystem>
-
-// ── Draw callback: overlay + popup (registered once) ─────────────────────────
-
-static int DrawCallback(XPLMDrawingPhase, int, void *)
-{
-    AutoQNH::draw();
-    Overlay::draw();
-    LogbookUI::draw();
-    return 1;
-}
 
 // ── Menu + Commands ──────────────────────────────────────────────────────────
 
@@ -139,7 +128,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
         XPLMDebugString("[xp_pilot] XPluginStart: Settings::load\n");
         Settings::load();
 
-        XPLMRegisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
+        DrawGate::init();
 
         s_cmd_logbook = XPLMCreateCommand("xp_pilot/logbook/toggle", "Toggle Flight Logbook");
         XPLMRegisterCommandHandler(s_cmd_logbook, CmdLogbook, 1, nullptr);
@@ -177,6 +166,7 @@ PLUGIN_API int XPluginStart(char *outName, char *outSig, char *outDesc)
 
 PLUGIN_API void XPluginStop()
 {
+    DrawGate::stop();
     LogbookUI::stop();
     MapOverlayCache::stop();
     FlightLogger::stop();
@@ -187,7 +177,6 @@ PLUGIN_API void XPluginStop()
         XPLMUnregisterCommandHandler(s_cmd_show_landing, CmdShowLanding, 1, nullptr);
     if (s_cmd_reset_layout)
         XPLMUnregisterCommandHandler(s_cmd_reset_layout, CmdResetLayout, 1, nullptr);
-    XPLMUnregisterDrawCallback(DrawCallback, xplm_Phase_Window, 1, nullptr);
     XPLMDebugString("[xp_pilot] Plugin unloaded.\n");
 }
 

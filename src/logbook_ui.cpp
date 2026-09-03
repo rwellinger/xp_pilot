@@ -17,6 +17,7 @@
  */
 
 #include "logbook_ui.hpp"
+#include "draw_gate.hpp"
 #include "auto_qnh.hpp"
 #include "airport_lookup.hpp"
 #include "flight_logger.hpp"
@@ -496,8 +497,10 @@ void LogbookUI::init()
 
 void LogbookUI::draw()
 {
-    // Called every frame from main draw callback (xplm_Phase_Window)
-    if (!s_logbook_open && !FlightLogger::lb_needs_refresh() && !LandingPopup::active())
+    // Called from the draw callback, which is only registered while the window or the
+    // landing popup is up. A refresh pending behind a closed window costs a directory
+    // scan and nothing is waiting for it, so it is left for the next open().
+    if (!s_logbook_open && !LandingPopup::active())
         return;
 
     if (FlightLogger::lb_needs_refresh())
@@ -505,9 +508,6 @@ void LogbookUI::draw()
         FlightLogger::lb_needs_refresh() = false;
         FlightListScreen::reload(s_logbook);
     }
-
-    if (!s_logbook_open && !LandingPopup::active())
-        return;
 
     int screen_left, screen_top, screen_right, screen_bottom;
     XPLMGetScreenBoundsGlobal(&screen_left, &screen_top, &screen_right, &screen_bottom);
@@ -669,7 +669,10 @@ static void open()
     FlightListScreen::reload(s_logbook);
     s_archive.loaded = false;
     s_archive_count  = FlightListScreen::count_on_disk("archived/");
+    DrawGate::refresh();
 }
+
+bool LogbookUI::is_open() { return s_logbook_open; }
 
 void LogbookUI::toggle()
 {
