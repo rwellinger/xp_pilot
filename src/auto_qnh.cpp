@@ -99,61 +99,60 @@ static int CmdSetFL(XPLMCommandRef, XPLMCommandPhase phase, void *)
     return 1;
 }
 
-// ── Flight loop: auto mode ────────────────────────────────────────────────────
+// ── Flight loop: auto mode and warning state ─────────────────────────────────
 
+// Runs every frame rather than on a timer: draw() must no longer compute anything,
+// because the drawing callback it runs from is only registered while there is in fact
+// a warning on screen — see draw_gate.hpp.
 static float FlightLoopCB(float, float, int, void *)
 {
-    if (s_enabled)
-    {
-        s_above_ta = next_above_ta(pilot_altitude_ft(), s_transition_altitude, s_above_ta);
+    if (!s_enabled)
+        return -1.f;
 
-        // Above transition altitude the pilot is responsible for setting STD 29.92.
-        // Auto-correcting back to local QNH up here would fight the pilot.
-        if (!s_above_ta)
-        {
-            const float qnh       = actual_qnh_inhg();
-            const float pqnh      = pilot_qnh();
-            const bool  on_fl     = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
-            const bool  big_drift = (std::fabs(pqnh - qnh) > THRESHOLD_ON);
+    s_above_ta = next_above_ta(pilot_altitude_ft(), s_transition_altitude, s_above_ta);
 
-            if (!on_fl && big_drift)
-                set_both_baros(qnh);
-        }
-    }
+    const float qnh       = actual_qnh_inhg();
+    const float pqnh      = pilot_qnh();
+    const bool  on_fl     = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
+    const float drift     = std::fabs(pqnh - qnh);
+    const bool  big_drift = (drift > THRESHOLD_ON);
 
-    return 2.0f;
+    s_warning_active = next_qnh_warning_state(s_above_ta, on_fl, drift, s_warning_active);
+
+    // Above transition altitude the pilot is responsible for setting STD 29.92.
+    // Auto-correcting back to local QNH up here would fight the pilot.
+    if (!s_above_ta && !on_fl && big_drift)
+        set_both_baros(qnh);
+
+    return -1.f;
 }
 
 // ── Draw: warning text ────────────────────────────────────────────────────────
 
-static void draw_copilot_disagree_warning(float pqnh)
+static bool copilot_disagrees()
 {
     if (!s_baro_copilot)
-        return;
-    float cpqnh = XPLMGetDataf(s_baro_copilot);
-    if (std::fabs(pqnh - cpqnh) <= FL_EPSILON)
+        return false;
+    return std::fabs(pilot_qnh() - XPLMGetDataf(s_baro_copilot)) > FL_EPSILON;
+}
+
+static void draw_copilot_disagree_warning()
+{
+    if (!copilot_disagrees())
         return;
     float c[4] = {1.0f, 0.3f, 0.3f, 1.0f};
     XPLMDrawString(c, 40, 40, const_cast<char *>("ALTIMETER DISAGREE - PF/PM mismatch"), nullptr,
                    xplmFont_Proportional);
 }
 
+bool AutoQNH::warning_visible()
+{
+    return s_enabled && s_messages_enabled && (s_warning_active || copilot_disagrees());
+}
+
 void AutoQNH::draw()
 {
-    if (!s_enabled)
-        return;
-
-    const float qnh   = actual_qnh_inhg();
-    const float pqnh  = pilot_qnh();
-    const bool  on_fl = (std::fabs(pqnh - FLIGHTLEVEL) < FL_EPSILON);
-    const float drift = std::fabs(pqnh - qnh);
-
-    s_above_ta       = next_above_ta(pilot_altitude_ft(), s_transition_altitude, s_above_ta);
-    s_warning_active = next_qnh_warning_state(s_above_ta, on_fl, drift, s_warning_active);
-
-    if (!s_warning_active && !s_baro_copilot)
-        return;
-    if (!s_messages_enabled)
+    if (!warning_visible())
         return;
 
     XPLMSetGraphicsState(0, 0, 0, 1, 1, 0, 0);
@@ -165,7 +164,7 @@ void AutoQNH::draw()
         XPLMDrawString(c, 40, 60, const_cast<char *>(msg), nullptr, xplmFont_Proportional);
     }
 
-    draw_copilot_disagree_warning(pqnh);
+    draw_copilot_disagree_warning();
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -182,7 +181,7 @@ void AutoQNH::init()
     XPLMRegisterCommandHandler(s_cmd_qnh, CmdSetQNH, 1, nullptr);
     XPLMRegisterCommandHandler(s_cmd_fl, CmdSetFL, 1, nullptr);
 
-    XPLMRegisterFlightLoopCallback(FlightLoopCB, 2.0f, nullptr);
+    XPLMRegisterFlightLoopCallback(FlightLoopCB, -1.f, nullptr);
 }
 
 void AutoQNH::stop()

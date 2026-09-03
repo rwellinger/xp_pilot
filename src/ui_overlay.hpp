@@ -30,6 +30,9 @@ void show(const std::string &text, float seconds, float red = 1.f, float green =
 // Call from a registered XPLM draw callback.
 void draw();
 
+// True while a message is still due on screen; expires a message whose time is up.
+bool visible();
+
 // Owns the "show status messages" toggle, persisted via the settings file. Gating happens
 // in show(), so a disabled overlay stays silent no matter which module posts to it.
 void set_enabled(bool on);

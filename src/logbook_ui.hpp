@@ -26,7 +26,8 @@ namespace LogbookUI
 void init(); // call after FlightLogger::init()
 void stop();
 void toggle();
-void draw(); // call every frame from main draw callback
+bool is_open();
+void draw(); // call from the draw callback while the window or a popup is up
 
 // Restore the default UI scale and recentre the window at its default size. Reachable
 // from the plugin menu and a command, so an oversized window can always be recovered

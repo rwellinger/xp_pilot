@@ -17,6 +17,7 @@
  */
 
 #include "ui_landing_popup.hpp"
+#include "draw_gate.hpp"
 #include "flight_logger_logic.hpp"
 #include "sim_clock.hpp"
 #include "ui_theme.hpp"
@@ -314,6 +315,7 @@ void LandingPopup::show(const LandingData &landing)
     s_landing = landing;
     s_active  = true;
     s_until   = SimClock::seconds() + 15.0;
+    DrawGate::refresh();
 }
 
 // When the user turned the popup off the landing is still remembered, so the replay

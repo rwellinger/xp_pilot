@@ -38,6 +38,10 @@ namespace AutoQNH
 void init();
 void stop();
 void draw();               // called from draw callback — renders warning text if needed
+
+// True while draw() would put something on screen. The drawing callback is registered
+// on the strength of this, so it must not disagree with what draw() actually does.
+bool warning_visible();
 bool enabled();            // current feature state
 void set_enabled(bool on); // set feature state (used by settings persistence)
 

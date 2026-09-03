@@ -38,6 +38,7 @@ set(IMGUI_SOURCES
 # ── Plugin target ──────────────────────────────────────────────────────────────
 add_library(xp_pilot MODULE
     src/main.cpp
+    src/draw_gate.cpp
     src/auto_qnh.cpp
     src/airport_lookup.cpp
     src/flight_logger.cpp
