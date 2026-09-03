@@ -856,6 +856,7 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.aircraft_icao     = j.value("aircraft_icao", "");
         fd.aircraft_tail     = j.value("aircraft_tail", "");
         fd.aircraft_category = j.value("aircraft_category", "fixed_wing");
+        fd.landing_profile   = j.value("landing_profile", "");
         fd.start_time        = j.value("start_time", static_cast<time_t>(0));
         fd.end_time        = j.value("end_time", static_cast<time_t>(0));
         fd.block_time_min  = j.value("block_time_min", 0);

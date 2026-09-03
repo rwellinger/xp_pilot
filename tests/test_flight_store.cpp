@@ -37,6 +37,7 @@ FlightData sample_flight()
     fd.aircraft_icao     = "DA42";
     fd.aircraft_tail     = "HB-XYZ";
     fd.aircraft_category = "fixed_wing";
+    fd.landing_profile   = "medium_ga";
     fd.start_time        = 1774944900;
     fd.end_time          = 1774950120;
     fd.block_time_min    = 87;
@@ -119,15 +120,15 @@ json written_json(const TempOutputDir &dir, const std::string &filename)
 
 // The flight JSON is compatibility surface: over 3000 users have logs in it, and a
 // renamed or dropped key silently breaks their existing logbook.
-TEST_CASE("FlightStore::save writes the v6 field set", "[flight_store][format]")
+TEST_CASE("FlightStore::save writes the v7 field set", "[flight_store][format]")
 {
-    TempOutputDir dir("v6_fields");
+    TempOutputDir dir("v7_fields");
     const auto    filename = FlightStore::save(sample_flight(), dir.path());
     REQUIRE(filename == "2026-04-01_LSZB_LSGG_DA42.json");
 
     const json j = written_json(dir, filename);
 
-    CHECK(j["version"] == 6);
+    CHECK(j["version"] == 7);
     CHECK(j["date"] == "2026-04-01");
     CHECK(j["start_utc"] == "08:15");
     CHECK(j["end_utc"] == "09:42");
@@ -136,6 +137,7 @@ TEST_CASE("FlightStore::save writes the v6 field set", "[flight_store][format]")
     CHECK(j["aircraft_icao"] == "DA42");
     CHECK(j["aircraft_tail"] == "HB-XYZ");
     CHECK(j["aircraft_category"] == "fixed_wing");
+    CHECK(j["landing_profile"] == "medium_ga");
     CHECK(j["start_time"] == 1774944900);
     CHECK(j["end_time"] == 1774950120);
     CHECK(j["block_time_min"] == 87);
@@ -188,6 +190,7 @@ TEST_CASE("FlightStore::save round-trips through parse_flight_json", "[flight_st
     CHECK(parsed.aircraft_icao == original.aircraft_icao);
     CHECK(parsed.aircraft_tail == original.aircraft_tail);
     CHECK(parsed.aircraft_category == original.aircraft_category);
+    CHECK(parsed.landing_profile == original.landing_profile);
     CHECK(parsed.start_time == original.start_time);
     CHECK(parsed.end_time == original.end_time);
     CHECK(parsed.block_time_min == original.block_time_min);

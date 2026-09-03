@@ -130,6 +130,9 @@ struct FlightData
     std::string              aircraft_icao;
     std::string              aircraft_tail;
     std::string              aircraft_category = "fixed_wing"; // "fixed_wing" | "rotorcraft"
+    // Profile the landings were rated against. Empty for flights written before v7,
+    // whose profile is looked up from the ICAO code instead.
+    std::string              landing_profile;
     time_t                   start_time      = 0;
     time_t                   end_time        = 0;
     int                      block_time_min  = 0; // net of sim pause

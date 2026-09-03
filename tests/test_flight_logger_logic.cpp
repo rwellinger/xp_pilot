@@ -523,3 +523,77 @@ TEST_CASE("instrument conditions follow visibility or ceiling", "[flight_logger]
     // A low layer that isn't broken or overcast is no ceiling, so it doesn't make it IMC.
     CHECK_FALSE(is_instrument_conditions(10000.f, 600.f, false));
 }
+
+// ── Airframe classification for unlisted aircraft ────────────────────────────
+
+namespace
+{
+using FlightLoggerLogic::AirframeMetrics;
+using FlightLoggerLogic::EngineKind;
+
+AirframeMetrics airframe(float mass_kg, int engines, EngineKind kind)
+{
+    AirframeMetrics metrics;
+    metrics.max_takeoff_mass_kg = mass_kg;
+    metrics.engine_count        = engines;
+    metrics.engine_kind         = kind;
+    return metrics;
+}
+} // namespace
+
+TEST_CASE("engine_kind_from_dataref maps X-Plane engine types")
+{
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(0) == EngineKind::Piston); // carburetted
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(1) == EngineKind::Piston); // injected
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(3) == EngineKind::Piston); // electric
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(2) == EngineKind::Turbine);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(8) == EngineKind::Turbine);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(4) == EngineKind::Jet);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(5) == EngineKind::Jet);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(6) == EngineKind::Piston); // rocket, no profile of its own
+}
+
+TEST_CASE("classify_fixed_wing_profile sorts piston singles by mass")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(450, 1, EngineKind::Piston)) == "ultra_light");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1111, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1633, 1, EngineKind::Piston)) == "medium_ga");
+}
+
+TEST_CASE("classify_fixed_wing_profile treats mass boundaries as inclusive")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(600, 1, EngineKind::Piston)) == "ultra_light");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(601, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1500, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1501, 1, EngineKind::Piston)) == "medium_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(20000, 2, EngineKind::Jet)) == "vlj");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(20001, 2, EngineKind::Jet)) == "heavy_jet");
+}
+
+TEST_CASE("classify_fixed_wing_profile keeps piston twins out of the light profiles")
+{
+    // A light twin still flies a twin approach, so mass alone must not demote it.
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1200, 2, EngineKind::Piston)) == "medium_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(500, 2, EngineKind::Piston)) == "medium_ga");
+}
+
+TEST_CASE("classify_fixed_wing_profile rates turbine props as turboprop regardless of mass")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(2200, 1, EngineKind::Turbine)) == "turboprop");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(22800, 2, EngineKind::Turbine)) == "turboprop");
+}
+
+TEST_CASE("classify_fixed_wing_profile separates business jets from airliners")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(3921, 1, EngineKind::Jet)) == "vlj");         // C510
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(16011, 2, EngineKind::Jet)) == "vlj");        // C750
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(38600, 2, EngineKind::Jet)) == "heavy_jet");  // E170
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(79000, 2, EngineKind::Jet)) == "heavy_jet");  // A20N
+}
+
+TEST_CASE("classify_fixed_wing_profile declines to guess without a usable mass")
+{
+    // An empty result leaves the caller's medium_ga fallback in charge.
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(0, 1, EngineKind::Piston)).empty());
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(-1, 2, EngineKind::Jet)).empty());
+}

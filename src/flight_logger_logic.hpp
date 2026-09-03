@@ -62,6 +62,80 @@ inline bool icao_matches_profile(const std::string &aircraft_icao, const std::st
     return !match_string.empty() && aircraft_icao.find(match_string) != std::string::npos;
 }
 
+// ── Airframe classification ──────────────────────────────────────────────────
+
+// An aircraft the ICAO list does not name used to be rated against medium_ga, which
+// calls a normal -400 fpm airliner touchdown a hard landing and lets an ultralight get
+// away with far too much. X-Plane knows the airframe itself, so the profile can be
+// estimated instead of defaulted.
+
+// What sim/aircraft/prop/acf_en_type reports for one engine. Only the distinctions
+// that change the landing profile are named; the rest is decided by mass.
+enum class EngineKind
+{
+    Piston,  // carburetted, injected and electric — same approach speeds
+    Turbine, // free or fixed turbine driving a propeller
+    Jet,     // low or high bypass
+};
+
+inline EngineKind engine_kind_from_dataref(int acf_en_type)
+{
+    switch (acf_en_type)
+    {
+    case 2: // free turbine
+    case 8: // fixed turbine
+        return EngineKind::Turbine;
+    case 4: // low bypass jet
+    case 5: // high bypass jet
+        return EngineKind::Jet;
+    default:
+        return EngineKind::Piston;
+    }
+}
+
+struct AirframeMetrics
+{
+    float      max_takeoff_mass_kg = 0;
+    int        engine_count        = 0;
+    EngineKind engine_kind         = EngineKind::Piston;
+};
+
+// 600 kg is the international light-sport limit; 1500 kg separates the C172/PA28 class
+// from the SR22/DA62 class.
+inline constexpr float ULTRA_LIGHT_MAX_MASS_KG = 600.f;
+inline constexpr float LIGHT_GA_MAX_MASS_KG    = 1500.f;
+
+// Business jets and airliners part company around 20 t: the Citation X and Challenger
+// stay below it and fly a bizjet approach, the E170 and A320 sit above it. The ICAO
+// list makes the same cut, keeping C750 and CL60 on vlj and E170 on heavy_jet.
+inline constexpr float VLJ_MAX_MASS_KG = 20000.f;
+
+// Pick the landing profile for an unlisted aircraft. Returns an empty string when the
+// sim reports no usable mass, which leaves the caller's own fallback in charge rather
+// than guessing from nothing.
+inline std::string classify_fixed_wing_profile(const AirframeMetrics &metrics)
+{
+    if (metrics.max_takeoff_mass_kg <= 0.f)
+        return "";
+
+    if (metrics.engine_kind == EngineKind::Jet)
+        return metrics.max_takeoff_mass_kg <= VLJ_MAX_MASS_KG ? "vlj" : "heavy_jet";
+
+    if (metrics.engine_kind == EngineKind::Turbine)
+        return "turboprop";
+
+    // A second piston engine puts an aircraft in the twin class whatever it weighs —
+    // the two light profiles describe single-engine handling.
+    if (metrics.engine_count > 1)
+        return "medium_ga";
+
+    if (metrics.max_takeoff_mass_kg <= ULTRA_LIGHT_MAX_MASS_KG)
+        return "ultra_light";
+    if (metrics.max_takeoff_mass_kg <= LIGHT_GA_MAX_MASS_KG)
+        return "light_ga";
+    return "medium_ga";
+}
+
 // ── Landing rating ───────────────────────────────────────────────────────────
 
 // Worst to best in the order the ratings are handed out; the index into this table is
