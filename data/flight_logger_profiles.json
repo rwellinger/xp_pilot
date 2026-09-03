@@ -30,6 +30,7 @@
     { "match": "PA18",  "profile": "light_ga" },
     { "match": "M7",    "profile": "light_ga" },
     { "match": "RV10",  "profile": "light_ga" },
+    { "match": "DR40",  "profile": "light_ga" },
 
     { "match": "SR22",  "profile": "medium_ga" },
     { "match": "DA50",  "profile": "medium_ga" },
@@ -57,11 +58,13 @@
     { "match": "CL60",  "profile": "vlj" },
 
     { "match": "GLF",   "profile": "heavy_jet" },
+    { "match": "A20N",  "profile": "heavy_jet" },
     { "match": "A333",  "profile": "heavy_jet" },
     { "match": "B738",  "profile": "heavy_jet" },
     { "match": "MD82",  "profile": "heavy_jet" },
     { "match": "E170",  "profile": "heavy_jet" },
     { "match": "E75",   "profile": "heavy_jet" },
+    { "match": "E175",  "profile": "heavy_jet" },
     { "match": "E190",  "profile": "heavy_jet" },
     { "match": "E195",  "profile": "heavy_jet" },
     { "match": "F14",   "profile": "heavy_jet" },
