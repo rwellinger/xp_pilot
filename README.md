@@ -89,7 +89,7 @@ Records a complete flight from engine start to shutdown and saves it as JSON plu
 - Places the touchdown **on the runway**: runway identifier, distance past the threshold, runway remaining, and centerline deviation
 - Records **how the aircraft was configured** and **what the weather was** — gear, flaps, speedbrake, autopilot, visibility, ceiling and temperature
 - Rates each landing: **BUTTER!** / **GREAT LANDING!** / **ACCEPTABLE** / **HARD LANDING!** / **WASTED!**
-- Thresholds are profile-based per aircraft category (see [Aircraft profiles](#aircraft-profiles))
+- Thresholds are profile-based per aircraft category, assignable per aircraft — or replaceable with your own four values — from the Settings screen (see [Aircraft profiles](#aircraft-profiles))
 - HTML reports include a mini route map and charts; `index.html` lists all flights
 - Shows the flight in progress live in the logbook window — no need to land first
 - Opens the live position or a recorded touchdown point on a [SkyVector](https://skyvector.com/) aeronautical chart in the browser
@@ -255,9 +255,12 @@ All feature toggles live on the **Settings** screen of the logbook window. Chang
 | Show landing rating popup | on | Gates the post-touchdown popup with landing quality (BUTTER! / GREAT / ACCEPTABLE / HARD / WASTED) and metrics. Independent of the log-writing toggle. |
 | Popup position | Top center | Where the landing popup appears: any of the four corners, top or bottom centre, or dead centre. |
 | Analyze touchdown point | on | Locates each touchdown on its runway (identifier, distance past threshold, centerline deviation). Reads X-Plane's airport database once per flight. |
+| Landing profile | Automatic | The profile the loaded aircraft is rated against, with the thresholds behind it and where they came from. Assign one of the bundled profiles, or enter four descent rates of your own, for that type alone. See [Choosing the profile yourself](#choosing-the-profile-yourself). |
 | UI scale | 100% | Scales fonts and spacing from 80% to 200% in 5% steps, via **−** / **+** buttons. Useful on high-DPI displays and TV-distance setups. The window never grows beyond your screen, so a large scale shows less at once rather than becoming unreachable. **Reset** returns to 100% and recentres. |
 
 Each toggle is independent, so combinations like "no disk logs but still show the landing rating" are supported for pilots who use external flight-reporting tools.
+
+On a window wide enough for it, the screen is laid out in two columns, with the landing profile controls beside the toggles rather than below them. A narrow window or a large UI scale falls back to a single column.
 
 ## Aircraft profiles
 
