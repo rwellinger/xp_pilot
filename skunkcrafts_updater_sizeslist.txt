@@ -1,0 +1,6 @@
+data/cities.dat|236037
+data/coastlines.dat|4113837
+data/flight_logger_profiles.json|5758
+lin_x64/xp_pilot.xpl|1882528
+mac_x64/xp_pilot.xpl|3106192
+win_x64/xp_pilot.xpl|1316352
