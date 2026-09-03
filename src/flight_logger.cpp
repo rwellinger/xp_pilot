@@ -162,11 +162,32 @@ static std::string get_profile_category(const std::string &name)
     return "fixed_wing";
 }
 
+static std::map<std::string, std::string> s_profile_overrides;
+
+void FlightLogger::set_profile_overrides(std::map<std::string, std::string> overrides)
+{
+    s_profile_overrides = std::move(overrides);
+}
+
+const std::map<std::string, std::string> &FlightLogger::profile_overrides() { return s_profile_overrides; }
+
+// The user's choice for this aircraft, but only when it names a profile that exists.
+// A typo must not leave the rating without thresholds — it degrades to the normal lookup.
+static std::string find_valid_override(const std::string &plane_icao)
+{
+    const std::string chosen = FlightLoggerLogic::find_profile_override(s_profile_overrides, plane_icao);
+    return s_profiles.count(chosen) ? chosen : "";
+}
+
 // A helicopter recognised only by the sim keeps the generic fixed-wing profile, whose
 // thresholds are far too lax for a set-down. Fall back to the turbine profile so the
 // rating stays meaningful until the type earns its own entry.
 static std::string get_rating_profile_name(const std::string &plane_icao, bool is_rotorcraft)
 {
+    const std::string chosen = find_valid_override(plane_icao);
+    if (!chosen.empty())
+        return chosen;
+
     std::string name = get_profile_name(plane_icao);
     if (!is_rotorcraft || get_profile_category(name) == "rotorcraft")
         return name;
@@ -320,6 +341,10 @@ static FlightLoggerLogic::AirframeMetrics read_airframe_metrics()
 // reports a usable mass — otherwise the historical medium_ga fallback stands.
 static std::string resolve_landing_profile(const std::string &plane_icao, bool is_rotorcraft)
 {
+    const std::string chosen = find_valid_override(plane_icao);
+    if (!chosen.empty())
+        return chosen;
+
     if (is_rotorcraft)
         return get_rating_profile_name(plane_icao, true);
 

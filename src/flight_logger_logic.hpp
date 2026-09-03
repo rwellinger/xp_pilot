@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <cmath>
 #include <cstdlib>
 #include <string>
@@ -60,6 +61,25 @@ inline bool is_plausible_speed_sample(int speed_kts, int previous_speed_kts, boo
 inline bool icao_matches_profile(const std::string &aircraft_icao, const std::string &match_string)
 {
     return !match_string.empty() && aircraft_icao.find(match_string) != std::string::npos;
+}
+
+// ── User profile overrides ───────────────────────────────────────────────────
+
+// The profile the user picked for this aircraft in settings.json, or an empty string
+// when they picked none.
+//
+// Matching is exact, unlike the bundled list's substring rule. An override is typed by
+// hand against the code the log prints on aircraft load, and an exact match cannot
+// silently shadow another type the way a too-short match string can — "ASK2" sat in the
+// list for a long time matching nothing, and a "B73" override would otherwise catch
+// every 737 variant at once.
+inline std::string find_profile_override(const std::map<std::string, std::string> &overrides,
+                                         const std::string                        &aircraft_icao)
+{
+    if (aircraft_icao.empty())
+        return "";
+    const auto entry = overrides.find(aircraft_icao);
+    return entry == overrides.end() ? "" : entry->second;
 }
 
 // ── Airframe classification ──────────────────────────────────────────────────

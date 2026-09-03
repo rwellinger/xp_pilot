@@ -634,3 +634,46 @@ TEST_CASE("classify_fixed_wing_profile declines to guess without a usable mass")
     CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(0, 1, EngineKind::Piston)).empty());
     CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(-1, 2, EngineKind::Jet)).empty());
 }
+
+// ── User profile overrides ───────────────────────────────────────────────────
+// The regression these guard: a user correcting a misjudged aircraft in settings.json
+// silently has no effect, or a short override code swallows unrelated types the way a
+// substring match string would.
+
+TEST_CASE("find_profile_override matches the ICAO code exactly")
+{
+    const std::map<std::string, std::string> overrides{{"B77W", "heavy_jet"}, {"C208", "turboprop"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W") == "heavy_jet");
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C208") == "turboprop");
+}
+
+TEST_CASE("find_profile_override does not match on a substring")
+{
+    // "B77" must not catch B77W, and B77W must not be caught by an unrelated longer code.
+    const std::map<std::string, std::string> overrides{{"B77", "heavy_jet"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77") == "heavy_jet");
+}
+
+TEST_CASE("find_profile_override is case sensitive and ignores unrelated aircraft")
+{
+    const std::map<std::string, std::string> overrides{{"SF50", "turboprop"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C172").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "sf50").empty());
+}
+
+TEST_CASE("find_profile_override handles an aircraft that reports no ICAO")
+{
+    // The Aerolite 103 reports an empty code; an override keyed on "" must not apply to it.
+    const std::map<std::string, std::string> overrides{{"", "heavy_jet"}, {"C172", "medium_ga"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "").empty());
+}
+
+TEST_CASE("find_profile_override on an empty table leaves the normal lookup in charge")
+{
+    CHECK(FlightLoggerLogic::find_profile_override({}, "C172").empty());
+}

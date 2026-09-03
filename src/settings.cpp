@@ -25,6 +25,7 @@
 #include "ui_theme.hpp"
 #include <XPLM/XPLMUtilities.h>
 #include <fstream>
+#include <map>
 #include <json.hpp>
 #include <string>
 
@@ -67,6 +68,23 @@ constexpr Binding<float> FLOATS[] = {
 // shape for one setting, so it is spelled out instead.
 constexpr const char *POPUP_POSITION_KEY = "popup_position";
 
+// Aircraft -> profile, an object rather than a scalar, so it needs its own branch in
+// both directions just as the popup position does.
+constexpr const char *AIRCRAFT_PROFILES_KEY = "aircraft_profiles";
+
+std::map<std::string, std::string> read_profile_overrides(const json &j)
+{
+    std::map<std::string, std::string> overrides;
+    if (!j.contains(AIRCRAFT_PROFILES_KEY) || !j[AIRCRAFT_PROFILES_KEY].is_object())
+        return overrides;
+    // Hand-edited file: skip anything that is not a name, rather than throwing the
+    // whole settings file away over one bad entry.
+    for (const auto &entry : j[AIRCRAFT_PROFILES_KEY].items())
+        if (entry.value().is_string())
+            overrides[entry.key()] = entry.value().get<std::string>();
+    return overrides;
+}
+
 std::string settings_path() { return FlightLogger::output_dir() + "settings.json"; }
 
 } // namespace
@@ -89,6 +107,8 @@ void Settings::load()
 
         LandingPopup::set_position(popup_position_from_string(
             j.value(POPUP_POSITION_KEY, popup_position_to_string(POPUP_POSITION_DEFAULT))));
+
+        FlightLogger::set_profile_overrides(read_profile_overrides(j));
     }
     catch (...)
     {
@@ -106,6 +126,11 @@ void Settings::save()
     for (const auto &binding : FLOATS)
         j[binding.key] = binding.get();
     j[POPUP_POSITION_KEY] = popup_position_to_string(LandingPopup::position());
+
+    json overrides = json::object();
+    for (const auto &[aircraft_icao, profile_name] : FlightLogger::profile_overrides())
+        overrides[aircraft_icao] = profile_name;
+    j[AIRCRAFT_PROFILES_KEY] = overrides;
 
     std::ofstream f(settings_path());
     if (f.is_open())
