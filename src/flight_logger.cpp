@@ -327,19 +327,24 @@ static std::string resolve_landing_profile(const std::string &plane_icao, bool i
     if (!listed.empty())
         return listed;
 
-    const FlightLoggerLogic::AirframeMetrics metrics    = read_airframe_metrics();
-    const std::string                        classified = FlightLoggerLogic::classify_fixed_wing_profile(metrics);
-    const std::string profile = (!classified.empty() && s_profiles.count(classified)) ? classified
-                                                                                     : get_profile_name(plane_icao);
+    const std::string classified = FlightLoggerLogic::classify_fixed_wing_profile(read_airframe_metrics());
+    if (!classified.empty() && s_profiles.count(classified))
+        return classified;
+    return get_profile_name(plane_icao);
+}
 
-    // The airframe inputs go to the log because the ICAO list did not cover this
-    // aircraft: without them a surprising rating cannot be traced back to its cause.
-    char msg[256];
-    snprintf(msg, sizeof(msg), "[xp_pilot] Unlisted aircraft '%s': m_max=%.0f engines=%d type=%d -> profile %s\n",
-             plane_icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg), metrics.engine_count,
-             static_cast<int>(metrics.engine_kind), profile.c_str());
-    XPLMDebugString(msg);
-    return profile;
+static const char *engine_kind_label(FlightLoggerLogic::EngineKind kind)
+{
+    switch (kind)
+    {
+    case FlightLoggerLogic::EngineKind::Turbine:
+        return "turbine";
+    case FlightLoggerLogic::EngineKind::Jet:
+        return "jet";
+    case FlightLoggerLogic::EngineKind::Piston:
+        break;
+    }
+    return "piston";
 }
 
 static bool any_engine_running()
@@ -1368,6 +1373,26 @@ void FlightLogger::regen_all_reports()
     snprintf(msg, sizeof(msg), "[xp_pilot] Regenerated %d reports\n", count);
     XPLMDebugString(msg);
     Overlay::show(std::string("Regenerated ") + std::to_string(count) + " reports", 5.f, 0.2f, 1.f, 0.4f);
+}
+
+// Report the airframe facts and the profile they resolve to. The profile is otherwise
+// only visible as one line in the HTML report, which leaves a surprising rating with no
+// way back to the data behind it — and the mass is logged raw so its unit stays checkable.
+void FlightLogger::log_airframe()
+{
+    const std::string icao          = dr_str(dr_acf_icao);
+    const bool        is_rotorcraft = dr_i(dr_is_heli) != 0;
+    const auto        metrics       = read_airframe_metrics();
+    const std::string profile       = resolve_landing_profile(icao, is_rotorcraft);
+    const auto        thresholds    = get_profile_thresholds(profile);
+
+    char msg[320];
+    snprintf(msg, sizeof(msg),
+             "[xp_pilot] Aircraft '%s': m_max=%.0f engines=%d %s%s -> profile %s [%d/%d/%d/%d]\n",
+             icao.empty() ? "(no ICAO)" : icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg),
+             metrics.engine_count, engine_kind_label(metrics.engine_kind), is_rotorcraft ? " rotorcraft" : "",
+             profile.c_str(), thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
+    XPLMDebugString(msg);
 }
 
 void FlightLogger::init()
