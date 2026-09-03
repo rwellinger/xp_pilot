@@ -205,6 +205,16 @@ void draw_threshold_editor(const FlightLogger::CurrentAircraft &aircraft)
                         "Drift, bank, yaw rate and G-force keep their fixed limits.");
     }
 
+    // Nothing is stored until Apply — picking "Custom thresholds" must not change how the
+    // next landing is rated on its own. Without this line that is invisible, and edited
+    // values look active when they are not.
+    const auto *stored = FlightLoggerLogic::find_profile_override(FlightLogger::profile_overrides(), aircraft.icao);
+    if (stored && stored->is_custom && stored->thresholds == s_editor_thresholds)
+        Ui::text_dim("These values are in use for this aircraft.");
+    else
+        ImGui::TextColored(Theme::warning, ICON_FA_WARNING "  Not applied yet - press Apply to rate %s against them.",
+                           aircraft.icao.c_str());
+
     ImGui::Unindent();
 }
 
