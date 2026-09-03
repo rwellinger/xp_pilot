@@ -152,7 +152,7 @@ static void setting_checkbox(const char *label, bool (*get)(), void (*set)(bool)
     }
 }
 
-static void draw_settings_screen()
+static void draw_flight_log_section()
 {
     Ui::section_header(ICON_FA_FILE_LINES, "Flight Log Writer");
 
@@ -168,7 +168,10 @@ static void draw_settings_screen()
     ImGui::EndDisabled();
 
     setting_checkbox("Show flight logger status messages on screen", Overlay::enabled, Overlay::set_enabled);
+}
 
+static void draw_landing_rating_section()
+{
     Ui::section_header(ICON_FA_PLANE_DEP, "Landing Rating");
 
     setting_checkbox("Show landing rating popup after touchdown", LandingPopup::enabled,
@@ -193,9 +196,10 @@ static void draw_settings_screen()
     Ui::help_marker("Locates each touchdown on the runway it was made on.\n"
                     "Reads X-Plane's global airport database once per flight,\n"
                     "after the engines are shut down.");
+}
 
-    LandingProfilesSection::draw();
-
+static void draw_auto_qnh_section()
+{
     Ui::section_header(ICON_FA_STOPWATCH, "Auto QNH");
 
     setting_checkbox("Enable Auto QNH (sync pilot/copilot altimeter)", AutoQNH::enabled, AutoQNH::set_enabled);
@@ -212,7 +216,10 @@ static void draw_settings_screen()
     Ui::help_marker("Above this altitude, Auto QNH stops syncing and warns to set STD 29.92.\n"
                     "USA: 18000 (fixed). Europe: varies per airport (3000-18000),\n"
                     "see the approach chart for the destination.");
+}
 
+static void draw_appearance_section()
+{
     Ui::section_header(ICON_FA_GEAR, "Appearance");
 
     // Stepped rather than dragged: the scale applies live, so a slider slides out from
@@ -258,6 +265,41 @@ static void draw_settings_screen()
                     "Reset returns to 100% and recentres the window. It is also in\n"
                     "the Plugins menu under \"XP Pilot Suite\", which stays reachable\n"
                     "even if this window has been scaled out of view.");
+}
+
+// Below this a column would be narrower than the longest checkbox label on it and the
+// text would run into its neighbour, so the sections stack instead. The default window
+// is 1060 wide and clears this comfortably; a small screen or a high UI scale does not.
+static constexpr float SETTINGS_TWO_COLUMN_MIN_WIDTH = 900.f;
+
+static void draw_settings_screen()
+{
+    const bool side_by_side = ImGui::GetContentRegionAvail().x >= Theme::scaled(SETTINGS_TWO_COLUMN_MIN_WIDTH);
+    if (!side_by_side)
+    {
+        draw_flight_log_section();
+        draw_landing_rating_section();
+        LandingProfilesSection::draw();
+        draw_auto_qnh_section();
+        draw_appearance_section();
+        return;
+    }
+
+    // The landing profiles section is by far the tallest, so it gets a column of its own
+    // and the four short sections share the other one.
+    if (!ImGui::BeginTable("settings_columns", 2, ImGuiTableFlags_SizingStretchSame))
+        return;
+
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    draw_flight_log_section();
+    draw_landing_rating_section();
+    draw_auto_qnh_section();
+    draw_appearance_section();
+
+    ImGui::TableNextColumn();
+    LandingProfilesSection::draw();
+    ImGui::EndTable();
 }
 
 // Screen chrome: back navigation and title, then the screen itself.
