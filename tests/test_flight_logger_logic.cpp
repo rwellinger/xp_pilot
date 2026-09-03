@@ -636,7 +636,7 @@ TEST_CASE("classify_fixed_wing_profile declines to guess without a usable mass")
 }
 
 // ── User profile overrides ───────────────────────────────────────────────────
-// The regression these guard: a user correcting a misjudged aircraft in settings.json
+// The regression these guard: a user correcting a misjudged aircraft in the settings file
 // silently has no effect, or a short override code swallows unrelated types the way a
 // substring match string would.
 

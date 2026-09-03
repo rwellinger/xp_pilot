@@ -65,7 +65,7 @@ inline bool icao_matches_profile(const std::string &aircraft_icao, const std::st
 
 // ── User profile overrides ───────────────────────────────────────────────────
 
-// The profile the user picked for this aircraft in settings.json, or an empty string
+// The profile the user picked for this aircraft in the settings file, or an empty string
 // when they picked none.
 //
 // Matching is exact, unlike the bundled list's substring rule. An override is typed by
