@@ -98,6 +98,10 @@ inline EngineKind engine_kind_from_dataref(int acf_en_type)
 
 struct AirframeMetrics
 {
+    // Kilograms. X-Plane's DataRefs.txt documents no unit for acf_m_max and flags the
+    // neighbouring acf_m_fuel_tot as pounds, and the acf file stores pounds throughout —
+    // but the dataref converts. Confirmed in X-Plane 12: the C172 whose acf says 2558
+    // reports 1160. Do not "fix" these thresholds to pounds.
     float      max_takeoff_mass_kg = 0;
     int        engine_count        = 0;
     EngineKind engine_kind         = EngineKind::Piston;
