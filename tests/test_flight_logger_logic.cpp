@@ -640,40 +640,112 @@ TEST_CASE("classify_fixed_wing_profile declines to guess without a usable mass")
 // silently has no effect, or a short override code swallows unrelated types the way a
 // substring match string would.
 
+using FlightLoggerLogic::ProfileOverride;
+
+namespace
+{
+ProfileOverride named(const std::string &profile_name) { return {profile_name, {}, false}; }
+ProfileOverride custom(const std::array<int, 4> &thresholds) { return {"", thresholds, true}; }
+} // namespace
+
 TEST_CASE("find_profile_override matches the ICAO code exactly")
 {
-    const std::map<std::string, std::string> overrides{{"B77W", "heavy_jet"}, {"C208", "turboprop"}};
+    const std::map<std::string, ProfileOverride> overrides{{"B77W", named("heavy_jet")},
+                                                           {"C208", named("turboprop")}};
 
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W") == "heavy_jet");
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C208") == "turboprop");
+    REQUIRE(FlightLoggerLogic::find_profile_override(overrides, "B77W") != nullptr);
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W")->profile_name == "heavy_jet");
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C208")->profile_name == "turboprop");
 }
 
 TEST_CASE("find_profile_override does not match on a substring")
 {
     // "B77" must not catch B77W, and B77W must not be caught by an unrelated longer code.
-    const std::map<std::string, std::string> overrides{{"B77", "heavy_jet"}};
+    const std::map<std::string, ProfileOverride> overrides{{"B77", named("heavy_jet")}};
 
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W").empty());
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77") == "heavy_jet");
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W") == nullptr);
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77")->profile_name == "heavy_jet");
 }
 
 TEST_CASE("find_profile_override is case sensitive and ignores unrelated aircraft")
 {
-    const std::map<std::string, std::string> overrides{{"SF50", "turboprop"}};
+    const std::map<std::string, ProfileOverride> overrides{{"SF50", named("turboprop")}};
 
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C172").empty());
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "sf50").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C172") == nullptr);
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "sf50") == nullptr);
 }
 
 TEST_CASE("find_profile_override handles an aircraft that reports no ICAO")
 {
     // The Aerolite 103 reports an empty code; an override keyed on "" must not apply to it.
-    const std::map<std::string, std::string> overrides{{"", "heavy_jet"}, {"C172", "medium_ga"}};
+    const std::map<std::string, ProfileOverride> overrides{{"", named("heavy_jet")}, {"C172", named("medium_ga")}};
 
-    CHECK(FlightLoggerLogic::find_profile_override(overrides, "").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "") == nullptr);
 }
 
 TEST_CASE("find_profile_override on an empty table leaves the normal lookup in charge")
 {
-    CHECK(FlightLoggerLogic::find_profile_override({}, "C172").empty());
+    CHECK(FlightLoggerLogic::find_profile_override({}, "C172") == nullptr);
+}
+
+TEST_CASE("find_profile_override returns custom thresholds as the user entered them")
+{
+    const std::map<std::string, ProfileOverride> overrides{{"C208", custom({-150, -275, -400, -650})}};
+
+    const auto *found = FlightLoggerLogic::find_profile_override(overrides, "C208");
+    REQUIRE(found != nullptr);
+    CHECK(found->is_custom);
+    CHECK(found->profile_name.empty());
+    CHECK(found->thresholds == std::array<int, 4>{-150, -275, -400, -650});
+}
+
+// ── Custom threshold validation ──────────────────────────────────────────────
+// Hand-entered values reach the rating directly, so they are checked at the edge. A set
+// that passes here decides what counts as a BUTTER landing for that aircraft.
+
+TEST_CASE("Thresholds descending from gentlest to harshest are accepted")
+{
+    CHECK(FlightLoggerLogic::are_valid_thresholds({-100, -200, -300, -500}));
+    CHECK(FlightLoggerLogic::are_valid_thresholds({-150, -275, -400, -650}));
+}
+
+TEST_CASE("Ascending or repeated thresholds are rejected")
+{
+    // Reversed entirely, one step out of order, and two steps that would grade the same.
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({-500, -300, -200, -100}));
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({-100, -300, -200, -500}));
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({-100, -200, -200, -500}));
+}
+
+TEST_CASE("Positive thresholds are rejected")
+{
+    // A descent rate is negative; a positive value would grade a climb as a landing.
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({100, 200, 300, 500}));
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({0, -200, -300, -500}));
+}
+
+TEST_CASE("Thresholds outside the plausible range are rejected")
+{
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({-5, -200, -300, -500}));
+    CHECK_FALSE(FlightLoggerLogic::are_valid_thresholds({-100, -200, -300, -4000}));
+    CHECK(FlightLoggerLogic::are_valid_thresholds({FlightLoggerLogic::MAX_THRESHOLD_FPM, -200, -300,
+                                                   FlightLoggerLogic::MIN_THRESHOLD_FPM}));
+}
+
+TEST_CASE("Custom thresholds decide the rating exactly as a bundled profile does")
+{
+    // The point of the feature: a pilot who finds light_ga too strict sets their own
+    // values and the same touchdown earns a different grade.
+    const std::array<int, 4> strict{-80, -150, -250, -400};
+    const std::array<int, 4> lenient{-200, -350, -500, -800};
+
+    FlightLoggerLogic::FixedWingTouchdown touchdown;
+    touchdown.descent_fpm = -180.f;
+    touchdown.g_force     = 1.2f;
+    touchdown.wind        = WindCondition::Calm;
+
+    CHECK(FlightLoggerLogic::rating_label(FlightLoggerLogic::fixed_wing_rating_index(touchdown, strict)) ==
+          std::string("ACCEPTABLE"));
+    CHECK(FlightLoggerLogic::rating_label(FlightLoggerLogic::fixed_wing_rating_index(touchdown, lenient)) ==
+          std::string("BUTTER!"));
 }

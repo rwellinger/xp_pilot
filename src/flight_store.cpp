@@ -132,7 +132,7 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
         path = flights_dir + base + "_" + std::to_string(flight.start_time) + ".json";
 
     json obj;
-    obj["version"]           = 7;
+    obj["version"]           = 8;
     obj["date"]              = flight.date;
     obj["start_utc"]         = flight.start_utc;
     obj["end_utc"]           = flight.end_utc;
@@ -142,6 +142,10 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
     obj["aircraft_tail"]     = flight.aircraft_tail;
     obj["aircraft_category"] = flight.aircraft_category;
     obj["landing_profile"]   = flight.landing_profile;
+    // The thresholds travel with the flight so a regenerated report cannot disagree with
+    // the logbook about the same landing, and so custom thresholds — which have no
+    // profile name to look up — survive at all.
+    obj["landing_thresholds"] = flight.landing_thresholds;
     obj["start_time"]        = (long long)flight.start_time;
     obj["end_time"]          = (long long)flight.end_time;
     obj["block_time_min"]    = flight.block_time_min;

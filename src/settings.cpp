@@ -21,6 +21,7 @@
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
 #include "settings_migration.hpp"
+#include "settings_profiles.hpp"
 #include "ui_landing_popup.hpp"
 #include "ui_overlay.hpp"
 #include "ui_theme.hpp"
@@ -69,22 +70,9 @@ constexpr Binding<float> FLOATS[] = {
 // shape for one setting, so it is spelled out instead.
 constexpr const char *POPUP_POSITION_KEY = "popup_position";
 
-// Aircraft -> profile, an object rather than a scalar, so it needs its own branch in
-// both directions just as the popup position does.
+// Per-aircraft landing profiles, whose value is a name or an object of thresholds.
+// Reading and writing that shape lives in SettingsProfiles.
 constexpr const char *AIRCRAFT_PROFILES_KEY = "aircraft_profiles";
-
-std::map<std::string, std::string> read_profile_overrides(const json &j)
-{
-    std::map<std::string, std::string> overrides;
-    if (!j.contains(AIRCRAFT_PROFILES_KEY) || !j[AIRCRAFT_PROFILES_KEY].is_object())
-        return overrides;
-    // Hand-edited file: skip anything that is not a name, rather than throwing the
-    // whole settings file away over one bad entry.
-    for (const auto &entry : j[AIRCRAFT_PROFILES_KEY].items())
-        if (entry.value().is_string())
-            overrides[entry.key()] = entry.value().get<std::string>();
-    return overrides;
-}
 
 constexpr const char *SETTINGS_FILENAME = "xp_pilot.prf";
 
@@ -138,7 +126,7 @@ void Settings::load()
         LandingPopup::set_position(popup_position_from_string(
             j.value(POPUP_POSITION_KEY, popup_position_to_string(POPUP_POSITION_DEFAULT))));
 
-        FlightLogger::set_profile_overrides(read_profile_overrides(j));
+        FlightLogger::set_profile_overrides(SettingsProfiles::read(j));
     }
     catch (...)
     {
@@ -157,10 +145,7 @@ void Settings::save()
         j[binding.key] = binding.get();
     j[POPUP_POSITION_KEY] = popup_position_to_string(LandingPopup::position());
 
-    json overrides = json::object();
-    for (const auto &[aircraft_icao, profile_name] : FlightLogger::profile_overrides())
-        overrides[aircraft_icao] = profile_name;
-    j[AIRCRAFT_PROFILES_KEY] = overrides;
+    j[AIRCRAFT_PROFILES_KEY] = SettingsProfiles::write(FlightLogger::profile_overrides());
 
     std::ofstream f(settings_path());
     if (f.is_open())

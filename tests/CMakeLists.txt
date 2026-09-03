@@ -20,6 +20,7 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
     ${CMAKE_SOURCE_DIR}/src/flight_store.cpp
     ${CMAKE_SOURCE_DIR}/src/settings_migration.cpp
+    ${CMAKE_SOURCE_DIR}/src/settings_profiles.cpp
     ${CMAKE_SOURCE_DIR}/src/map_overlay_cache.cpp
     ${CMAKE_SOURCE_DIR}/src/coastline_data.cpp
     ${CMAKE_SOURCE_DIR}/src/city_data.cpp
@@ -37,6 +38,7 @@ add_executable(xp_pilot_tests
     test_popup_position.cpp
     test_flight_store.cpp
     test_settings_migration.cpp
+    test_settings_profiles.cpp
     test_ui_render.cpp
 )
 

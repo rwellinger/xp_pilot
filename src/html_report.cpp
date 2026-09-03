@@ -531,8 +531,11 @@ static std::string landing_card(const LandingData &ld, const std::string &profil
     char thresh[128];
     snprintf(thresh, sizeof(thresh), "Butter &gt;%d / Great &gt;%d / Acceptable &gt;%d / Hard &gt;%d", p[0], p[1], p[2],
              p[3]);
+    // A custom profile carries no bundled name, so it is labelled for what it is rather
+    // than printed as a profile the reader could go and look up.
+    const std::string profile_label = profile_name == "custom" ? "custom (your own thresholds)" : profile_name;
     snprintf(b, sizeof(b), "<tr><td style=\"color:#666;font-size:.85em\" colspan=\"2\">Profile: %s &mdash; %s</td></tr>",
-             esc(profile_name).c_str(), thresh);
+             esc(profile_label).c_str(), thresh);
     out += b;
 
     out += "</table>";
@@ -857,6 +860,14 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.aircraft_tail     = j.value("aircraft_tail", "");
         fd.aircraft_category = j.value("aircraft_category", "fixed_wing");
         fd.landing_profile   = j.value("landing_profile", "");
+        if (j.contains("landing_thresholds") && j["landing_thresholds"].is_array() &&
+            j["landing_thresholds"].size() == 4)
+        {
+            const auto &stored = j["landing_thresholds"];
+            for (int index = 0; index < 4; ++index)
+                fd.landing_thresholds[index] = stored[index].get<int>();
+            fd.has_landing_thresholds = true;
+        }
         fd.start_time        = j.value("start_time", static_cast<time_t>(0));
         fd.end_time        = j.value("end_time", static_cast<time_t>(0));
         fd.block_time_min  = j.value("block_time_min", 0);

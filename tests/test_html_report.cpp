@@ -250,6 +250,47 @@ TEST_CASE("HtmlReport::generate: writes a report file and returns its basename",
     fs::remove_all(root);
 }
 
+TEST_CASE("HtmlReport::generate: a custom profile is labelled as the user's own", "[report]")
+{
+    // Custom thresholds have no bundled profile behind them, so the report must not
+    // print a name a reader could go and look up.
+    fs::path    root  = make_tmp_data_dir();
+    std::string ddir  = root.string() + "/";
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), jname);
+
+    std::array<int, 4> thresholds{-150, -275, -400, -650};
+    std::string        html = slurp(root / "reports" / HtmlReport::generate(fd, ddir, jname, "custom", thresholds));
+
+    REQUIRE(html.find("custom (your own thresholds)") != std::string::npos);
+    REQUIRE(html.find("Butter &gt;-150") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("parse_flight_json: reads the thresholds a v8 flight was rated against", "[parse]")
+{
+    // The rating a report reproduces has to come from the flight, not from whatever the
+    // user has assigned by the time they regenerate it.
+    const std::string flight = R"({"version":8,"landing_profile":"custom",
+                                   "landing_thresholds":[-150,-275,-400,-650]})";
+
+    const FlightData parsed = parse_flight_json(flight, "flight.json");
+
+    REQUIRE(parsed.has_landing_thresholds);
+    CHECK(parsed.landing_profile == "custom");
+    CHECK(parsed.landing_thresholds == std::array<int, 4>{-150, -275, -400, -650});
+}
+
+TEST_CASE("parse_flight_json: a flight written before v8 carries no thresholds", "[parse]")
+{
+    const FlightData parsed = parse_flight_json(R"({"version":7,"landing_profile":"light_ga"})", "flight.json");
+
+    CHECK_FALSE(parsed.has_landing_thresholds);
+    CHECK(parsed.landing_profile == "light_ga");
+}
+
 TEST_CASE("HtmlReport::generate: the map uses MapLibre and OpenFreeMap", "[report][map]")
 {
     fs::path    root  = make_tmp_data_dir();
