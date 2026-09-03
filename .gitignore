@@ -40,3 +40,6 @@ CMakeFiles/
 
 # Claude Code
 .claude/
+
+# Update required on dev only
+/scripts/update_git.sh
