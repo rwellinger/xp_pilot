@@ -332,6 +332,39 @@ TEST_CASE("fixed-wing types are not caught by a helicopter match string", "[flig
         CHECK(category_of(mapping, icao) == "fixed_wing");
 }
 
+namespace
+{
+
+// Mirrors get_profile_name(): the profile itself, not just its category.
+std::string profile_of(const ProfileMapping &mapping, const std::string &icao)
+{
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (FlightLoggerLogic::icao_matches_profile(icao, match))
+            return profile;
+    return "medium_ga";
+}
+
+} // namespace
+
+// The regression this guards: a match string that no aircraft in the sim actually
+// reports. "ASK2" and "EVOL" were written from the model name rather than the ICAO the
+// airframe sends, so both entries sat in the list without ever matching and their
+// aircraft silently fell through to medium_ga.
+TEST_CASE("default-fleet ICAO codes reach their intended profile", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    CHECK(profile_of(mapping, "AS21") == "ultra_light"); // Laminar Schleicher ASK 21
+    CHECK(profile_of(mapping, "EVOT") == "turboprop");   // Laminar Lancair Evolution, PT6
+    CHECK(profile_of(mapping, "PA18") == "light_ga");
+    CHECK(profile_of(mapping, "BE9L") == "turboprop");
+    CHECK(profile_of(mapping, "SF50") == "vlj");
+
+    // The longer add-on codes the original entries were aimed at keep working.
+    CHECK(profile_of(mapping, "ASK21") == "ultra_light");
+    CHECK(profile_of(mapping, "EVOL") == "medium_ga");
+}
+
 // ── Rotorcraft landing rating ────────────────────────────────────────────────
 // The regression these guard: the rating used to come from descent rate alone. A
 // helicopter set down from the hover has a descent rate near zero, so every landing —
@@ -522,4 +555,125 @@ TEST_CASE("instrument conditions follow visibility or ceiling", "[flight_logger]
 
     // A low layer that isn't broken or overcast is no ceiling, so it doesn't make it IMC.
     CHECK_FALSE(is_instrument_conditions(10000.f, 600.f, false));
+}
+
+// ── Airframe classification for unlisted aircraft ────────────────────────────
+
+namespace
+{
+using FlightLoggerLogic::AirframeMetrics;
+using FlightLoggerLogic::EngineKind;
+
+AirframeMetrics airframe(float mass_kg, int engines, EngineKind kind)
+{
+    AirframeMetrics metrics;
+    metrics.max_takeoff_mass_kg = mass_kg;
+    metrics.engine_count        = engines;
+    metrics.engine_kind         = kind;
+    return metrics;
+}
+} // namespace
+
+// Values taken from X-Plane's DataRefs.txt entry for acf_en_type.
+TEST_CASE("engine_kind_from_dataref maps X-Plane engine types")
+{
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(0) == EngineKind::Piston);  // recip carburetted
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(1) == EngineKind::Piston);  // recip injected
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(3) == EngineKind::Piston);  // electric
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(9) == EngineKind::Turbine); // free turboprop
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(10) == EngineKind::Turbine); // fixed turboprop
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(5) == EngineKind::Jet);     // single spool
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(7) == EngineKind::Jet);     // multi spool
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(6) == EngineKind::Piston);  // rocket, no profile of its own
+    // Unused slots must not be read as a category by accident.
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(2) == EngineKind::Piston);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(8) == EngineKind::Piston);
+}
+
+TEST_CASE("classify_fixed_wing_profile sorts piston singles by mass")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(450, 1, EngineKind::Piston)) == "ultra_light");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1111, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1633, 1, EngineKind::Piston)) == "medium_ga");
+}
+
+TEST_CASE("classify_fixed_wing_profile treats mass boundaries as inclusive")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(600, 1, EngineKind::Piston)) == "ultra_light");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(601, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1500, 1, EngineKind::Piston)) == "light_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1501, 1, EngineKind::Piston)) == "medium_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(20000, 2, EngineKind::Jet)) == "vlj");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(20001, 2, EngineKind::Jet)) == "heavy_jet");
+}
+
+TEST_CASE("classify_fixed_wing_profile keeps piston twins out of the light profiles")
+{
+    // A light twin still flies a twin approach, so mass alone must not demote it.
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(1200, 2, EngineKind::Piston)) == "medium_ga");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(500, 2, EngineKind::Piston)) == "medium_ga");
+}
+
+TEST_CASE("classify_fixed_wing_profile rates turbine props as turboprop regardless of mass")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(2200, 1, EngineKind::Turbine)) == "turboprop");
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(22800, 2, EngineKind::Turbine)) == "turboprop");
+}
+
+TEST_CASE("classify_fixed_wing_profile separates business jets from airliners")
+{
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(3921, 1, EngineKind::Jet)) == "vlj");         // C510
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(16011, 2, EngineKind::Jet)) == "vlj");        // C750
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(38600, 2, EngineKind::Jet)) == "heavy_jet");  // E170
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(79000, 2, EngineKind::Jet)) == "heavy_jet");  // A20N
+}
+
+TEST_CASE("classify_fixed_wing_profile declines to guess without a usable mass")
+{
+    // An empty result leaves the caller's medium_ga fallback in charge.
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(0, 1, EngineKind::Piston)).empty());
+    CHECK(FlightLoggerLogic::classify_fixed_wing_profile(airframe(-1, 2, EngineKind::Jet)).empty());
+}
+
+// ── User profile overrides ───────────────────────────────────────────────────
+// The regression these guard: a user correcting a misjudged aircraft in settings.json
+// silently has no effect, or a short override code swallows unrelated types the way a
+// substring match string would.
+
+TEST_CASE("find_profile_override matches the ICAO code exactly")
+{
+    const std::map<std::string, std::string> overrides{{"B77W", "heavy_jet"}, {"C208", "turboprop"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W") == "heavy_jet");
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C208") == "turboprop");
+}
+
+TEST_CASE("find_profile_override does not match on a substring")
+{
+    // "B77" must not catch B77W, and B77W must not be caught by an unrelated longer code.
+    const std::map<std::string, std::string> overrides{{"B77", "heavy_jet"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77W").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "B77") == "heavy_jet");
+}
+
+TEST_CASE("find_profile_override is case sensitive and ignores unrelated aircraft")
+{
+    const std::map<std::string, std::string> overrides{{"SF50", "turboprop"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "C172").empty());
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "sf50").empty());
+}
+
+TEST_CASE("find_profile_override handles an aircraft that reports no ICAO")
+{
+    // The Aerolite 103 reports an empty code; an override keyed on "" must not apply to it.
+    const std::map<std::string, std::string> overrides{{"", "heavy_jet"}, {"C172", "medium_ga"}};
+
+    CHECK(FlightLoggerLogic::find_profile_override(overrides, "").empty());
+}
+
+TEST_CASE("find_profile_override on an empty table leaves the normal lookup in charge")
+{
+    CHECK(FlightLoggerLogic::find_profile_override({}, "C172").empty());
 }

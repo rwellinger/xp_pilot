@@ -132,7 +132,7 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
         path = flights_dir + base + "_" + std::to_string(flight.start_time) + ".json";
 
     json obj;
-    obj["version"]           = 6;
+    obj["version"]           = 7;
     obj["date"]              = flight.date;
     obj["start_utc"]         = flight.start_utc;
     obj["end_utc"]           = flight.end_utc;
@@ -141,6 +141,7 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
     obj["aircraft_icao"]     = aircraft;
     obj["aircraft_tail"]     = flight.aircraft_tail;
     obj["aircraft_category"] = flight.aircraft_category;
+    obj["landing_profile"]   = flight.landing_profile;
     obj["start_time"]        = (long long)flight.start_time;
     obj["end_time"]          = (long long)flight.end_time;
     obj["block_time_min"]    = flight.block_time_min;

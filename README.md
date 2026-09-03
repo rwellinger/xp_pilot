@@ -276,6 +276,33 @@ A crosswind still buys allowance on the descent rate: up to 40% in a full 30-kno
 
 The `shutdown_trigger` setting controls when a flight is finalised: `engine` (all engines off), `beacon` (beacon light off), or `nav_light` (nav lights off). Default is `engine`; can be overridden per aircraft entry.
 
+### Aircraft the list does not name
+
+An aircraft whose ICAO code is missing from the list is no longer rated against a generic profile. It is classified from its airframe instead — maximum takeoff mass, engine count and engine type place it in one of the profiles above. A jet up to 20 t goes to `vlj` and anything heavier to `heavy_jet`, a turboprop to `turboprop`, and a piston single to `ultra_light`, `light_ga` or `medium_ga` at 600 kg and 1500 kg. A piston twin never lands in the two light profiles, whatever it weighs. Only when the sim reports no usable mass does the old `medium_ga` fallback still apply.
+
+Helicopters were already covered: X-Plane reports the airframe category itself, so an unlisted helicopter is rated against `turbine_helicopter` rather than a far too lax fixed-wing profile.
+
+Every aircraft load writes the outcome to X-Plane's `Log.txt`, so a rating that looks wrong can be traced to the data behind it:
+
+```
+[xp_pilot] Aircraft 'EVOT': m_max=1950 engines=1 turbine -> profile turboprop [-150/-275/-400/-650]
+```
+
+### Choosing the profile yourself
+
+When a profile does not suit an aircraft you fly, assign one in `settings.json` under [Where your data lives](#where-your-data-lives):
+
+```json
+"aircraft_profiles": {
+  "B77W": "heavy_jet",
+  "C208": "turboprop"
+}
+```
+
+The key is the ICAO type code exactly as the log line above prints it. It is matched exactly rather than as a substring, so `B77` will not catch a B77W — this is deliberate, since a short entry would otherwise capture every variant of a type at once. Your choice wins over both the bundled list and the airframe classification. A profile name that does not exist is ignored, which leaves the normal lookup in charge rather than a flight without thresholds.
+
+Unlike `flight_logger_profiles.json`, `settings.json` lives outside the plugin folder and survives updates.
+
 ## FAQ
 
 ### Star Wars rain effect

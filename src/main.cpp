@@ -29,6 +29,7 @@
 #include <XPLM/XPLMPlugin.h>
 #include <XPLM/XPLMUtilities.h>
 // Keep these explicit: MSVC needs them; Clang often pulls them in transitively and flags them unused.
+#include <cstdint> // intptr_t
 #include <cstdio>  // snprintf
 #include <cstring> // strncpy
 #include <filesystem>
@@ -192,4 +193,10 @@ PLUGIN_API void XPluginStop()
 
 PLUGIN_API int  XPluginEnable() { return 1; }
 PLUGIN_API void XPluginDisable() {}
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int, void *) {}
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int message, void *param)
+{
+    // Index 0 is the user's own aircraft; the AI planes carry none of the datarefs the
+    // landing profile is read from.
+    if (message == XPLM_MSG_PLANE_LOADED && reinterpret_cast<intptr_t>(param) == 0)
+        FlightLogger::note_aircraft_changed();
+}

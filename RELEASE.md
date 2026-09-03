@@ -2,6 +2,33 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.8.0
+
+  - **An aircraft the profile list does not name is now rated by its airframe** — anything missing from `flight_logger_profiles.json` was rated against `medium_ga`, whatever it was. That calls a normal −400 fpm airliner touchdown a **HARD LANDING!**, while an ultralight gets away with far more than it should. Helicopters already had a safety net, because X-Plane reports the airframe category itself; fixed-wing aircraft had none.
+    - Maximum takeoff mass, engine count and engine type now place an unlisted type in one of the existing profiles: a jet up to 20 t on `vlj` and anything heavier on `heavy_jet`, a turboprop on `turboprop`, and a piston single on `ultra_light`, `light_ga` or `medium_ga` at 600 kg and 1500 kg. A piston twin never lands in the two light profiles, whatever it weighs.
+    - The explicit ICAO list keeps priority throughout — the classification only replaces the fallback. Where the sim reports no usable mass, `medium_ga` applies exactly as before.
+    - **Ratings change for aircraft that were not on the list.** Most become more appropriate for what is being flown; some become stricter, because a lax profile was being applied where a tight one belongs. Anything you disagree with can now be set by hand — see the next entry.
+  - **You can assign a landing profile yourself** — the aircraft-to-profile mapping lived only in `flight_logger_profiles.json`, which sits inside the plugin folder and is replaced on every update, so correcting a type by editing it never survived an upgrade. A new `aircraft_profiles` entry in `settings.json` maps an ICAO code to a profile name and takes precedence over both the bundled list and the airframe classification.
+
+    ```json
+    "aircraft_profiles": {
+      "B77W": "heavy_jet",
+      "C208": "turboprop"
+    }
+    ```
+
+    - The key is the ICAO type code exactly as the log line below prints it, matched exactly rather than as a substring — a short entry such as `B77` would otherwise capture every variant of a type at once.
+    - A profile name that does not exist is ignored and the normal lookup takes over, so a typo cannot leave a landing without thresholds.
+    - `settings.json` lives outside the folder the updater owns, so an assignment survives plugin updates. Edit it with the sim closed: the file is rewritten whenever a setting changes in the logbook window.
+  - **Every aircraft load is reported in X-Plane's `Log.txt`** — the profile was previously visible only as one line in the HTML report, which left a surprising rating with no way back to the data behind it. The airframe figures and the resulting thresholds are now written whenever an aircraft is loaded:
+
+    ```
+    [xp_pilot] Aircraft 'EVOT': m_max=1950 engines=1 turbine -> profile turboprop [-150/-275/-400/-650]
+    ```
+
+  - **Fixed: two entries in the profile list never matched their aircraft** — both were written from the model name rather than the code the airframe actually sends. The Schleicher ASK 21 reports `AS21`, which `ASK2` does not contain, and the Lancair Evolution reports `EVOT`, not `EVOL`. Both aircraft had silently fallen through to `medium_ga` since their entries were added — the glider judged against light-aircraft thresholds, the turboprop against piston ones. The correct codes are added alongside the originals rather than replacing them, since add-ons reporting the longer codes still need them.
+  - Flight logs written by this release use `version: 7`, adding `landing_profile` so a regenerated report cannot disagree with the logbook about the same flight. The field is purely additive — flights written before v7 carry no profile and resolve through the ICAO lookup exactly as they did before.
+
 ### What's New in v1.7.2
 
   - **Every landing now records how the aircraft was configured** — the metrics said how hard you arrived, never how you had set the aircraft up to arrive. The landing card gained four rows, all sampled in the touchdown frame.
@@ -132,7 +159,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Automatic flight tracking with state machine (Idle → Rolling → Airborne → Landed → Shutdown)
   - Flight data stored as JSON in `<X-Plane>/Output/x_pilot_reports/flights/`
   - HTML logbook reports with track map, landing details, wind, and block time
-  - Landing quality rating from descent rate and vertical acceleration together, with aircraft-profile-specific fpm thresholds (ultra_light → heavy_jet), auto-selected by ICAO code
+  - Landing quality rating from descent rate and vertical acceleration together, with aircraft-profile-specific fpm thresholds (ultra_light → heavy_jet), auto-selected by ICAO code — or from mass, engine count and engine type when the code is not listed, and assignable per aircraft in `settings.json`
   - Touchdown speed (IAS and ground speed) and runway placement — runway identifier, distance past the threshold, runway remaining, centerline deviation
   - 50 ft gate — indicated airspeed and descent rate recorded as the approach crosses 50 ft AGL
   - Configuration at touchdown — gear, flaps (with late-change detection against the 50 ft gate), speedbrake, and whether the autopilot flew the landing
