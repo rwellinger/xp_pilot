@@ -26,6 +26,7 @@
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
 #include "ui_home.hpp"
+#include "ui_landing_profiles.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <XPLM/XPLMDataAccess.h>
@@ -192,6 +193,8 @@ static void draw_settings_screen()
     Ui::help_marker("Locates each touchdown on the runway it was made on.\n"
                     "Reads X-Plane's global airport database once per flight,\n"
                     "after the engines are shut down.");
+
+    LandingProfilesSection::draw();
 
     Ui::section_header(ICON_FA_STOPWATCH, "Auto QNH");
 

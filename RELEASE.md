@@ -8,18 +8,24 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
     - Maximum takeoff mass, engine count and engine type now place an unlisted type in one of the existing profiles: a jet up to 20 t on `vlj` and anything heavier on `heavy_jet`, a turboprop on `turboprop`, and a piston single on `ultra_light`, `light_ga` or `medium_ga` at 600 kg and 1500 kg. A piston twin never lands in the two light profiles, whatever it weighs.
     - The explicit ICAO list keeps priority throughout — the classification only replaces the fallback. Where the sim reports no usable mass, `medium_ga` applies exactly as before.
     - **Ratings change for aircraft that were not on the list.** Most become more appropriate for what is being flown; some become stricter, because a lax profile was being applied where a tight one belongs. Anything you disagree with can now be set by hand — see the next entry.
-  - **You can assign a landing profile yourself** — the aircraft-to-profile mapping lived only in `flight_logger_profiles.json`, which sits inside the plugin folder and is replaced on every update, so correcting a type by editing it never survived an upgrade. A new `aircraft_profiles` entry in the settings file maps an ICAO code to a profile name and takes precedence over both the bundled list and the airframe classification.
+  - **You can set the landing profile yourself, from the Settings screen** — the aircraft-to-profile mapping lived only in `flight_logger_profiles.json`, which sits inside the plugin folder and is replaced on every update, so correcting a type by editing it never survived an upgrade. A **Landing profiles** section now sits on the Settings screen and covers the aircraft loaded in the sim.
+    - It shows what that aircraft is rated against, the four thresholds behind it, and **where they came from** — your own assignment, the bundled aircraft list, or the airframe classification. That last line is what explains an unexpected rating, and it was previously visible only in `Log.txt`.
+    - A dropdown assigns one of the bundled profiles, or hands the aircraft back to the automatic choice. Your assignment takes precedence over both the bundled list and the airframe classification.
+    - **Custom thresholds** — the rating no longer has to be one of the eight bundled profiles. A pilot who finds `light_ga` slightly too strict for their type can enter the four descent rates themselves, for that type alone. Values must be negative and get harsher step by step, between −20 and −3000 fpm; anything else is refused rather than stored.
+    - Every assignment you have made is listed underneath and can be removed individually. Changes take effect immediately, without restarting the sim.
+    - For a helicopter, custom thresholds grade the descent rate only — drift, bank, yaw rate and G-force keep their fixed limits.
+    - Assignments are stored under `aircraft_profiles` in the settings file, which can still be edited by hand with the sim closed. A string names a bundled profile, an object carries your own thresholds:
 
     ```json
     "aircraft_profiles": {
       "B77W": "heavy_jet",
-      "C208": "turboprop"
+      "C208": { "thresholds": [-150, -275, -400, -650] }
     }
     ```
 
     - The key is the ICAO type code exactly as the log line below prints it, matched exactly rather than as a substring — a short entry such as `B77` would otherwise capture every variant of a type at once.
-    - A profile name that does not exist is ignored and the normal lookup takes over, so a typo cannot leave a landing without thresholds.
-    - `xp_pilot.prf` lives outside the folder the updater owns, so an assignment survives plugin updates. Edit it with the sim closed: the file is rewritten whenever a setting changes in the logbook window.
+    - An entry naming a profile that does not exist, or carrying thresholds that do not validate, is ignored and the normal lookup takes over, so a typo cannot leave a landing without thresholds.
+    - The settings file lives outside the folder the updater owns, so an assignment survives plugin updates.
   - **The settings file moved to X-Plane's preferences folder** — it was written to `Output/x_pilot_reports/settings.json`, a folder named after the reports it sat next to, and nobody looks for configuration there. It now lives at `Output/preferences/xp_pilot.prf`, alongside the preference files of every other plugin.
     - **Your settings are moved for you on the first start** with this version, with every setting preserved. Nothing needs to be copied by hand.
     - If the old file cannot be read, it is left exactly where it is and the reason is written to `Log.txt`, so it can still be recovered by hand; the plugin starts from its defaults in that case rather than discarding anything.
@@ -32,7 +38,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
     ```
 
   - **Fixed: two entries in the profile list never matched their aircraft** — both were written from the model name rather than the code the airframe actually sends. The Schleicher ASK 21 reports `AS21`, which `ASK2` does not contain, and the Lancair Evolution reports `EVOT`, not `EVOL`. Both aircraft had silently fallen through to `medium_ga` since their entries were added — the glider judged against light-aircraft thresholds, the turboprop against piston ones. The correct codes are added alongside the originals rather than replacing them, since add-ons reporting the longer codes still need them.
-  - Flight logs written by this release use `version: 7`, adding `landing_profile` so a regenerated report cannot disagree with the logbook about the same flight. The field is purely additive — flights written before v7 carry no profile and resolve through the ICAO lookup exactly as they did before.
+  - Flight logs written by this release use `version: 8`. `landing_profile` records which profile a flight was rated against and `landing_thresholds` the values behind it, so a regenerated report reproduces the rating a landing was given even after the assignment changed — and so custom thresholds, which have no profile name to look up, survive at all. Both fields are purely additive; older flights resolve through the ICAO lookup exactly as they did before.
 
 ### What's New in v1.7.2
 
@@ -164,7 +170,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Automatic flight tracking with state machine (Idle → Rolling → Airborne → Landed → Shutdown)
   - Flight data stored as JSON in `<X-Plane>/Output/x_pilot_reports/flights/`, settings in `<X-Plane>/Output/preferences/xp_pilot.prf`
   - HTML logbook reports with track map, landing details, wind, and block time
-  - Landing quality rating from descent rate and vertical acceleration together, with aircraft-profile-specific fpm thresholds (ultra_light → heavy_jet), auto-selected by ICAO code — or from mass, engine count and engine type when the code is not listed, and assignable per aircraft in `Output/preferences/xp_pilot.prf`
+  - Landing quality rating from descent rate and vertical acceleration together, with aircraft-profile-specific fpm thresholds (ultra_light → heavy_jet), auto-selected by ICAO code — or from mass, engine count and engine type when the code is not listed, and assignable per aircraft — by profile or as custom thresholds — from the Settings screen
   - Touchdown speed (IAS and ground speed) and runway placement — runway identifier, distance past the threshold, runway remaining, centerline deviation
   - 50 ft gate — indicated airspeed and descent rate recorded as the approach crosses 50 ft AGL
   - Configuration at touchdown — gear, flaps (with late-change detection against the 50 ft gate), speedbrake, and whether the autopilot flew the landing

@@ -17,6 +17,7 @@
  */
 
 #pragma once
+#include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include <array>
 #include <map>
@@ -114,13 +115,63 @@ const std::string &config_dir();
 bool              &lb_needs_refresh();
 void               regen_all_reports();
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-// Landing profile the user assigned to an aircraft, ICAO code -> profile name. Takes
+// ── Landing profiles ──────────────────────────────────────────────────────────
+
+// Where the profile a landing is rated against came from. Shown on the settings screen,
+// because a rating that looks wrong is only explicable together with its source.
+enum class ProfileSource
+{
+    UserOverride,   // assigned by the user, by name or as custom thresholds
+    IcaoList,       // named in the bundled flight_logger_profiles.json
+    AirframeClass,  // derived from mass, engine count and engine type
+    Fallback,       // no usable airframe data — medium_ga stands
+};
+
+// The thresholds a landing is actually rated against, and how they were arrived at.
+struct ResolvedProfile
+{
+    std::string        name; // a bundled profile name, or CUSTOM_PROFILE_NAME
+    std::array<int, 4> thresholds{};
+    ProfileSource      source    = ProfileSource::Fallback;
+    bool               is_custom = false;
+};
+
+// The name a custom set of thresholds carries in reports and in the flight JSON. Not a
+// bundled profile, so it never resolves through the profile table.
+inline constexpr const char *CUSTOM_PROFILE_NAME = "custom";
+
+// Landing profiles the user assigned per aircraft, keyed by ICAO code. They take
 // precedence over the bundled ICAO list and over the airframe classification, so a type
-// either list gets wrong can be corrected without touching the shipped config. A name
-// no profile carries is ignored, leaving the normal lookup in charge.
-void                                      set_profile_overrides(std::map<std::string, std::string> overrides);
-const std::map<std::string, std::string> &profile_overrides();
+// either gets wrong can be corrected without touching the shipped config. An entry
+// naming a profile that does not exist, or carrying thresholds that do not validate, is
+// ignored — the normal lookup stays in charge rather than a landing losing its rating.
+void set_profile_overrides(std::map<std::string, FlightLoggerLogic::ProfileOverride> overrides);
+const std::map<std::string, FlightLoggerLogic::ProfileOverride> &profile_overrides();
+
+// Assign or remove the override for one aircraft. Neither persists on its own — the
+// caller saves the settings, as every other setting on that screen does.
+void set_profile_override(const std::string &aircraft_icao, const FlightLoggerLogic::ProfileOverride &override_entry);
+void clear_profile_override(const std::string &aircraft_icao);
+
+// The bundled profiles by name, sorted, for the assignment dropdown.
+std::vector<std::string> available_profile_names();
+
+// Thresholds of one bundled profile; the medium_ga fallback for a name that does not
+// exist.
+std::array<int, 4> profile_thresholds(const std::string &profile_name);
+
+// The aircraft loaded in the sim right now, read straight from the datarefs, together
+// with the profile it currently resolves to. The settings screen needs this between
+// flights, where the session values are empty.
+struct CurrentAircraft
+{
+    std::string     icao;
+    std::string     tail;
+    bool            is_rotorcraft = false;
+    ResolvedProfile profile;
+};
+
+CurrentAircraft current_aircraft();
 
 void set_write_enabled(bool on);
 bool write_enabled();

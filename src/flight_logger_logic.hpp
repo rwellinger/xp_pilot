@@ -65,21 +65,51 @@ inline bool icao_matches_profile(const std::string &aircraft_icao, const std::st
 
 // ── User profile overrides ───────────────────────────────────────────────────
 
-// The profile the user picked for this aircraft in the settings file, or an empty string
-// when they picked none.
+// What the user set for one aircraft: either one of the bundled profiles by name, or
+// four descent-rate thresholds of their own. The two are exclusive — a custom entry
+// carries no profile name, because it is not one of the bundled profiles.
+struct ProfileOverride
+{
+    std::string        profile_name;   // empty when the user set thresholds instead
+    std::array<int, 4> thresholds{};   // negative fpm, gentlest first
+    bool               is_custom = false;
+};
+
+// Custom thresholds are hand-entered, so they are validated at the edge before they are
+// stored or used. Anything outside these bounds is a typo rather than a landing anyone
+// flies: a touchdown gentler than 20 fpm is not measurable, and one beyond 3000 fpm is
+// a crash, not a rating step.
+inline constexpr int MIN_THRESHOLD_FPM = -3000;
+inline constexpr int MAX_THRESHOLD_FPM = -20;
+
+// The four steps must descend from gentlest to harshest, the same order the bundled
+// profiles use. Values are negative, so "descending" reads as each entry being more
+// negative than the one before it.
+inline bool are_valid_thresholds(const std::array<int, 4> &thresholds)
+{
+    for (int index = 0; index < 4; ++index)
+    {
+        if (thresholds[index] < MIN_THRESHOLD_FPM || thresholds[index] > MAX_THRESHOLD_FPM)
+            return false;
+        if (index > 0 && thresholds[index] >= thresholds[index - 1])
+            return false;
+    }
+    return true;
+}
+
+// The override the user set for this aircraft, or nullptr when they set none.
 //
-// Matching is exact, unlike the bundled list's substring rule. An override is typed by
-// hand against the code the log prints on aircraft load, and an exact match cannot
-// silently shadow another type the way a too-short match string can — "ASK2" sat in the
-// list for a long time matching nothing, and a "B73" override would otherwise catch
-// every 737 variant at once.
-inline std::string find_profile_override(const std::map<std::string, std::string> &overrides,
-                                         const std::string                        &aircraft_icao)
+// Matching is exact, unlike the bundled list's substring rule. An override names one
+// type deliberately, and an exact match cannot silently shadow another the way a
+// too-short match string can — "ASK2" sat in the list for a long time matching nothing,
+// and a "B73" override would otherwise catch every 737 variant at once.
+inline const ProfileOverride *find_profile_override(const std::map<std::string, ProfileOverride> &overrides,
+                                                    const std::string                           &aircraft_icao)
 {
     if (aircraft_icao.empty())
-        return "";
+        return nullptr;
     const auto entry = overrides.find(aircraft_icao);
-    return entry == overrides.end() ? "" : entry->second;
+    return entry == overrides.end() ? nullptr : &entry->second;
 }
 
 // ── Airframe classification ──────────────────────────────────────────────────

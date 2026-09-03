@@ -53,8 +53,10 @@ add_library(xp_pilot MODULE
     src/ui_flight_list.cpp
     src/ui_flight_view.cpp
     src/ui_home.cpp
+    src/ui_landing_profiles.cpp
     src/settings.cpp
     src/settings_migration.cpp
+    src/settings_profiles.cpp
     src/sim_clock.cpp
     src/ui_landing_popup.cpp
     src/ui_overlay.cpp

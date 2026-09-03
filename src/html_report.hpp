@@ -133,6 +133,11 @@ struct FlightData
     // Profile the landings were rated against. Empty for flights written before v7,
     // whose profile is looked up from the ICAO code instead.
     std::string              landing_profile;
+    // The thresholds that profile stood for when the flight was rated, so a regenerated
+    // report reproduces the rating even after the user changed their assignment — and so
+    // custom thresholds, which have no name to look up, survive at all. Written since v8.
+    std::array<int, 4>       landing_thresholds{};
+    bool                     has_landing_thresholds = false;
     time_t                   start_time      = 0;
     time_t                   end_time        = 0;
     int                      block_time_min  = 0; // net of sim pause

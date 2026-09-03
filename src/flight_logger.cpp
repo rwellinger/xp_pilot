@@ -163,36 +163,99 @@ static std::string get_profile_category(const std::string &name)
     return "fixed_wing";
 }
 
-static std::map<std::string, std::string> s_profile_overrides;
+static std::map<std::string, FlightLoggerLogic::ProfileOverride> s_profile_overrides;
 
-void FlightLogger::set_profile_overrides(std::map<std::string, std::string> overrides)
+void FlightLogger::set_profile_overrides(std::map<std::string, FlightLoggerLogic::ProfileOverride> overrides)
 {
     s_profile_overrides = std::move(overrides);
 }
 
-const std::map<std::string, std::string> &FlightLogger::profile_overrides() { return s_profile_overrides; }
-
-// The user's choice for this aircraft, but only when it names a profile that exists.
-// A typo must not leave the rating without thresholds — it degrades to the normal lookup.
-static std::string find_valid_override(const std::string &plane_icao)
+const std::map<std::string, FlightLoggerLogic::ProfileOverride> &FlightLogger::profile_overrides()
 {
-    const std::string chosen = FlightLoggerLogic::find_profile_override(s_profile_overrides, plane_icao);
-    return s_profiles.count(chosen) ? chosen : "";
+    return s_profile_overrides;
+}
+
+void FlightLogger::set_profile_override(const std::string                        &aircraft_icao,
+                                        const FlightLoggerLogic::ProfileOverride &override_entry)
+{
+    if (!aircraft_icao.empty())
+        s_profile_overrides[aircraft_icao] = override_entry;
+}
+
+void FlightLogger::clear_profile_override(const std::string &aircraft_icao)
+{
+    s_profile_overrides.erase(aircraft_icao);
+}
+
+std::vector<std::string> FlightLogger::available_profile_names()
+{
+    std::vector<std::string> names;
+    names.reserve(s_profiles.size());
+    for (const auto &[name, thresholds] : s_profiles)
+        names.push_back(name);
+    return names;
+}
+
+std::array<int, 4> FlightLogger::profile_thresholds(const std::string &profile_name)
+{
+    return get_profile_thresholds(profile_name);
+}
+
+// Build the profile the user assigned to this aircraft, if they assigned a usable one.
+// A name no profile carries and thresholds that do not validate are both ignored: a
+// typo must not leave the rating without thresholds, it degrades to the normal lookup.
+static bool find_valid_override(const std::string &plane_icao, FlightLogger::ResolvedProfile &out)
+{
+    const auto *chosen = FlightLoggerLogic::find_profile_override(s_profile_overrides, plane_icao);
+    if (!chosen)
+        return false;
+
+    out.source = FlightLogger::ProfileSource::UserOverride;
+    if (chosen->is_custom)
+    {
+        if (!FlightLoggerLogic::are_valid_thresholds(chosen->thresholds))
+            return false;
+        out.name       = FlightLogger::CUSTOM_PROFILE_NAME;
+        out.thresholds = chosen->thresholds;
+        out.is_custom  = true;
+        return true;
+    }
+
+    if (!s_profiles.count(chosen->profile_name))
+        return false;
+    out.name       = chosen->profile_name;
+    out.thresholds = get_profile_thresholds(chosen->profile_name);
+    out.is_custom  = false;
+    return true;
+}
+
+// A bundled profile as the resolution chain hands it on.
+static FlightLogger::ResolvedProfile bundled_profile(const std::string &name, FlightLogger::ProfileSource source)
+{
+    FlightLogger::ResolvedProfile resolved;
+    resolved.name       = name;
+    resolved.thresholds = get_profile_thresholds(name);
+    resolved.source     = source;
+    return resolved;
 }
 
 // A helicopter recognised only by the sim keeps the generic fixed-wing profile, whose
 // thresholds are far too lax for a set-down. Fall back to the turbine profile so the
 // rating stays meaningful until the type earns its own entry.
-static std::string get_rating_profile_name(const std::string &plane_icao, bool is_rotorcraft)
+static FlightLogger::ResolvedProfile get_rating_profile(const std::string &plane_icao, bool is_rotorcraft)
 {
-    const std::string chosen = find_valid_override(plane_icao);
-    if (!chosen.empty())
+    FlightLogger::ResolvedProfile chosen;
+    if (find_valid_override(plane_icao, chosen))
         return chosen;
 
-    std::string name = get_profile_name(plane_icao);
+    const std::string listed = find_listed_profile(plane_icao);
+    const auto        source =
+        listed.empty() ? FlightLogger::ProfileSource::Fallback : FlightLogger::ProfileSource::IcaoList;
+    const std::string name = get_profile_name(plane_icao);
     if (!is_rotorcraft || get_profile_category(name) == "rotorcraft")
-        return name;
-    return s_profiles.count("turbine_helicopter") ? "turbine_helicopter" : name;
+        return bundled_profile(name, source);
+    return s_profiles.count("turbine_helicopter") ? bundled_profile("turbine_helicopter", source)
+                                                  : bundled_profile(name, source);
 }
 
 static std::string get_shutdown_trigger(const std::string &plane_icao)
@@ -337,26 +400,48 @@ static FlightLoggerLogic::AirframeMetrics read_airframe_metrics()
     return metrics;
 }
 
-// The profile a landing is rated against. An ICAO the list names always wins; only an
-// unlisted fixed-wing type is classified from the airframe, and only when the sim
-// reports a usable mass — otherwise the historical medium_ga fallback stands.
-static std::string resolve_landing_profile(const std::string &plane_icao, bool is_rotorcraft)
+// The profile a landing is rated against. The user's own assignment wins outright; an
+// ICAO the list names comes next; only an unlisted fixed-wing type is classified from
+// the airframe, and only when the sim reports a usable mass — otherwise the historical
+// medium_ga fallback stands.
+static FlightLogger::ResolvedProfile resolve_landing_profile(const std::string &plane_icao, bool is_rotorcraft)
 {
-    const std::string chosen = find_valid_override(plane_icao);
-    if (!chosen.empty())
+    FlightLogger::ResolvedProfile chosen;
+    if (find_valid_override(plane_icao, chosen))
         return chosen;
 
     if (is_rotorcraft)
-        return get_rating_profile_name(plane_icao, true);
+        return get_rating_profile(plane_icao, true);
 
     const std::string listed = find_listed_profile(plane_icao);
     if (!listed.empty())
-        return listed;
+        return bundled_profile(listed, FlightLogger::ProfileSource::IcaoList);
 
     const std::string classified = FlightLoggerLogic::classify_fixed_wing_profile(read_airframe_metrics());
     if (!classified.empty() && s_profiles.count(classified))
-        return classified;
-    return get_profile_name(plane_icao);
+        return bundled_profile(classified, FlightLogger::ProfileSource::AirframeClass);
+    return bundled_profile(get_profile_name(plane_icao), FlightLogger::ProfileSource::Fallback);
+}
+
+// The profile a stored flight was rated against, for regenerating its report. The
+// thresholds travel with the flight since v8, so a report regenerated after the user
+// changed their assignment still reproduces the rating the landing was given. Flights
+// written before that carry only a name, and those before v7 not even that — they fall
+// back through the profile table and then the ICAO lookup, as they always did.
+static FlightLogger::ResolvedProfile stored_flight_profile(const FlightData &flight)
+{
+    if (flight.has_landing_thresholds)
+    {
+        FlightLogger::ResolvedProfile stored;
+        stored.name       = flight.landing_profile.empty() ? FlightLogger::CUSTOM_PROFILE_NAME
+                                                           : flight.landing_profile;
+        stored.thresholds = flight.landing_thresholds;
+        stored.is_custom  = stored.name == FlightLogger::CUSTOM_PROFILE_NAME;
+        return stored;
+    }
+    if (!flight.landing_profile.empty())
+        return bundled_profile(flight.landing_profile, FlightLogger::ProfileSource::IcaoList);
+    return get_rating_profile(flight.aircraft_icao, flight.aircraft_category == "rotorcraft");
 }
 
 static const char *engine_kind_label(FlightLoggerLogic::EngineKind kind)
@@ -637,7 +722,7 @@ static std::string              s_aircraft_tail;
 static bool                     s_is_rotorcraft   = false;
 // Resolved when recording starts and kept for the flight: the airframe datarefs the
 // classification reads describe the loaded aircraft, not the one a stored flight flew.
-static std::string              s_landing_profile;
+static FlightLogger::ResolvedProfile s_landing_profile;
 static time_t                   s_start_time      = 0;
 static time_t                   s_end_time        = 0;
 static int                      s_max_altitude_ft = 0;
@@ -663,11 +748,11 @@ static float agl_airborne_threshold() { return s_is_rotorcraft ? AGL_AIRBORNE_HE
 
 // Guards the rating paths against a session whose profile was never resolved, which
 // would otherwise silently rate against the wrong thresholds.
-static std::string session_landing_profile()
+static FlightLogger::ResolvedProfile session_landing_profile()
 {
-    if (!s_landing_profile.empty())
+    if (!s_landing_profile.name.empty())
         return s_landing_profile;
-    return get_rating_profile_name(s_aircraft_icao, s_is_rotorcraft);
+    return get_rating_profile(s_aircraft_icao, s_is_rotorcraft);
 }
 
 static void session_reset()
@@ -678,7 +763,7 @@ static void session_reset()
     s_aircraft_icao.clear();
     s_aircraft_tail.clear();
     s_is_rotorcraft   = false;
-    s_landing_profile.clear();
+    s_landing_profile = {};
     s_start_time = s_end_time = 0;
     s_active_seconds = s_last_sample_active = s_total_seconds = 0.0;
     s_max_altitude_ft = s_max_speed_kts = 0;
@@ -992,9 +1077,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
         return;
 
-    auto pname           = session_landing_profile();
-    auto pthresh         = get_profile_thresholds(pname);
-    s_ld_captured.rating = eval_rating(s_ld_captured, pthresh);
+    s_ld_captured.rating = eval_rating(s_ld_captured, session_landing_profile().thresholds);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
     s_ld_captured.airport_icao = get_airport_id();
@@ -1018,17 +1101,14 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     fill_landing_metrics(s_ld_captured, f);
     s_ld_captured.is_rotorcraft = true;
 
-    auto pname   = session_landing_profile();
-    auto pthresh = get_profile_thresholds(pname);
-
     FlightLoggerLogic::RotorcraftTouchdown touchdown;
     touchdown.descent_fpm    = s_ld_captured.fpm;
     touchdown.drift_kts      = s_ld_captured.ground_speed_kts;
     touchdown.bank_deg       = s_ld_captured.bank_deg;
     touchdown.yaw_rate_deg_s = s_ld_captured.yaw_rate_deg_s;
     touchdown.g_force        = s_ld_captured.g_force;
-    s_ld_captured.rating =
-        FlightLoggerLogic::rating_label(FlightLoggerLogic::rotorcraft_rating_index(touchdown, pthresh));
+    s_ld_captured.rating = FlightLoggerLogic::rating_label(
+        FlightLoggerLogic::rotorcraft_rating_index(touchdown, session_landing_profile().thresholds));
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = 0;
     s_ld_captured.airport_icao = get_airport_id();
@@ -1219,15 +1299,15 @@ static void log_airframe_now()
     const std::string icao          = dr_str(dr_acf_icao);
     const bool        is_rotorcraft = dr_i(dr_is_heli) != 0;
     const auto        metrics       = read_airframe_metrics();
-    const std::string profile       = resolve_landing_profile(icao, is_rotorcraft);
-    const auto        thresholds    = get_profile_thresholds(profile);
+    const auto        profile       = resolve_landing_profile(icao, is_rotorcraft);
+    const auto       &thresholds    = profile.thresholds;
 
     char msg[320];
     snprintf(msg, sizeof(msg),
              "[xp_pilot] Aircraft '%s': m_max=%.0f engines=%d %s%s -> profile %s [%d/%d/%d/%d]\n",
              icao.empty() ? "(no ICAO)" : icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg),
              metrics.engine_count, engine_kind_label(metrics.engine_kind), is_rotorcraft ? " rotorcraft" : "",
-             profile.c_str(), thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
+             profile.name.c_str(), thresholds[0], thresholds[1], thresholds[2], thresholds[3]);
     XPLMDebugString(msg);
 }
 
@@ -1301,7 +1381,10 @@ static FlightData build_flight_data(time_t end_time)
     fd.aircraft_icao     = s_aircraft_icao;
     fd.aircraft_tail     = s_aircraft_tail;
     fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
-    fd.landing_profile   = session_landing_profile();
+    const auto session_profile  = session_landing_profile();
+    fd.landing_profile          = session_profile.name;
+    fd.landing_thresholds       = session_profile.thresholds;
+    fd.has_landing_thresholds   = true;
     fd.start_time        = s_start_time;
     fd.end_time          = end_time;
     fd.block_time_min    = block_time_minutes();
@@ -1347,9 +1430,7 @@ static void finalize_flight()
 
     if (s_html_report_enabled)
     {
-        auto pname   = session_landing_profile();
-        auto pthresh = get_profile_thresholds(pname);
-        HtmlReport::generate(fd, s_output_dir, filename, pname, pthresh);
+        HtmlReport::generate(fd, s_output_dir, filename, fd.landing_profile, fd.landing_thresholds);
         HtmlReport::generate_index(s_output_dir);
     }
 
@@ -1381,6 +1462,16 @@ FlightLogger::LiveFlight FlightLogger::live_flight()
     live.agl_ft                 = dr_f(dr_agl) * 3.28084f;
     live.heading_true           = dr_f(dr_truepsi);
     return live;
+}
+
+FlightLogger::CurrentAircraft FlightLogger::current_aircraft()
+{
+    CurrentAircraft aircraft;
+    aircraft.icao          = dr_str(dr_acf_icao);
+    aircraft.tail          = dr_str(dr_acf_tail);
+    aircraft.is_rotorcraft = dr_i(dr_is_heli) != 0;
+    aircraft.profile       = resolve_landing_profile(aircraft.icao, aircraft.is_rotorcraft);
+    return aircraft;
 }
 
 const std::string &FlightLogger::output_dir() { return s_output_dir; }
@@ -1420,12 +1511,8 @@ void FlightLogger::regen_all_reports()
             continue;
         std::string c((std::istreambuf_iterator<char>(f)), {});
         auto        fd      = parse_flight_json(c, fname);
-        // Pre-v7 flights carry no profile; those still fall back to the ICAO lookup.
-        auto        pname   = !fd.landing_profile.empty()
-                                ? fd.landing_profile
-                                : get_rating_profile_name(fd.aircraft_icao, fd.aircraft_category == "rotorcraft");
-        auto        pthresh = get_profile_thresholds(pname);
-        HtmlReport::generate(fd, s_output_dir, fname, pname, pthresh);
+        const auto  profile = stored_flight_profile(fd);
+        HtmlReport::generate(fd, s_output_dir, fname, profile.name, profile.thresholds);
         ++count;
     }
     HtmlReport::generate_index(s_output_dir);

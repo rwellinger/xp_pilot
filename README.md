@@ -214,7 +214,7 @@ Each tile carries an icon — a departing aircraft for Live, a book for Logbook,
 | **Live** | The flight in progress — track map, block time, maxima and any landing already made |
 | **Logbook** | All recorded flights: list on the left, full detail on the right, with report / archive / delete actions |
 | **Archive** | Flights moved out of the active logbook, same layout, delete only |
-| **Settings** | Every feature toggle, saved immediately to `xp_pilot.prf` |
+| **Settings** | Every feature toggle and the landing-profile assignment for the loaded aircraft, saved immediately to `xp_pilot.prf` |
 
 **Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge. The **UI scale** setting adjusts fonts and spacing in 5% steps; **Plugins → xp_pilot → Reset UI Scale & Window Size** restores the default from outside the window.
 
@@ -292,16 +292,29 @@ Every aircraft load writes the outcome to X-Plane's `Log.txt`, so a rating that 
 
 ### Choosing the profile yourself
 
-When a profile does not suit an aircraft you fly, assign one in `xp_pilot.prf` under [Where your data lives](#where-your-data-lives):
+The **Landing profiles** section on the Settings screen covers the aircraft currently loaded in the sim. It names the profile that aircraft is rated against, the four thresholds behind it, and where they came from — your own assignment, the bundled aircraft list, or the airframe classification. That last line is the one that explains a rating you did not expect.
+
+Two things can be set there, and both take effect immediately, without restarting the sim:
+
+- **Pick a profile** from the dropdown to rate this type against one of the bundled profiles instead of the automatic choice. **Automatic** hands it back to the normal lookup.
+- **Custom thresholds** replace the four descent rates with your own, for that type alone. Values must be negative and get harsher step by step, between −20 and −3000 fpm; **Apply** stays disabled until they do.
+
+Every assignment you have made is listed below the controls and can be removed individually. Assignments are keyed on the ICAO type code exactly as the log line above prints it, matched exactly rather than as a substring — `B77` will not catch a B77W, deliberately, since a short entry would otherwise capture every variant of a type at once.
+
+For a helicopter, custom thresholds grade the descent rate only. Drift, bank, yaw rate and G-force keep their fixed limits.
+
+Assignments are stored in `xp_pilot.prf` under [Where your data lives](#where-your-data-lives) and can also be edited by hand with the sim closed:
 
 ```json
 "aircraft_profiles": {
   "B77W": "heavy_jet",
-  "C208": "turboprop"
+  "C208": { "thresholds": [-150, -275, -400, -650] }
 }
 ```
 
-The key is the ICAO type code exactly as the log line above prints it. It is matched exactly rather than as a substring, so `B77` will not catch a B77W — this is deliberate, since a short entry would otherwise capture every variant of a type at once. Your choice wins over both the bundled list and the airframe classification. A profile name that does not exist is ignored, which leaves the normal lookup in charge rather than a flight without thresholds.
+A string names one of the bundled profiles, an object carries your own thresholds. Either way your choice wins over both the bundled list and the airframe classification. An entry naming a profile that does not exist, or carrying thresholds that do not validate, is ignored — the normal lookup stays in charge rather than a flight ending up without thresholds.
+
+The thresholds a landing was rated against are stored with the flight, so regenerating its report later reproduces the same rating even after you have changed the assignment.
 
 Unlike `flight_logger_profiles.json`, `xp_pilot.prf` lives outside the plugin folder and survives updates.
 
