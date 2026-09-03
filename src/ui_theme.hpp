@@ -107,7 +107,7 @@ inline constexpr float font_size_base = 17.f;
 void init();
 
 // Global UI scale, applied to fonts and to every layout constant that goes through
-// scaled(). Persisted in settings.json. set_ui_scale() clamps to the range below, so
+// scaled(). Persisted in the settings file. set_ui_scale() clamps to the range below, so
 // no caller can drive the interface to an unusable size.
 inline constexpr float ui_scale_min     = 0.8f;
 inline constexpr float ui_scale_max     = 2.0f;

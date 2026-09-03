@@ -64,13 +64,15 @@ Flight records, HTML reports, settings, and the flight index are stored under X-
 │   └── archived/
 ├── reports/              ← HTML reports (one per flight)
 │   └── archived/
-├── index.html            ← list of all flights
-└── settings.json         ← feature toggles from the logbook window
+└── index.html            ← list of all flights
+
+<X-Plane>/Output/preferences/
+└── xp_pilot.prf          ← feature toggles from the logbook window
 ```
 
-On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker).
+On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker). Settings written by versions up to 1.7.2 as `x_pilot_reports/settings.json` are moved to `preferences/xp_pilot.prf` on the next start, with every setting preserved. If that old file is unreadable, it is left in place and reported in `Log.txt` so you can recover it by hand; the plugin then starts from its defaults.
 
-**Why `settings.json` lives here and not next to the plugin.** It looks misplaced — the folder is named after the reports — but anything inside the plugin folder is owned by the updater. The SkunkCrafts updater synchronises that tree against its file list, so a settings file kept there would be overwritten or removed on every update, taking your toggles with it. Everything the plugin writes therefore lives outside the tree; the plugin folder holds only bundled, read-only files (`flight_logger_profiles.json`, `coastlines.dat` and `cities.dat`), which are meant to be replaced on update.
+**Why none of this lives next to the plugin.** Anything inside the plugin folder is owned by the updater. The SkunkCrafts updater synchronises that tree against its file list, so a settings file kept there would be overwritten or removed on every update, taking your toggles with it. Everything the plugin writes therefore lives outside the tree; the plugin folder holds only bundled, read-only files (`flight_logger_profiles.json`, `coastlines.dat` and `cities.dat`), which are meant to be replaced on update. The settings file uses X-Plane's conventional `Output/preferences/` folder, next to the preference files of other plugins, which is where you would look for it.
 
 ## Features
 
@@ -212,7 +214,7 @@ Each tile carries an icon — a departing aircraft for Live, a book for Logbook,
 | **Live** | The flight in progress — track map, block time, maxima and any landing already made |
 | **Logbook** | All recorded flights: list on the left, full detail on the right, with report / archive / delete actions |
 | **Archive** | Flights moved out of the active logbook, same layout, delete only |
-| **Settings** | Every feature toggle, saved immediately to `settings.json` |
+| **Settings** | Every feature toggle, saved immediately to `xp_pilot.prf` |
 
 **Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge. The **UI scale** setting adjusts fonts and spacing in 5% steps; **Plugins → xp_pilot → Reset UI Scale & Window Size** restores the default from outside the window.
 
@@ -242,7 +244,7 @@ All three can be bound to a key or joystick button in X-Plane's control settings
 
 ### Settings
 
-All feature toggles live on the **Settings** screen of the logbook window. Changes are saved immediately to `settings.json` under [Where your data lives](#where-your-data-lives) and persist across sessions.
+All feature toggles live on the **Settings** screen of the logbook window. Changes are saved immediately to `xp_pilot.prf` under [Where your data lives](#where-your-data-lives) and persist across sessions.
 
 | Setting | Default | Description |
 |---|---|---|
@@ -290,7 +292,7 @@ Every aircraft load writes the outcome to X-Plane's `Log.txt`, so a rating that 
 
 ### Choosing the profile yourself
 
-When a profile does not suit an aircraft you fly, assign one in `settings.json` under [Where your data lives](#where-your-data-lives):
+When a profile does not suit an aircraft you fly, assign one in `xp_pilot.prf` under [Where your data lives](#where-your-data-lives):
 
 ```json
 "aircraft_profiles": {
@@ -301,7 +303,7 @@ When a profile does not suit an aircraft you fly, assign one in `settings.json` 
 
 The key is the ICAO type code exactly as the log line above prints it. It is matched exactly rather than as a substring, so `B77` will not catch a B77W — this is deliberate, since a short entry would otherwise capture every variant of a type at once. Your choice wins over both the bundled list and the airframe classification. A profile name that does not exist is ignored, which leaves the normal lookup in charge rather than a flight without thresholds.
 
-Unlike `flight_logger_profiles.json`, `settings.json` lives outside the plugin folder and survives updates.
+Unlike `flight_logger_profiles.json`, `xp_pilot.prf` lives outside the plugin folder and survives updates.
 
 ## FAQ
 

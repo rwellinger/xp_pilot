@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-// Where the landing popup appears on screen. Stored in settings.json by name so the
+// Where the landing popup appears on screen. Stored in the settings file by name so the
 // file stays readable and an unknown value degrades to the default.
 enum class PopupPosition
 {
@@ -103,8 +103,11 @@ struct LiveFlight
 LiveFlight live_flight();
 
 // ── Logbook access ────────────────────────────────────────────────────────────
-// User data root (flights, reports, index, settings) under X-Plane's Output dir.
+// User data root (flights, reports, index) under X-Plane's Output dir.
 const std::string &output_dir();
+
+// X-Plane's Output/preferences/, where the settings file lives.
+const std::string &preferences_dir();
 
 // Bundled read-only config shipped next to the plugin binary (<plugin>/data/).
 const std::string &config_dir();

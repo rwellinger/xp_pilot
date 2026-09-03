@@ -43,7 +43,7 @@ bool active();
 // Call from inside an ImGui frame.
 void draw();
 
-// Owns the popup's settings, persisted via settings.json.
+// Owns the popup's settings, persisted via the settings file.
 void          set_enabled(bool on);
 bool          enabled();
 void          set_position(PopupPosition position);

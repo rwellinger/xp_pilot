@@ -56,7 +56,8 @@ static std::map<std::string, std::string>        s_profile_category; // profile 
 static std::vector<ProfileEntry>                 s_icao_map;
 static std::string                               s_default_shutdown = "engine";
 static std::string                               s_config_dir; // bundled config (landing profiles), next to the plugin
-static std::string                               s_output_dir; // user data (flights, reports, index, settings) in Output
+static std::string                               s_output_dir; // user data (flights, reports, index) in Output
+static std::string                               s_preferences_dir; // settings file, in X-Plane's Output/preferences
 static bool                                      s_lb_needs_refresh = true;
 
 static void load_profiles()
@@ -461,7 +462,7 @@ static bool shutdown_triggered(const std::string &plane_icao)
 // aircraft's current position.
 static std::string get_airport_id() { return AirportLookup::nearest_airport_id(dr_d(dr_lat), dr_d(dr_lon)); }
 
-// ── Feature toggles (persisted via settings.json) ─────────────────────────────
+// ── Feature toggles (persisted via the settings file) ────────────────────────
 static bool s_write_enabled       = true;
 static bool s_html_report_enabled = true;
 
@@ -1383,6 +1384,7 @@ FlightLogger::LiveFlight FlightLogger::live_flight()
 }
 
 const std::string &FlightLogger::output_dir() { return s_output_dir; }
+const std::string &FlightLogger::preferences_dir() { return s_preferences_dir; }
 const std::string &FlightLogger::config_dir() { return s_config_dir; }
 bool              &FlightLogger::lb_needs_refresh() { return s_lb_needs_refresh; }
 
@@ -1447,18 +1449,24 @@ void FlightLogger::init()
     std::filesystem::path configPath = std::filesystem::path(pluginPathRaw).parent_path().parent_path() / "data";
     s_config_dir                     = configPath.generic_string() + "/";
 
-    // User data (flights, reports, index, settings) lives under X-Plane's Output dir
+    // User data (flights, reports, index) lives under X-Plane's Output dir
     // so it survives plugin updates. XPLMGetSystemPath returns the X-Plane root with
     // a trailing separator.
     char systemPathRaw[2048] = {};
     XPLMGetSystemPath(systemPathRaw);
     std::filesystem::path outputPath = std::filesystem::path(systemPathRaw) / "Output" / "x_pilot_reports";
     s_output_dir                     = outputPath.generic_string() + "/";
+
+    // The settings file goes to X-Plane's conventional preferences folder, where
+    // other plugins keep theirs and where users look for them.
+    std::filesystem::path preferencesPath = std::filesystem::path(systemPathRaw) / "Output" / "preferences";
+    s_preferences_dir                     = preferencesPath.generic_string() + "/";
     AirportLookup::init((std::filesystem::path(systemPathRaw) / "Global Scenery" / "Global Airports" /
                          "Earth nav data" / "apt.dat")
                             .generic_string());
     XPLMDebugString(("[xp_pilot] config_dir: " + s_config_dir + "\n").c_str());
     XPLMDebugString(("[xp_pilot] output_dir: " + s_output_dir + "\n").c_str());
+    XPLMDebugString(("[xp_pilot] preferences_dir: " + s_preferences_dir + "\n").c_str());
 
     // Use the error_code overload — the throwing variant kills X-Plane if writes
     // are blocked (sandbox, read-only volume, missing parent). Failing soft is OK:
@@ -1472,6 +1480,10 @@ void FlightLogger::init()
     std::filesystem::create_directories(outputPath / "reports" / "archived", ec);
     if (ec)
         XPLMDebugString(("[xp_pilot] WARNING: cannot create reports dir: " + ec.message() + "\n").c_str());
+    ec.clear();
+    std::filesystem::create_directories(preferencesPath, ec);
+    if (ec)
+        XPLMDebugString(("[xp_pilot] WARNING: cannot create preferences dir: " + ec.message() + "\n").c_str());
 
     FlightStore::migrate_user_data_to_output(configPath, outputPath);
 

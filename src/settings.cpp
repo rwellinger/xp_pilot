@@ -20,6 +20,7 @@
 #include "airport_lookup.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "settings_migration.hpp"
 #include "ui_landing_popup.hpp"
 #include "ui_overlay.hpp"
 #include "ui_theme.hpp"
@@ -85,12 +86,41 @@ std::map<std::string, std::string> read_profile_overrides(const json &j)
     return overrides;
 }
 
-std::string settings_path() { return FlightLogger::output_dir() + "settings.json"; }
+constexpr const char *SETTINGS_FILENAME = "xp_pilot.prf";
+
+std::string settings_path() { return FlightLogger::preferences_dir() + SETTINGS_FILENAME; }
+
+// Where the settings lived before they moved to Output/preferences/.
+std::string legacy_settings_path() { return FlightLogger::output_dir() + "settings.json"; }
+
+void migrate_from_legacy_location()
+{
+    switch (Settings::migrate_settings_file(legacy_settings_path(), settings_path()))
+    {
+    case Settings::MigrationOutcome::NothingToMigrate:
+        break;
+    case Settings::MigrationOutcome::Migrated:
+        XPLMDebugString(("[xp_pilot] settings moved to " + settings_path() + "\n").c_str());
+        break;
+    case Settings::MigrationOutcome::OldFileMalformed:
+        XPLMDebugString(("[xp_pilot] WARNING: cannot read " + legacy_settings_path() +
+                         " - starting from defaults. The old file was left in place so you can recover it by hand.\n")
+                            .c_str());
+        break;
+    case Settings::MigrationOutcome::MoveFailed:
+        XPLMDebugString(("[xp_pilot] WARNING: cannot write " + settings_path() + " - settings left at " +
+                         legacy_settings_path() + " and not loaded.\n")
+                            .c_str());
+        break;
+    }
+}
 
 } // namespace
 
 void Settings::load()
 {
+    migrate_from_legacy_location();
+
     std::ifstream f(settings_path());
     if (!f.is_open())
         return;
@@ -112,7 +142,7 @@ void Settings::load()
     }
     catch (...)
     {
-        XPLMDebugString("[xp_pilot] Failed to parse settings.json\n");
+        XPLMDebugString(("[xp_pilot] Failed to parse " + settings_path() + "\n").c_str());
     }
 }
 

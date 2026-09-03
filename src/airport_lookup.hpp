@@ -41,7 +41,7 @@ void stop();
 // Result is cached for 5 seconds; the lookup itself is expensive.
 std::string nearest_airport_id(double latitude, double longitude);
 
-// Owns the runway-analysis feature toggle, persisted via settings.json.
+// Owns the runway-analysis feature toggle, persisted via the settings file.
 void set_analysis_enabled(bool on);
 bool analysis_enabled();
 

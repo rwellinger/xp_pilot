@@ -89,7 +89,7 @@ FlightData load_fixture(const char *name)
 // The regression these guard: a UI scale of 2.0 sized the logbook window at 2120x1440.
 // On any narrower screen its title bar and resize grip landed off-screen, so the window
 // could neither be moved nor shrunk — and the scale slider that caused it sat inside that
-// unreachable window. Recovery meant hand-editing settings.json.
+// unreachable window. Recovery meant hand-editing the settings file.
 TEST_CASE("UI scale is clamped to a usable range", "[ui][scale]")
 {
     ImGuiHeadlessContext ctx;
@@ -103,7 +103,7 @@ TEST_CASE("UI scale is clamped to a usable range", "[ui][scale]")
     Theme::set_ui_scale(-5.f);
     REQUIRE(Theme::ui_scale() == Catch::Approx(Theme::ui_scale_min));
 
-    // A value from settings.json takes the same path, so a hand-edited file cannot
+    // A value from the settings file takes the same path, so a hand-edited file cannot
     // reintroduce an unusable scale.
     Theme::set_ui_scale(1.25f);
     REQUIRE(Theme::ui_scale() == Catch::Approx(1.25f));
@@ -125,7 +125,7 @@ TEST_CASE("UI scale steps stay on the grid and inside the range", "[ui][scale]")
     REQUIRE(Theme::stepped_ui_scale(Theme::ui_scale_max, +1) == Catch::Approx(Theme::ui_scale_max));
     REQUIRE(Theme::stepped_ui_scale(Theme::ui_scale_min, -1) == Catch::Approx(Theme::ui_scale_min));
 
-    // A value from a hand-edited settings.json is snapped back onto the grid.
+    // A value from a hand-edited settings file is snapped back onto the grid.
     REQUIRE(Theme::stepped_ui_scale(1.234f, +1) == Catch::Approx(1.30f));
     REQUIRE(Theme::stepped_ui_scale(1.234f, -1) == Catch::Approx(1.20f));
 
