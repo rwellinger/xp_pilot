@@ -21,6 +21,7 @@
   "aircraft": [
     { "match": "SHRK",  "profile": "ultra_light" },
     { "match": "ASK2",  "profile": "ultra_light" },
+    { "match": "AS21",  "profile": "ultra_light" },
     { "match": "L5",    "profile": "ultra_light" },
     { "match": "CTLS",  "profile": "ultra_light" },
     { "match": "EFOX",  "profile": "ultra_light" },
@@ -49,6 +50,7 @@
     { "match": "P46T",  "profile": "turboprop" },
     { "match": "T6A",   "profile": "turboprop" },
     { "match": "PC21",  "profile": "turboprop" },
+    { "match": "EVOT",  "profile": "turboprop" },
 
     { "match": "C510",  "profile": "vlj" },
     { "match": "E55P",  "profile": "vlj" },

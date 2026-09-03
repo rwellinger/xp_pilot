@@ -332,6 +332,39 @@ TEST_CASE("fixed-wing types are not caught by a helicopter match string", "[flig
         CHECK(category_of(mapping, icao) == "fixed_wing");
 }
 
+namespace
+{
+
+// Mirrors get_profile_name(): the profile itself, not just its category.
+std::string profile_of(const ProfileMapping &mapping, const std::string &icao)
+{
+    for (const auto &[match, profile] : mapping.aircraft)
+        if (FlightLoggerLogic::icao_matches_profile(icao, match))
+            return profile;
+    return "medium_ga";
+}
+
+} // namespace
+
+// The regression this guards: a match string that no aircraft in the sim actually
+// reports. "ASK2" and "EVOL" were written from the model name rather than the ICAO the
+// airframe sends, so both entries sat in the list without ever matching and their
+// aircraft silently fell through to medium_ga.
+TEST_CASE("default-fleet ICAO codes reach their intended profile", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    CHECK(profile_of(mapping, "AS21") == "ultra_light"); // Laminar Schleicher ASK 21
+    CHECK(profile_of(mapping, "EVOT") == "turboprop");   // Laminar Lancair Evolution, PT6
+    CHECK(profile_of(mapping, "PA18") == "light_ga");
+    CHECK(profile_of(mapping, "BE9L") == "turboprop");
+    CHECK(profile_of(mapping, "SF50") == "vlj");
+
+    // The longer add-on codes the original entries were aimed at keep working.
+    CHECK(profile_of(mapping, "ASK21") == "ultra_light");
+    CHECK(profile_of(mapping, "EVOL") == "medium_ga");
+}
+
 // ── Rotorcraft landing rating ────────────────────────────────────────────────
 // The regression these guard: the rating used to come from descent rate alone. A
 // helicopter set down from the hover has a descent rate near zero, so every landing —
