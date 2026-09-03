@@ -541,16 +541,20 @@ AirframeMetrics airframe(float mass_kg, int engines, EngineKind kind)
 }
 } // namespace
 
+// Values taken from X-Plane's DataRefs.txt entry for acf_en_type.
 TEST_CASE("engine_kind_from_dataref maps X-Plane engine types")
 {
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(0) == EngineKind::Piston); // carburetted
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(1) == EngineKind::Piston); // injected
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(3) == EngineKind::Piston); // electric
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(2) == EngineKind::Turbine);
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(8) == EngineKind::Turbine);
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(4) == EngineKind::Jet);
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(5) == EngineKind::Jet);
-    CHECK(FlightLoggerLogic::engine_kind_from_dataref(6) == EngineKind::Piston); // rocket, no profile of its own
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(0) == EngineKind::Piston);  // recip carburetted
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(1) == EngineKind::Piston);  // recip injected
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(3) == EngineKind::Piston);  // electric
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(9) == EngineKind::Turbine); // free turboprop
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(10) == EngineKind::Turbine); // fixed turboprop
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(5) == EngineKind::Jet);     // single spool
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(7) == EngineKind::Jet);     // multi spool
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(6) == EngineKind::Piston);  // rocket, no profile of its own
+    // Unused slots must not be read as a category by accident.
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(2) == EngineKind::Piston);
+    CHECK(FlightLoggerLogic::engine_kind_from_dataref(8) == EngineKind::Piston);
 }
 
 TEST_CASE("classify_fixed_wing_profile sorts piston singles by mass")

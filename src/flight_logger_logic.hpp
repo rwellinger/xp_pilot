@@ -78,17 +78,20 @@ enum class EngineKind
     Jet,     // low or high bypass
 };
 
+// Values as X-Plane's own DataRefs.txt documents them for acf_en_type. Anything else —
+// a rocket, or a type a later version adds — falls through to Piston, which only ever
+// applies to an aircraft the ICAO list does not name anyway.
 inline EngineKind engine_kind_from_dataref(int acf_en_type)
 {
     switch (acf_en_type)
     {
-    case 2: // free turbine
-    case 8: // fixed turbine
+    case 9:  // free turboprop
+    case 10: // fixed turboprop
         return EngineKind::Turbine;
-    case 4: // low bypass jet
-    case 5: // high bypass jet
+    case 5: // single spool jet
+    case 7: // multi spool jet
         return EngineKind::Jet;
-    default:
+    default: // 0 recip carb, 1 recip injected, 3 electric, 6 rocket
         return EngineKind::Piston;
     }
 }

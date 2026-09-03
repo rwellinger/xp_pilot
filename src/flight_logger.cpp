@@ -327,10 +327,19 @@ static std::string resolve_landing_profile(const std::string &plane_icao, bool i
     if (!listed.empty())
         return listed;
 
-    const std::string classified = FlightLoggerLogic::classify_fixed_wing_profile(read_airframe_metrics());
-    if (!classified.empty() && s_profiles.count(classified))
-        return classified;
-    return get_profile_name(plane_icao);
+    const FlightLoggerLogic::AirframeMetrics metrics    = read_airframe_metrics();
+    const std::string                        classified = FlightLoggerLogic::classify_fixed_wing_profile(metrics);
+    const std::string profile = (!classified.empty() && s_profiles.count(classified)) ? classified
+                                                                                     : get_profile_name(plane_icao);
+
+    // The airframe inputs go to the log because the ICAO list did not cover this
+    // aircraft: without them a surprising rating cannot be traced back to its cause.
+    char msg[256];
+    snprintf(msg, sizeof(msg), "[xp_pilot] Unlisted aircraft '%s': m_max=%.0f engines=%d type=%d -> profile %s\n",
+             plane_icao.c_str(), static_cast<double>(metrics.max_takeoff_mass_kg), metrics.engine_count,
+             static_cast<int>(metrics.engine_kind), profile.c_str());
+    XPLMDebugString(msg);
+    return profile;
 }
 
 static bool any_engine_running()
