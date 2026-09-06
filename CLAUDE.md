@@ -65,34 +65,24 @@ All implementation in this repo must follow clean-code best practices. This appl
 
 ## Repository Workflow
 
-Two remotes with strictly separated roles. Every piece of work in this project must follow this process:
-
-- **origin** (private, active development): `git@github.com:rwellinger/xp_pilot_dev.git`
-- **public** (public, released, community-visible): `git@github.com:rwellinger/xp_pilot.git`
+One repository only: **origin** — `git@github.com:rwellinger/xp_pilot.git` (public, community-visible).
 
 Branch prefixes `feature/` and `fix/` are both allowed; the workflow is identical.
 
-1. Start every piece of work as a branch off `main` in the private repo: `git checkout -b feature/<name>`
-2. Commit and push during development against `origin` only: `git push origin feature/<name>`
-3. **Never** merge a branch into `main` locally or in the dev repo — `main` in the dev repo is not a merge target.
-4. Once the work is finished, push the branch to the public repo as well: `git push public feature/<name>:feature/<name>`
-5. Open the PR in the public repo and merge it there — that is the only place where code enters `main`.
+1. Start every piece of work as a branch off `main`: `git checkout -b feature/<name>`
+2. Commit and push the branch during development: `git push origin feature/<name>`
+3. **Never** merge into `main` locally — code enters `main` only through a PR on GitHub.
+4. Open the PR, let it be reviewed, and merge it there.
 
-Rationale: over 3000 users run the plugin and some build it themselves from the public `main`. Unfinished code on `main` produced broken builds and user complaints before a release was even out.
+Rationale: over 3000 users run the plugin and some build it themselves from `main`. Unfinished code on `main` produced broken builds and user complaints before a release was even out.
 
 ### Releases
 
-Releases are cut in the public repo only. `gh release create <tag> --generate-notes` collects the titles and
-descriptions of all PRs merged since the previous tag automatically as release notes.
+`gh release create <tag> --generate-notes` collects the titles and descriptions of all PRs merged
+since the previous tag automatically as release notes.
 
-### Rule of thumb
+### Ask before outward-facing steps
 
-`origin` = workshop, anything goes. `public` = the only door to the outside, PR only.
-The merge point into `main` exists exactly once, in the public repo — never in the dev repo.
-
-### Ask before going public
-
-Steps 4 and 5 are outward-facing and must never happen on an AI assistant's own initiative.
-Always ask the maintainer for explicit confirmation before pushing a branch to `public`,
-opening a PR there, merging it, or cutting a release. Work inside `origin` needs no such
-confirmation.
+Opening a PR, merging it, or cutting a release must never happen on an AI assistant's own
+initiative. Always ask the maintainer for explicit confirmation first. Working on a branch —
+committing and pushing it — needs no such confirmation.
