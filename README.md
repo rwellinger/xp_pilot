@@ -10,7 +10,7 @@ Native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux**, and **Windows**
 
 |⚠️ Note about x-plane.org ⚠️ |
 | --- |
-| I no longer support x-plane.org. These plugins are not available there any more. GitHub is the only place where they are released and updated. |
+| I no longer support x-plane.org. These plugins are not available there any more. GitHub is the only place where they are released and updated. More info here: https://github.com/rwellinger/xp_pilot/issues/15 |
 
 
 ## Contents
