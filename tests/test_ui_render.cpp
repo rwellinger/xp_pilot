@@ -18,6 +18,7 @@
 #include <ios>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -184,6 +185,95 @@ TEST_CASE("a window smaller than the screen keeps its requested size", "[ui][sca
     REQUIRE(fit.size.x == Catch::Approx(1060.f));
     REQUIRE(fit.size.y == Catch::Approx(720.f));
     REQUIRE(fit.pos.x == Catch::Approx((2560.f - 1060.f) * 0.5f));
+}
+
+// The regression this guards: apply_style() only reset colours and a subset of the
+// metrics, while ScaleAllSizes() multiplies all of them in place. Every scale change
+// therefore compounded on the untouched fields, so a scale reached by clicking looked
+// different from the same scale loaded from the settings file at startup.
+TEST_CASE("the style is identical whether a scale is stepped to or loaded", "[ui][scale]")
+{
+    constexpr float target = 1.25f;
+
+    auto metrics_at = [](auto &&apply)
+    {
+        ImGuiHeadlessContext ctx;
+        apply();
+        const ImGuiStyle &style = ImGui::GetStyle();
+        return std::vector<float>{style.IndentSpacing, style.GrabMinSize,   style.WindowMinSize.x,
+                                  style.TabRounding,   style.ItemSpacing.x, style.WindowPadding.y};
+    };
+
+    const std::vector<float> loaded  = metrics_at([&] { Theme::set_ui_scale(target); });
+    const std::vector<float> stepped = metrics_at(
+        [&]
+        {
+            float scale = Theme::ui_scale_default;
+            while (scale < target)
+            {
+                scale = Theme::stepped_ui_scale(scale, +1);
+                Theme::set_ui_scale(scale);
+            }
+            REQUIRE(Theme::ui_scale() == Catch::Approx(target));
+        });
+
+    REQUIRE(stepped == loaded);
+}
+
+// The saved geometry comes from an earlier session that may have run on a different
+// screen, so it is treated as a suggestion, not as a given.
+TEST_CASE("a saved window geometry is restored onto the current screen", "[ui][window]")
+{
+    constexpr float screen_w = 2560.f;
+    constexpr float screen_h = 1440.f;
+    const ImVec2    min_size(760.f, 460.f);
+
+    SECTION("a geometry that already fits is kept as it is")
+    {
+        const auto fit =
+            Theme::restore_window_geometry(ImVec2(320.f, 140.f), ImVec2(1180.f, 800.f), min_size, screen_w, screen_h);
+        REQUIRE(fit.has_value());
+        REQUIRE(fit->pos.x == Catch::Approx(320.f));
+        REQUIRE(fit->pos.y == Catch::Approx(140.f));
+        REQUIRE(fit->size.x == Catch::Approx(1180.f));
+        REQUIRE(fit->size.y == Catch::Approx(800.f));
+    }
+
+    SECTION("a geometry from a larger screen is clamped to this one")
+    {
+        const auto fit = Theme::restore_window_geometry(ImVec2(3000.f, 2000.f), ImVec2(3800.f, 2000.f), min_size,
+                                                        screen_w, screen_h);
+        REQUIRE(fit.has_value());
+        REQUIRE(fit->size.x <= screen_w);
+        REQUIRE(fit->size.y <= screen_h);
+        REQUIRE(fit->pos.x <= screen_w - Theme::window_grab_margin);
+        REQUIRE(fit->pos.y <= screen_h - Theme::window_grab_margin);
+    }
+
+    SECTION("a window dragged off the left edge keeps its title bar reachable")
+    {
+        const auto fit = Theme::restore_window_geometry(ImVec2(-1400.f, -200.f), ImVec2(1180.f, 800.f), min_size,
+                                                        screen_w, screen_h);
+        REQUIRE(fit.has_value());
+        REQUIRE(fit->pos.x + fit->size.x >= Theme::window_grab_margin);
+        REQUIRE(fit->pos.y >= 0.f);
+    }
+
+    SECTION("a window smaller than the content minimum grows back to it")
+    {
+        const auto fit =
+            Theme::restore_window_geometry(ImVec2(100.f, 100.f), ImVec2(200.f, 120.f), min_size, screen_w, screen_h);
+        REQUIRE(fit.has_value());
+        REQUIRE(fit->size.x == Catch::Approx(min_size.x));
+        REQUIRE(fit->size.y == Catch::Approx(min_size.y));
+    }
+
+    SECTION("nothing saved yet means the default layout applies")
+    {
+        REQUIRE_FALSE(Theme::restore_window_geometry(ImVec2(0.f, 0.f), ImVec2(0.f, 0.f), min_size, screen_w, screen_h));
+        REQUIRE_FALSE(
+            Theme::restore_window_geometry(ImVec2(0.f, 0.f), ImVec2(-10.f, 400.f), min_size, screen_w, screen_h));
+    }
 }
 
 TEST_CASE("every icon define resolves to a glyph in the embedded subset", "[ui]")

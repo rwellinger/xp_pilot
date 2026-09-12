@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <imgui.h>
+
 // logbook_ui — Dear ImGui logbook window inside a XPLMCreateWindowEx window.
 // Opens/closes via menu or keyboard command.
 
@@ -33,4 +35,16 @@ void draw(); // call from the draw callback while the window or a popup is up
 // from the plugin menu and a command, so an oversized window can always be recovered
 // without editing the settings file.
 void reset_layout();
+
+// Window position and size of the ImGui window, in logical screen coordinates. Owned
+// here and persisted by Settings; a zero size means nothing has been recorded yet and
+// the default layout applies.
+struct WindowGeometry
+{
+    ImVec2 pos;
+    ImVec2 size;
+};
+
+WindowGeometry window_geometry();
+void           set_window_geometry(WindowGeometry geometry);
 } // namespace LogbookUI

@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <imgui.h>
+#include <optional>
 #include <string>
 
 // Icons from the embedded Font Awesome 6 Free Solid subset. Adding one here also
@@ -152,6 +153,28 @@ inline WindowFit fit_window_to_screen(float desired_w, float desired_h, float sc
     fit.max_size = ImVec2(screen_w * window_screen_fraction, screen_h * window_screen_fraction);
     fit.size     = ImVec2(std::min(desired_w, fit.max_size.x), std::min(desired_h, fit.max_size.y));
     fit.pos      = ImVec2((screen_w - fit.size.x) * 0.5f, (screen_h - fit.size.y) * 0.5f);
+    return fit;
+}
+
+// How much of the window's title bar has to stay on screen for it to remain draggable.
+inline constexpr float window_grab_margin = 60.f;
+
+// Brings a geometry saved in an earlier session back onto the current screen: the size is
+// clamped to [min_size, the screen], and the position is pulled back far enough that the
+// title bar can still be grabbed. Returns nothing for a geometry that was never recorded
+// or is unusable, in which case the caller falls back to the centred default.
+inline std::optional<WindowFit> restore_window_geometry(ImVec2 pos, ImVec2 size, ImVec2 min_size, float screen_w,
+                                                        float screen_h)
+{
+    if (!(size.x > 0.f) || !(size.y > 0.f) || !std::isfinite(pos.x) || !std::isfinite(pos.y))
+        return std::nullopt;
+
+    WindowFit fit;
+    fit.max_size = ImVec2(screen_w * window_screen_fraction, screen_h * window_screen_fraction);
+    fit.size     = ImVec2(std::clamp(size.x, std::min(min_size.x, fit.max_size.x), fit.max_size.x),
+                          std::clamp(size.y, std::min(min_size.y, fit.max_size.y), fit.max_size.y));
+    fit.pos      = ImVec2(std::clamp(pos.x, window_grab_margin - fit.size.x, screen_w - window_grab_margin),
+                          std::clamp(pos.y, 0.f, screen_h - window_grab_margin));
     return fit;
 }
 

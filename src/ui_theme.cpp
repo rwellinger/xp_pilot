@@ -48,6 +48,11 @@ void load_fonts()
 
 void apply_style()
 {
+    // Assigning a default-constructed style is what makes this idempotent:
+    // StyleColorsDark() only resets colours, and the metrics set below are a subset of
+    // what ScaleAllSizes() multiplies. Without the reset, every unlisted metric would be
+    // scaled again on each call and drift away from its nominal value.
+    ImGui::GetStyle() = ImGuiStyle();
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
 
@@ -137,7 +142,8 @@ void Theme::set_ui_scale(float scale)
 {
     s_ui_scale = std::clamp(scale, Theme::ui_scale_min, Theme::ui_scale_max);
 
-    // ScaleAllSizes() is not idempotent, so the style is rebuilt from scratch first.
+    // ScaleAllSizes() multiplies in place, so the style is rebuilt from its nominal
+    // values first — otherwise repeated scale changes compound.
     apply_style();
     if (s_ui_scale != 1.0f)
         ImGui::GetStyle().ScaleAllSizes(s_ui_scale);

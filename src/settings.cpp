@@ -20,6 +20,7 @@
 #include "airport_lookup.hpp"
 #include "auto_qnh.hpp"
 #include "flight_logger.hpp"
+#include "logbook_ui.hpp"
 #include "settings_migration.hpp"
 #include "settings_profiles.hpp"
 #include "ui_landing_popup.hpp"
@@ -69,6 +70,18 @@ constexpr Binding<float> FLOATS[] = {
 // value degrades to the default. Its own table entry would need a third accessor
 // shape for one setting, so it is spelled out instead.
 constexpr const char *POPUP_POSITION_KEY = "popup_position";
+
+// Logbook window position and size, as an object so the four related numbers stay
+// together in the file. Absent or incomplete means "never saved" and leaves the
+// centred default layout in place.
+constexpr const char *WINDOW_KEY = "window";
+
+LogbookUI::WindowGeometry window_geometry_from_json(const json &j)
+{
+    if (!j.is_object() || !j.contains("x") || !j.contains("y") || !j.contains("w") || !j.contains("h"))
+        return {};
+    return {ImVec2(j.value("x", 0.f), j.value("y", 0.f)), ImVec2(j.value("w", 0.f), j.value("h", 0.f))};
+}
 
 // Per-aircraft landing profiles, whose value is a name or an object of thresholds.
 // Reading and writing that shape lives in SettingsProfiles.
@@ -126,6 +139,8 @@ void Settings::load()
         LandingPopup::set_position(popup_position_from_string(
             j.value(POPUP_POSITION_KEY, popup_position_to_string(POPUP_POSITION_DEFAULT))));
 
+        LogbookUI::set_window_geometry(window_geometry_from_json(j.value(WINDOW_KEY, json::object())));
+
         FlightLogger::set_profile_overrides(SettingsProfiles::read(j));
     }
     catch (...)
@@ -144,6 +159,10 @@ void Settings::save()
     for (const auto &binding : FLOATS)
         j[binding.key] = binding.get();
     j[POPUP_POSITION_KEY] = popup_position_to_string(LandingPopup::position());
+
+    const LogbookUI::WindowGeometry window = LogbookUI::window_geometry();
+    if (window.size.x > 0.f && window.size.y > 0.f)
+        j[WINDOW_KEY] = {{"x", window.pos.x}, {"y", window.pos.y}, {"w", window.size.x}, {"h", window.size.y}};
 
     j[AIRCRAFT_PROFILES_KEY] = SettingsProfiles::write(FlightLogger::profile_overrides());
 

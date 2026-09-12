@@ -60,6 +60,16 @@ static ImGuiContext *s_imgui_ctx    = nullptr;
 static bool          s_logbook_open = false; // ImGui window open state
 static bool          s_reset_window_layout = false; // recentre and resize on the next frame
 
+// Geometry the user dragged the window to, mirrored here every frame so it can be
+// persisted. Writing it on every frame of a drag would rewrite the settings file
+// hundreds of times, so a change only marks it dirty and the write follows once the
+// window has been left alone for GEOMETRY_SAVE_DELAY_SECONDS.
+static LogbookUI::WindowGeometry s_geometry{ImVec2(0.f, 0.f), ImVec2(0.f, 0.f)};
+static bool                      s_geometry_dirty      = false;
+static double                    s_geometry_changed_at = 0.0;
+
+static constexpr double GEOMETRY_SAVE_DELAY_SECONDS = 1.5;
+
 static Screen s_screen = Screen::Home;
 
 static FlightListScreen::FlightList make_list(const char *subdir, bool allow_archive)
@@ -360,18 +370,47 @@ static void draw_current_screen(const FlightLogger::LiveFlight &live)
 // ImGui draws on top with its own window chrome.
 // ════════════════════════════════════════════════════════════════
 
+// Notes where the user has dragged or resized the window. The write itself is deferred
+// to flush_geometry(), so a drag costs nothing beyond this comparison.
+static void track_geometry(ImVec2 pos, ImVec2 size, double now)
+{
+    if (pos.x == s_geometry.pos.x && pos.y == s_geometry.pos.y && size.x == s_geometry.size.x &&
+        size.y == s_geometry.size.y)
+        return;
+    s_geometry            = {pos, size};
+    s_geometry_dirty      = true;
+    s_geometry_changed_at = now;
+}
+
+// Writes a pending geometry change through to the settings file. Called on a delay
+// while the window is up, and immediately when it closes.
+static void flush_geometry()
+{
+    if (!s_geometry_dirty)
+        return;
+    s_geometry_dirty = false;
+    Settings::save();
+}
+
 static void close_window()
 {
     s_logbook_open = false;
     if (s_wnd)
         XPLMSetWindowIsVisible(s_wnd, 0);
+    flush_geometry();
 }
 
 void LogbookUI::reset_layout()
 {
     Theme::reset_ui_scale();
     s_reset_window_layout = true;
+    s_geometry            = {ImVec2(0.f, 0.f), ImVec2(0.f, 0.f)};
+    s_geometry_dirty      = false;
 }
+
+LogbookUI::WindowGeometry LogbookUI::window_geometry() { return s_geometry; }
+
+void LogbookUI::set_window_geometry(WindowGeometry geometry) { s_geometry = geometry; }
 
 // Minimal XPLM window draw callback — input capture only, rendering is in LogbookUI::draw()
 static void DrawCallback(XPLMWindowID, void *)
@@ -567,25 +606,32 @@ void LogbookUI::draw()
 
     if (s_logbook_open)
     {
-        const Theme::WindowFit fit = Theme::fit_window_to_screen(
+        const Theme::WindowFit default_fit = Theme::fit_window_to_screen(
             Theme::scaled(1060.f), Theme::scaled(720.f), static_cast<float>(screen_w), static_cast<float>(screen_h));
 
-        // A scale change has to re-apply size and position, otherwise the window keeps
-        // whatever the previous scale left behind and its content no longer fits.
-        static float last_applied_scale = Theme::ui_scale();
-        ImGuiCond    layout_cond        = ImGuiCond_FirstUseEver;
-        if (s_reset_window_layout || last_applied_scale != Theme::ui_scale())
+        // The content needs this much room before its columns collapse into each other.
+        // It is the one remaining way the UI scale touches the window size, and only
+        // upwards: a window too small for the chosen scale grows back to this.
+        const ImVec2 min_size(std::min(Theme::scaled(760.f), default_fit.max_size.x),
+                              std::min(Theme::scaled(460.f), default_fit.max_size.y));
+
+        // The saved geometry, brought back onto whatever screen the session runs on.
+        // Without one — first start, or after a layout reset — the centred default applies.
+        const Theme::WindowFit fit =
+            Theme::restore_window_geometry(s_geometry.pos, s_geometry.size, min_size, static_cast<float>(screen_w),
+                                           static_cast<float>(screen_h))
+                .value_or(default_fit);
+
+        ImGuiCond layout_cond = ImGuiCond_FirstUseEver;
+        if (s_reset_window_layout)
         {
-            last_applied_scale    = Theme::ui_scale();
             s_reset_window_layout = false;
             layout_cond           = ImGuiCond_Always;
         }
 
         ImGui::SetNextWindowPos(fit.pos, layout_cond);
         ImGui::SetNextWindowSize(fit.size, layout_cond);
-        ImGui::SetNextWindowSizeConstraints(
-            ImVec2(std::min(Theme::scaled(760.f), fit.max_size.x), std::min(Theme::scaled(460.f), fit.max_size.y)),
-            fit.max_size);
+        ImGui::SetNextWindowSizeConstraints(min_size, fit.max_size);
 
         bool open = true;
 #ifdef XP_PILOT_VERSION
@@ -599,10 +645,13 @@ void LogbookUI::draw()
             Home::draw_status_bar(live);
             draw_current_screen(live);
         }
+        track_geometry(ImGui::GetWindowPos(), ImGui::GetWindowSize(), now);
         ImGui::End();
 
         if (!open)
             close_window();
+        else if (s_geometry_dirty && now - s_geometry_changed_at >= GEOMETRY_SAVE_DELAY_SECONDS)
+            flush_geometry();
     }
 
     ImGui::Render();
@@ -619,6 +668,7 @@ void LogbookUI::draw()
 
 void LogbookUI::stop()
 {
+    flush_geometry();
     if (s_wnd)
     {
         XPLMDestroyWindow(s_wnd);
