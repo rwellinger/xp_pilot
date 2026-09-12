@@ -74,7 +74,7 @@ Flight records, HTML reports, settings, and the flight index are stored under X-
 └── index.html            ← list of all flights
 
 <X-Plane>/Output/preferences/
-└── xp_pilot.prf          ← feature toggles from the logbook window
+└── xp_pilot.prf          ← feature toggles and window layout from the logbook window
 ```
 
 On first start after an upgrade from older versions, xp_pilot migrates any data still in the plugin's `data/` folder to this location once (guarded by a `.migrated` marker). Settings written by versions up to 1.7.2 as `x_pilot_reports/settings.json` are moved to `preferences/xp_pilot.prf` on the next start, with every setting preserved. If that old file is unreadable, it is left in place and reported in `Log.txt` so you can recover it by hand; the plugin then starts from its defaults.
@@ -223,7 +223,7 @@ Each tile carries an icon — a departing aircraft for Live, a book for Logbook,
 | **Archive** | Flights moved out of the active logbook, same layout, delete only |
 | **Settings** | Every feature toggle and the landing-profile assignment for the loaded aircraft, saved immediately to `xp_pilot.prf` |
 
-**Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge. The **UI scale** setting adjusts fonts and spacing in 5% steps; **Plugins → xp_pilot → Reset UI Scale & Window Size** restores the default from outside the window.
+**Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge; its position and size are saved and restored on the next start, and brought back onto the screen if you have since switched to a smaller one. The **UI scale** setting adjusts fonts and spacing in 5% steps and leaves the window itself alone — it only grows a window that has become too small for the chosen scale. **Plugins → xp_pilot → Reset UI Scale & Window Size** restores 100% and the default window from outside the window.
 
 ## Using the plugin
 
