@@ -2,6 +2,13 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.8.1
+
+  - **Fixed: the logbook window forgot its size and position on every restart** — it reopened centred at its default size each time X-Plane was started, which meant setting the window up again in every session. Position and size are now stored in `xp_pilot.prf` and restored on the next start. The write follows about 1.5 seconds after you stop dragging, so it also survives a sim that does not shut down cleanly. A geometry saved on a larger screen is clamped back onto the current one, so switching to a smaller display cannot leave the window out of reach.
+  - **Fixed: the UI scale looked different after a restart than the same percentage reached by clicking** — stepping down and back up did not return to what the window looked like at startup. The style was scaled in place but only partly rebuilt beforehand, so spacing metrics that are not set explicitly — indentation, minimum window size, grab handles — were multiplied again on every change and compounded. 125% loaded from the settings file and 125% reached in five clicks are now identical.
+  - **The UI scale no longer resizes the window** — until now every scale change threw away the size and position you had set and recentred the window at its default. It now scales fonts and spacing only and leaves the window alone; the one exception is a window that has become too small for the chosen scale, which grows back to the minimum its content needs. **Plugins → xp_pilot → Reset UI Scale & Window Size** still restores 100% and the default window.
+  - No file format change; flight logs stay at `version: 8`. The window layout is stored as a new `window` key in `xp_pilot.prf` — a settings file from an earlier version simply has none and starts from the default layout.
+
 ### What's New in v1.8.0
 
   - **Aircraft that are not in the profile list are now rated by their airframe** — anything missing from the bundled list was judged against `medium_ga`, which called a normal airliner touchdown a **HARD LANDING!** and let an ultralight get away with far too much. Maximum takeoff mass, engine count and engine type now pick a fitting profile instead. Ratings change for aircraft that were not listed — mostly for the better, sometimes stricter. See [Aircraft profiles](README.md#aircraft-profiles).
