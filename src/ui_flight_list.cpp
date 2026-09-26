@@ -281,7 +281,9 @@ void draw_list_panel(FlightList &list, const ImVec2 &size)
 
             ImGui::TableNextColumn();
             bool checked = list.checked[i];
-            if (ImGui::Checkbox("##sel", &checked))
+            // Must differ from the column name: TableHeadersRow() pushes the column index
+            // too, so row 0 would share its ID with the header of column 0.
+            if (ImGui::Checkbox("##checked", &checked))
                 list.checked[i] = checked;
 
             ImGui::TableNextColumn();
