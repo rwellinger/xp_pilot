@@ -1,8 +1,11 @@
+# bugprone-signed-bitwise (new in LLVM 23) is off: ImGui and XPLM flags are
+# plain int enums, so every idiomatic `Flag_A | Flag_B` would need a cast.
 Checks: >-
   clang-diagnostic-*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   -bugprone-throwing-static-initialization,
+  -bugprone-signed-bitwise,
   performance-*,
   -performance-avoid-endl,
   -performance-no-int-to-ptr

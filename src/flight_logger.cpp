@@ -39,6 +39,7 @@
 #include <fstream>
 #include <json.hpp>
 #include <sstream>
+#include <utility>
 
 using json = nlohmann::json;
 
@@ -141,7 +142,7 @@ static std::string find_listed_profile(const std::string &plane_icao)
 
 static std::string get_profile_name(const std::string &plane_icao)
 {
-    const std::string listed = find_listed_profile(plane_icao);
+    std::string listed = find_listed_profile(plane_icao);
     if (!listed.empty())
         return listed;
     return s_profiles.count("medium_ga") ? "medium_ga" : "fallback";
@@ -1066,7 +1067,7 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
             return;
     }
 
-    s_ld_captured       = candidate;
+    s_ld_captured       = std::move(candidate);
     s_ld_captured_valid = true;
     s_worst_fpm_mag     = fpm_mag;
 }

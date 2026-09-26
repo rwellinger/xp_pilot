@@ -35,10 +35,10 @@ namespace
 ImU32 lerp_color(ImU32 low, ImU32 high, float t)
 {
     t                  = std::clamp(t, 0.f, 1.f);
-    const auto channel = [&](int shift)
+    const auto channel = [&](unsigned shift)
     {
-        const float from = static_cast<float>((low >> shift) & 0xFF);
-        const float to   = static_cast<float>((high >> shift) & 0xFF);
+        const float from = static_cast<float>((low >> shift) & 0xFFu);
+        const float to   = static_cast<float>((high >> shift) & 0xFFu);
         return static_cast<ImU32>(from + (to - from) * t) << shift;
     };
     return channel(IM_COL32_R_SHIFT) | channel(IM_COL32_G_SHIFT) | channel(IM_COL32_B_SHIFT) |
