@@ -2,6 +2,11 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.8.2
+
+  - **Fixed: ID conflict when selecting flights in the logbook and archive lists** — the checkbox of the top flight shared its internal ID with the header of the selection column, so Dear ImGui flagged the two as conflicting items and clicks on that row could go to the wrong control. Every row now has its own ID.
+  - No file format change; flight logs stay at `version: 8`.
+
 ### What's New in v1.8.1
 
   - **Fixed: the logbook window forgot its size and position on every restart** — it reopened centred at its default size each time X-Plane was started, which meant setting the window up again in every session. Position and size are now stored in `xp_pilot.prf` and restored on the next start. The write follows about 1.5 seconds after you stop dragging, so it also survives a sim that does not shut down cleanly. A geometry saved on a larger screen is clamped back onto the current one, so switching to a smaller display cannot leave the window out of reach.
