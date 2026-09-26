@@ -7,6 +7,9 @@ Native X-Plane 12 plugin for **macOS (ARM + Intel)**, **Linux**, and **Windows**
 - **Flight Logger** — records every flight and generates an HTML logbook with route maps and landing analysis
 - **Auto QNH** — automatically keeps the altimeter in sync with actual sea-level pressure
 
+Download and project website:
+[thwelly.ch/xplane-plugins/xp-pilot](https://thwelly.ch/xplane-plugins/xp-pilot/)
+
 
 |⚠️ Note about x-plane.org ⚠️ |
 | --- |
