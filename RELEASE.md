@@ -16,8 +16,8 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 
 ### What's New in v1.8.0
 
-  - **Aircraft that are not in the profile list are now rated by their airframe** — anything missing from the bundled list was judged against `medium_ga`, which called a normal airliner touchdown a **HARD LANDING!** and let an ultralight get away with far too much. Maximum takeoff mass, engine count and engine type now pick a fitting profile instead. Ratings change for aircraft that were not listed — mostly for the better, sometimes stricter. See [Aircraft profiles](README.md#aircraft-profiles).
-  - **You can set the landing profile yourself, on the Settings screen** — a new **Landing profiles** section shows what the loaded aircraft is rated against, the four thresholds behind it, and where they came from. Pick one of the bundled profiles, or enter four descent rates of your own for that type alone. Assignments take effect immediately, are listed for removal, and survive plugin updates. See [Choosing the profile yourself](README.md#choosing-the-profile-yourself).
+  - **Aircraft that are not in the profile list are now rated by their airframe** — anything missing from the bundled list was judged against `medium_ga`, which called a normal airliner touchdown a **HARD LANDING!** and let an ultralight get away with far too much. Maximum takeoff mass, engine count and engine type now pick a fitting profile instead. Ratings change for aircraft that were not listed — mostly for the better, sometimes stricter. See [Aircraft profiles](https://github.com/rwellinger/xp_pilot#aircraft-profiles).
+  - **You can set the landing profile yourself, on the Settings screen** — a new **Landing profiles** section shows what the loaded aircraft is rated against, the four thresholds behind it, and where they came from. Pick one of the bundled profiles, or enter four descent rates of your own for that type alone. Assignments take effect immediately, are listed for removal, and survive plugin updates. See [Choosing the profile yourself](https://github.com/rwellinger/xp_pilot#choosing-the-profile-yourself).
   - **Fixed: switching aircraft mid-session froze the sim for 6 to 15 seconds** — the plugin held X-Plane's drawing callback for the whole session, even with every feature switched off, which made X-Plane pay for OpenGL state handling on every single frame. The callback is now only registered while something is actually on screen. This also removes a per-frame cost that was there the whole time, not just during aircraft changes.
   - **Fixed: the Schleicher ASK 21 and the Lancair Evolution never matched their profile entries** — both were listed under the wrong type code and had silently fallen back to `medium_ga`.
   - **The settings file moved to `Output/preferences/xp_pilot.prf`** — the conventional place for plugin preferences, instead of sitting next to the reports. Your settings are moved for you on the first start, with nothing lost. Flights and reports stay in `Output/x_pilot_reports/`.
@@ -187,28 +187,3 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
 
   - The plugin must be validated in X-Plane 12; unit tests cover logic and parsing only
   - Flight data JSON format may change between minor versions; regenerate reports after upgrades if needed
-
-
-### Release process
-
-**Versioning:** Dev builds (`make build`) embed `SNAPSHOT` as the version string. Only release builds show the real version number from `VERSION.txt`.
-
-1. Ensure all changes are committed and pushed to `main`
-2. Run the release command:
-   ```bash
-   make release VERSION=1.3.0
-   ```
-   This will:
-   - Write the version to `VERSION.txt`
-   - Create a commit (`release 1.3.0`)
-   - Create an annotated git tag (`v1.3.0`)
-   - Push the tag to origin
-3. On GitHub, [create a release](../../releases/new) from the pushed tag
-4. The CI pipeline detects the `release` event and builds all three platforms with the real version number
-5. The resulting `xp_pilot.zip` (containing macOS, Linux, and Windows binaries) is automatically attached to the GitHub release
-
-**Local release build** (e.g. for testing before release):
-
-```bash
-make release-build
-```

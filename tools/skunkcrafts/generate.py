@@ -12,10 +12,10 @@ files the updater compares against:
 It also writes an (empty) skunkcrafts_updater_oncelist.txt. xp_pilot keeps no
 user-editable files inside the plugin tree — flights, reports and settings.json
 live under <X-Plane>/Output/x_pilot_reports/ — so there is nothing to protect
-from being overwritten. The only tracked content is the three platform binaries
-(mac_x64/lin_x64/win_x64) plus the bundled read-only config
-data/flight_logger_profiles.json, which is intentionally tracked so updated
-landing-quality thresholds reach existing users.
+from being overwritten. The tracked content is the three platform binaries
+(mac_x64/lin_x64/win_x64), the bundled read-only data (profiles, map data) and
+the docs and license texts at the tree root, so updates to any of them reach
+existing users.
 
 Anything not in the whitelist is left untouched by the updater.
 

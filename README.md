@@ -351,7 +351,7 @@ Version history and detailed changelogs: [RELEASE.md](RELEASE.md) and the [GitHu
 
 ## For developers
 
-Project context for AI assistants: [.cursor/rules/xp-pilot.mdc](.cursor/rules/xp-pilot.mdc) (Cursor) and [CLAUDE.md](CLAUDE.md) (Claude Code). See [RELEASE.md](RELEASE.md) for the release process and changelog.
+Project context for AI assistants: [.cursor/rules/xp-pilot.mdc](.cursor/rules/xp-pilot.mdc) (Cursor) and [CLAUDE.md](CLAUDE.md) (Claude Code). See [RELEASE.md](RELEASE.md) for the changelog and [Release process](#release-process) below.
 
 ### Build from source
 
@@ -362,6 +362,27 @@ make setup    # Download X-Plane SDK, Dear ImGui, nlohmann/json, Catch2
 make build    # Build the plugin (universal binary on macOS)
 make test     # Run Catch2 unit tests
 make install  # Install + code-sign to X-Plane (macOS only)
+```
+
+### Release process
+
+**Versioning:** dev builds (`make build`) embed `SNAPSHOT` as the version string. Only release builds show the real version number from `VERSION.txt`.
+
+1. Make sure everything for the release is merged into `main` and your working tree is clean.
+2. Run the release command:
+   ```bash
+   make release VERSION=1.3.0
+   ```
+   This writes the version to `VERSION.txt`, commits it (`release 1.3.0`), creates the annotated tag `v1.3.0` and pushes commit and tag to origin.
+3. The pushed tag triggers the CI release job, which builds all three platforms with the real version number and then:
+   - packs `xp_pilot.zip` — the three binaries, `data/`, and the user docs `packaging/README.md`, `packaging/THIRD_PARTY_LICENSES.md`, `RELEASE.md` and `LICENSE`
+   - creates the GitHub release for the tag with that ZIP attached and generated release notes
+   - force-pushes the same tree, with the SkunkCrafts control files, to the `release` branch that the SkunkCrafts Updater reads from
+
+**Local release build** (e.g. for testing before release):
+
+```bash
+make release-build
 ```
 
 ### Project layout

@@ -148,6 +148,12 @@ jobs:
           cp data/coastlines.dat data/cities.dat dist/xp_pilot/data/
           test -s dist/xp_pilot/data/coastlines.dat
           test -s dist/xp_pilot/data/cities.dat
+          # User-facing docs and the license texts the GPL and the MIT/Apache/OFL
+          # components require to travel with the binaries.
+          cp packaging/README.md packaging/THIRD_PARTY_LICENSES.md RELEASE.md LICENSE dist/xp_pilot/
+          for doc in README.md THIRD_PARTY_LICENSES.md RELEASE.md LICENSE; do
+            test -s "dist/xp_pilot/$doc"
+          done
           # SkunkCrafts control files into the staging tree, BEFORE the zip, so
           # the release ZIP also carries the cfg (manual installs become
           # updater-discoverable). Version from the tag (v1.2.3 -> 1.2.3).
