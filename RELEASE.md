@@ -2,6 +2,13 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.8.3
+
+  - **Documentation and license texts now ship with the plugin** — the release ZIP and the SkunkCrafts Updater tree carry a `README.md` with installation and usage, `RELEASE.md`, the GPL `LICENSE`, and `THIRD_PARTY_LICENSES.md` with the license texts of every bundled component (Dear ImGui, nlohmann/json, the X-Plane SDK, and the Roboto and Font Awesome fonts). Updater users receive them with the next update.
+  - **Project website** — downloads and documentation are now also available at [thwelly.ch/xplane-plugins/xp-pilot](https://thwelly.ch/xplane-plugins/xp-pilot/).
+  - Documentation updates: the third-party license overview now lists the bundled fonts and map data, and the release process moved from `RELEASE.md` to the README's developer section.
+  - No code change; flight logs stay at `version: 8`.
+
 ### What's New in v1.8.2
 
   - **Fixed: ID conflict when selecting flights in the logbook and archive lists** — the checkbox of the top flight shared its internal ID with the header of the selection column, so Dear ImGui flagged the two as conflicting items and clicks on that row could go to the wrong control. Every row now has its own ID.
