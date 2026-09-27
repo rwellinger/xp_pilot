@@ -1,0 +1,10 @@
+LICENSE|2540125440
+README.md|1579460541
+RELEASE.md|2002001457
+THIRD_PARTY_LICENSES.md|3178283764
+data/cities.dat|1750571933
+data/coastlines.dat|3329795618
+data/flight_logger_profiles.json|1908461601
+lin_x64/xp_pilot.xpl|2411574355
+mac_x64/xp_pilot.xpl|2259395329
+win_x64/xp_pilot.xpl|2526551591
