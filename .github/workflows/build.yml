@@ -9,9 +9,9 @@ on:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install tools
         run: |
@@ -34,9 +34,9 @@ jobs:
 
   build-macos:
     needs: [lint]
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup dependencies
         run: make setup
@@ -56,9 +56,9 @@ jobs:
 
   build-linux:
     needs: [lint]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: sudo apt-get update -q && sudo apt-get install -y libgl-dev
@@ -83,7 +83,7 @@ jobs:
     needs: [lint]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install make
         run: choco install make --no-progress -y
@@ -109,11 +109,11 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [lint, build-macos, build-linux, build-windows]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Download macOS artifact
         uses: actions/download-artifact@v8
