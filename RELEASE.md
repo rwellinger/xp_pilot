@@ -2,6 +2,17 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.9.0
+
+  - **Multi-leg flights and off-field landings** — a helicopter mission from the airport to a rescue site, on to a second one and back used to show up as touch-and-goes at the same airfield. A landing more than 500 m from every runway and helipad of the nearest airport now counts as a landing site (`LS1`, `LS2`, …) named after the nearest town, and the flight reads as a route: `LSZB → LS1 → LS2 → LSZB`.
+    - The HTML report gains a **Legs** table with flight and ground time per leg, touchdown markers on the map, and a heading per landing (`Landing 1 - LS1 (near Thun)`). Logbook list, detail view and track map show the route too.
+    - Applies to every aircraft. A circuit of touch-and-goes stays `LSZB → LSZB`.
+    - Heliports and helipads from X-Plane's airport database are now recognised.
+    - Only raw distances are stored; the interpretation happens when a report is drawn. **Rebuild All Reports** applies it to existing flights, which stay readable unchanged and are treated as on-airport.
+  - **Fixed: a freshly loaded helicopter started a flight with a hard landing** — X-Plane places the aircraft slightly above the ground and lets it drop, which counted as lift-off and touchdown. A helicopter now has to stand on the ground for 3 seconds after loading or relocation before a lift-off starts a recording. A helicopter started in the air is recorded from its next lift-off, as fixed-wing aircraft already were.
+  - **More helicopters in the profile list** — Dreamfoil JetRanger (`206B3`), Bell 412 (`412`), JRX MD 902 (`MD902`), SA315B Lama (`LAMA`) and VSKYLABS HC-02 (`HC02`). The HC-02 is now rated as a light helicopter instead of a turbine.
+  - Flight logs written by this release use `version: 9`, adding the lift-off point, distances to the nearest runway or helipad, and lift-off times per landing.
+
 ### What's New in v1.8.3
 
   - **Documentation and license texts now ship with the plugin** — the release ZIP and the SkunkCrafts Updater tree carry a `README.md` with installation and usage, `RELEASE.md`, the GPL `LICENSE`, and `THIRD_PARTY_LICENSES.md` with the license texts of every bundled component (Dear ImGui, nlohmann/json, the X-Plane SDK, and the Roboto and Font Awesome fonts). Updater users receive them with the next update.
@@ -169,6 +180,7 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Conditions at touchdown — visibility, ceiling, temperature and precipitation, classified as VMC or IMC
   - Bounce detection — bounced landings are counted and the rating reflects the hardest touchdown
   - Touch-and-go support
+  - Multi-leg flights — off-field landing sites and the route flown between them
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
   - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
