@@ -110,8 +110,13 @@ struct LandingData
     std::string rating;
     std::string wind_status;
     std::string crosswind_side;
-    std::string airport_icao; // where THIS landing happened — a touch-and-go en route
+    std::string airport_icao; // nearest airport to THIS landing — a touch-and-go en route
                               // is not the flight's arrival airport
+    // Distance to the nearest runway or helipad of airport_icao. Stored raw so whether a
+    // landing counts as off-field is decided when rendering; -1 = unknown (before v9).
+    float       airport_distance_m = -1;
+    std::string nearby_place;      // largest populated place around, names an off-field site
+    time_t      liftoff_time = 0;  // when the aircraft left again; 0 = final landing or before v9
     // Runway placement; runway_ident is empty when no runway could be matched.
     std::string runway_ident;
     float       runway_offset_m   = 0; // + = right of centerline
@@ -126,6 +131,10 @@ struct FlightData
     std::string              start_utc; // "HH:MM"
     std::string              end_utc;   // "HH:MM"
     std::string              departure_icao;
+    // Lift-off point, matched like a landing's touchdown. Written since v9.
+    double                   departure_lat = 0, departure_lon = 0;
+    float                    departure_distance_m = -1;
+    std::string              departure_nearby_place;
     std::string              arrival_icao;
     std::string              aircraft_icao;
     std::string              aircraft_tail;

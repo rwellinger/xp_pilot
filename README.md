@@ -189,6 +189,24 @@ Landings that cannot be matched to a runway — grass strips, water landings, he
 
 </details>
 
+<details>
+<summary><strong>Multi-leg flights and off-field landings</strong></summary>
+
+A helicopter mission rarely goes from A to B. Lifting off at the airport, setting down at a rescue site, flying on to a second one and returning shows up as a route rather than a pile of landings at the same airfield:
+
+`LSZB → LS1 → LS2 → LSZB`
+
+- **Landing sites** — a landing more than 500 m from every runway and helipad of the nearest airport counts as off-field and becomes a landing site: LS1, LS2, … in the order you reach them. Returning to one keeps its number. The report, the map and the legs table add the largest town around, e.g. `LS1 (near Thun)`, or the coordinates where there is none.
+- **Legs** — the HTML report lists every leg with its flight time, the time spent on the ground at the destination and the landing rating. A stop under 15 seconds is shown as a touch-and-go.
+- **Map** — each stop gets its own marker in the HTML report and in the logbook window's track view.
+- **Logbook** — the route column shows the number of stops in between, e.g. `LSZB-LSZB +2`.
+
+This works for every aircraft, not just helicopters. A circuit of touch-and-goes stays `LSZB → LSZB`, while a touch-and-go at another airport en route becomes a stop of its own.
+
+The raw distances are stored with the flight, and whether a landing was off-field is decided only when the report is drawn. Flights recorded before this feature simply show their departure and arrival as before. Airports and heliports that only exist in Custom Scenery are missing from the global airport database, so their distance cannot be checked. A landing whose nearest airport is one of them is always shown with that airport's identifier.
+
+</details>
+
 ### Auto QNH
 
 - Monitors the difference between actual QNH and the pilot's altimeter setting

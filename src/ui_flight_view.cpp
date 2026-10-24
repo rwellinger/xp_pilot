@@ -17,6 +17,7 @@
  */
 
 #include "ui_flight_view.hpp"
+#include "flight_legs.hpp"
 #include "map_overlay_cache.hpp"
 #include "flight_logger_logic.hpp"
 #include "ui_theme.hpp"
@@ -138,6 +139,30 @@ ImVec4 label_box(const ImVec2 &anchor, const char *text)
     const ImVec2 size = ImGui::CalcTextSize(text);
     const float  pad  = Theme::scaled(2.f);
     return ImVec4(anchor.x - pad, anchor.y - pad, anchor.x + size.x + pad, anchor.y + size.y + pad);
+}
+
+struct StopMarker
+{
+    ImVec2      dot;
+    ImVec2      label_at;
+    std::string name;
+};
+
+// The places between departure and arrival — rescue sites, an en-route airport.
+template <typename ToPixel>
+std::vector<StopMarker> intermediate_stop_markers(const FlightLegs::Route &route, const ImVec2 &origin,
+                                                  ToPixel to_px, float label_gap)
+{
+    std::vector<StopMarker> markers;
+    for (size_t i = 1; i + 1 < route.stops.size(); ++i)
+    {
+        const auto &stop = route.stops[i];
+        float       x, y;
+        to_px(stop.lat, stop.lon, x, y);
+        markers.push_back({ImVec2(origin.x + x, origin.y + y),
+                           ImVec2(origin.x + x + label_gap, origin.y + y - label_gap), stop.name});
+    }
+    return markers;
 }
 
 // Place names are what makes a flown route recognisable — "past Nancy, then the Marne"
@@ -355,8 +380,11 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     draw_water(dl, origin, overlay.outlines, viewport, overlay_budget);
     draw_airspaces(dl, origin, overlay.airspaces, viewport, overlay_budget);
 
-    // Departure and arrival are the two labels that must never be crowded out, so their
-    // boxes are reserved before any city competes for the space.
+    // Departure, arrival and the stops in between are the labels that must never be
+    // crowded out, so their boxes are reserved before any city competes for the space.
+    const FlightLegs::Route route = FlightLegs::derive_route(flight);
+    const std::string &departure_name = route.stops.front().name;
+    const std::string &arrival_name   = route.stops.back().name;
     float departure_x, departure_y, arrival_x, arrival_y;
     to_px(flight.track.front().lat, flight.track.front().lon, departure_x, departure_y);
     to_px(flight.track.back().lat, flight.track.back().lon, arrival_x, arrival_y);
@@ -365,10 +393,13 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
     const ImVec2 arrival_label(origin.x + arrival_x + label_gap, origin.y + arrival_y - label_gap);
 
     std::vector<ImVec4> occupied;
-    if (!flight.departure_icao.empty())
-        occupied.push_back(label_box(departure_label, flight.departure_icao.c_str()));
-    if (!flight.arrival_icao.empty())
-        occupied.push_back(label_box(arrival_label, flight.arrival_icao.c_str()));
+    if (departure_name != "?")
+        occupied.push_back(label_box(departure_label, departure_name.c_str()));
+    if (arrival_name != "?")
+        occupied.push_back(label_box(arrival_label, arrival_name.c_str()));
+    const std::vector<StopMarker> stops = intermediate_stop_markers(route, origin, to_px, label_gap);
+    for (const auto &stop : stops)
+        occupied.push_back(label_box(stop.label_at, stop.name.c_str()));
 
     draw_cities(dl, origin, overlay.cities, viewport, occupied);
 
@@ -410,12 +441,17 @@ void FlightView::draw_track_map(const FlightData &flight, float width)
         dl->AddCircleFilled(ImVec2(origin.x + px, origin.y + py), 4.f, Theme::map_pause);
     }
 
+    for (const auto &stop : stops)
+    {
+        dl->AddCircleFilled(stop.dot, 4.f, Theme::map_touchdown);
+        dl->AddText(stop.label_at, Theme::map_touchdown, stop.name.c_str());
+    }
     dl->AddCircleFilled(ImVec2(origin.x + departure_x, origin.y + departure_y), 5.f, Theme::map_departure);
     dl->AddCircleFilled(ImVec2(origin.x + arrival_x, origin.y + arrival_y), 5.f, Theme::map_arrival);
-    if (!flight.departure_icao.empty())
-        dl->AddText(departure_label, Theme::map_departure, flight.departure_icao.c_str());
-    if (!flight.arrival_icao.empty())
-        dl->AddText(arrival_label, Theme::map_arrival, flight.arrival_icao.c_str());
+    if (departure_name != "?")
+        dl->AddText(departure_label, Theme::map_departure, departure_name.c_str());
+    if (arrival_name != "?")
+        dl->AddText(arrival_label, Theme::map_arrival, arrival_name.c_str());
 
     draw_scale_bar(dl, origin, bounds, viewport, map_w, map_h);
     ImGui::PopClipRect();
@@ -441,14 +477,14 @@ void FlightView::draw_landings(const FlightData &flight)
         return;
     }
 
+    const FlightLegs::Route route = FlightLegs::derive_route(flight);
     for (size_t i = 0; i < flight.landings.size(); ++i)
     {
         const auto &landing = flight.landings[i];
         if (flight.landings.size() > 1)
         {
-            char heading[32];
-            snprintf(heading, sizeof(heading), "-- Landing %zu --", i + 1);
-            Ui::text_dim(heading);
+            const std::string heading = "-- Landing " + std::to_string(i + 1) + " - " + route.legs[i].to.label + " --";
+            Ui::text_dim(heading.c_str());
         }
 
         ImGui::PushStyleColor(ImGuiCol_Text, Theme::rating_color(landing.rating));
@@ -503,8 +539,8 @@ void FlightView::draw_landings(const FlightData &flight)
 
 void FlightView::draw_detail(const FlightData &flight, float width)
 {
-    const std::string route = (flight.departure_icao.empty() ? "?" : flight.departure_icao) +
-                              "   " ICON_FA_PLANE_DEP "   " + (flight.arrival_icao.empty() ? "?" : flight.arrival_icao);
+    const std::string route =
+        FlightLegs::route_text(FlightLegs::derive_route(flight), "   " ICON_FA_PLANE_DEP "   ", false);
     ImGui::PushFont(nullptr, 22.f);
     ImGui::TextUnformatted(route.c_str());
     ImGui::PopFont();

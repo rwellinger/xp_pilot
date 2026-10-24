@@ -33,6 +33,10 @@ FlightData sample_flight()
     fd.start_utc         = "08:15";
     fd.end_utc           = "09:42";
     fd.departure_icao    = "LSZB";
+    fd.departure_lat          = 46.914;
+    fd.departure_lon          = 7.497;
+    fd.departure_distance_m   = 12.5f;
+    fd.departure_nearby_place = "Bern";
     fd.arrival_icao      = "LSGG";
     fd.aircraft_icao     = "DA42";
     fd.aircraft_tail     = "HB-XYZ";
@@ -86,6 +90,9 @@ FlightData sample_flight()
     ld.wind_status       = "OK";
     ld.crosswind_side    = "left";
     ld.airport_icao      = "LSGG";
+    ld.airport_distance_m = 4.f;
+    ld.nearby_place      = "Geneva";
+    ld.liftoff_time      = 1774950030;
     ld.runway_ident      = "22";
     ld.runway_offset_m   = -1.5f;
     ld.runway_distance_m = 310.f;
@@ -122,19 +129,23 @@ json written_json(const TempOutputDir &dir, const std::string &filename)
 
 // The flight JSON is compatibility surface: over 3000 users have logs in it, and a
 // renamed or dropped key silently breaks their existing logbook.
-TEST_CASE("FlightStore::save writes the v8 field set", "[flight_store][format]")
+TEST_CASE("FlightStore::save writes the v9 field set", "[flight_store][format]")
 {
-    TempOutputDir dir("v8_fields");
+    TempOutputDir dir("v9_fields");
     const auto    filename = FlightStore::save(sample_flight(), dir.path());
     REQUIRE(filename == "2026-04-01_LSZB_LSGG_DA42.json");
 
     const json j = written_json(dir, filename);
 
-    CHECK(j["version"] == 8);
+    CHECK(j["version"] == 9);
     CHECK(j["date"] == "2026-04-01");
     CHECK(j["start_utc"] == "08:15");
     CHECK(j["end_utc"] == "09:42");
     CHECK(j["departure_icao"] == "LSZB");
+    CHECK(j["departure_lat"] == Catch::Approx(46.914));
+    CHECK(j["departure_lon"] == Catch::Approx(7.497));
+    CHECK(j["departure_distance_m"] == Catch::Approx(12.5));
+    CHECK(j["departure_nearby_place"] == "Bern");
     CHECK(j["arrival_icao"] == "LSGG");
     CHECK(j["aircraft_icao"] == "DA42");
     CHECK(j["aircraft_tail"] == "HB-XYZ");
@@ -169,7 +180,8 @@ TEST_CASE("FlightStore::save writes the v8 field set", "[flight_store][format]")
                             "rating",        "bank_deg",       "yaw_rate_deg_s",    "has_configuration",
                             "gear_retractable", "gear_deploy_ratio", "flap_ratio",  "gate_flap_ratio",
                             "speedbrake_ratio", "autopilot_engaged", "meteo",       "visibility_m",
-                            "ceiling_ft_agl", "has_ceiling",   "oat_c",             "precipitation_ratio"})
+                            "ceiling_ft_agl", "has_ceiling",   "oat_c",             "precipitation_ratio",
+                            "airport_distance_m", "nearby_place", "liftoff_time"})
         CHECK(j["landings"][0].contains(key));
 }
 
@@ -189,6 +201,10 @@ TEST_CASE("FlightStore::save round-trips through parse_flight_json", "[flight_st
     CHECK(parsed.start_utc == original.start_utc);
     CHECK(parsed.end_utc == original.end_utc);
     CHECK(parsed.departure_icao == original.departure_icao);
+    CHECK(parsed.departure_lat == Catch::Approx(original.departure_lat));
+    CHECK(parsed.departure_lon == Catch::Approx(original.departure_lon));
+    CHECK(parsed.departure_distance_m == Catch::Approx(original.departure_distance_m));
+    CHECK(parsed.departure_nearby_place == original.departure_nearby_place);
     CHECK(parsed.arrival_icao == original.arrival_icao);
     CHECK(parsed.aircraft_icao == original.aircraft_icao);
     CHECK(parsed.aircraft_tail == original.aircraft_tail);
@@ -217,6 +233,9 @@ TEST_CASE("FlightStore::save round-trips through parse_flight_json", "[flight_st
     CHECK(a.rating == b.rating);
     CHECK(a.flare == b.flare);
     CHECK(a.airport_icao == b.airport_icao);
+    CHECK(a.airport_distance_m == Catch::Approx(b.airport_distance_m));
+    CHECK(a.nearby_place == b.nearby_place);
+    CHECK(a.liftoff_time == b.liftoff_time);
     CHECK(a.runway_ident == b.runway_ident);
     CHECK(a.crosswind_side == b.crosswind_side);
     CHECK(a.wind_status == b.wind_status);

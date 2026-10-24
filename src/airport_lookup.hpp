@@ -41,6 +41,10 @@ void stop();
 // Result is cached for 5 seconds; the lookup itself is expensive.
 std::string nearest_airport_id(double latitude, double longitude);
 
+// The same lookup bypassing the cache, for the touchdown frame: five seconds of
+// approach can still carry the previous airport's answer.
+std::string nearest_airport_id_now(double latitude, double longitude);
+
 // Owns the runway-analysis feature toggle, persisted via the settings file.
 void set_analysis_enabled(bool on);
 bool analysis_enabled();
@@ -53,9 +57,11 @@ void request_runway_preload(const std::string &icao);
 // untouched when its airport was not cached; resolve_runways() fills those in.
 void apply_runway_fix(LandingData &landing);
 
-// Catch the touchdowns the approach preload didn't cover — a touch-and-go at a field
-// the aircraft descended into too quickly, or a second airport later in the flight.
-// Runs at shutdown, where a file scan costs nothing. Also joins a pending worker.
-void resolve_runways(std::vector<LandingData> &landings);
+// Runs at shutdown, where a file scan costs nothing, and joins a pending worker.
+// Measures the lift-off point and every touchdown against the surfaces of its nearest
+// airport — the raw figure an off-field landing is told apart by — and places the
+// touchdowns the approach preload didn't cover on their runway: a touch-and-go at a
+// field the aircraft descended into too quickly, or a second airport later in the flight.
+void resolve_ground_points(FlightData &flight);
 
 } // namespace AirportLookup

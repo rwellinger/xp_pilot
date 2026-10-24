@@ -154,6 +154,18 @@ TEST_CASE("parse_flight_json: parses landings array", "[parse]")
     REQUIRE(ld.crosswind_side == "LEFT");
 }
 
+TEST_CASE("parse_flight_json: a flight written before v9 has no ground-point measurements", "[parse]")
+{
+    FlightData fd = parse_flight_json(read_fixture("sample_flight.json"), "x.json");
+
+    CHECK(fd.departure_distance_m == Catch::Approx(-1.0f));
+    CHECK(fd.departure_nearby_place.empty());
+    REQUIRE(fd.landings.size() == 1);
+    CHECK(fd.landings[0].airport_distance_m == Catch::Approx(-1.0f));
+    CHECK(fd.landings[0].nearby_place.empty());
+    CHECK(fd.landings[0].liftoff_time == 0);
+}
+
 TEST_CASE("parse_flight_json: malformed JSON returns empty FlightData without throwing", "[parse]")
 {
     FlightData fd = parse_flight_json("{this is not json", "broken.json");
@@ -422,6 +434,104 @@ TEST_CASE("HtmlReport::generate: empty track and no landings still produces vali
     REQUIRE(rname == "empty.html");
     std::string html = slurp(root / "reports" / rname);
     REQUIRE(html.find("No landing recorded") != std::string::npos);
+
+    fs::remove_all(root);
+}
+
+namespace
+{
+// LSZB -> rescue site near Thun -> LSZB, as a v9 helicopter flight records it.
+FlightData rescue_mission()
+{
+    FlightData fd;
+    fd.date                 = "2026-10-24";
+    fd.departure_icao       = "LSZB";
+    fd.arrival_icao         = "LSZB";
+    fd.departure_lat        = 46.9152;
+    fd.departure_lon        = 7.4959;
+    fd.departure_distance_m = 0.f;
+    fd.aircraft_category    = "rotorcraft";
+    fd.start_time           = 1774944900;
+
+    LandingData site;
+    site.is_rotorcraft      = true;
+    site.airport_icao       = "LSZB";
+    site.airport_distance_m = 14000.f;
+    site.nearby_place       = "Thun";
+    site.lat                = 46.758;
+    site.lon                = 7.628;
+    site.time               = fd.start_time + 420;
+    site.liftoff_time       = fd.start_time + 1020;
+    site.rating             = "GREAT LANDING!";
+    fd.landings.push_back(site);
+
+    LandingData home        = site;
+    home.airport_distance_m = 20.f;
+    home.nearby_place       = "Bern";
+    home.lat                = 46.9152;
+    home.lon                = 7.4959;
+    home.time               = fd.start_time + 1500;
+    home.liftoff_time       = 0;
+    fd.landings.push_back(home);
+    return fd;
+}
+} // namespace
+
+TEST_CASE("HtmlReport::generate: a multi-leg flight shows its route, legs and touchdowns", "[report][legs]")
+{
+    fs::path           root = make_tmp_data_dir();
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+    const std::string  rname = HtmlReport::generate(rescue_mission(), root.string() + "/", "m.json", "p", thresholds);
+    const std::string  html  = slurp(root / "reports" / rname);
+
+    CHECK(html.find("<h1>LSZB &rarr; LS1 &rarr; LSZB</h1>") != std::string::npos);
+    CHECK(html.find("<title>LSZB &rarr; LS1 &rarr; LSZB</title>") != std::string::npos);
+    CHECK(html.find("<h3>Legs</h3>") != std::string::npos);
+    CHECK(html.find("<td>7m 00s</td><td>10m 00s</td>") != std::string::npos); // leg 1: airborne, on ground
+    CHECK(html.find("Landing 1 - LS1 (near Thun)") != std::string::npos);
+    CHECK(html.find("\"Landing 2 - LSZB\"") != std::string::npos); // touchdown marker label
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: a single-leg flight has no legs table", "[report][legs]")
+{
+    fs::path           root = make_tmp_data_dir();
+    FlightData         fd   = parse_flight_json(read_fixture("sample_flight.json"), "s.json");
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+    const std::string  html = slurp(root / "reports" / HtmlReport::generate(fd, root.string() + "/", "s.json", "p", thresholds));
+
+    CHECK(html.find("<h1>LSZB &rarr; LSGG</h1>") != std::string::npos);
+    CHECK(html.find("<h3>Legs</h3>") == std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("HtmlReport::generate: place names cannot break out of the map script", "[report][legs]")
+{
+    fs::path   root = make_tmp_data_dir();
+    FlightData fd   = rescue_mission();
+    fd.landings[0].nearby_place = "</script><script>alert(1)";
+
+    std::array<int, 4> thresholds{-100, -250, -350, -600};
+    const std::string  html = slurp(root / "reports" / HtmlReport::generate(fd, root.string() + "/", "x.json", "p", thresholds));
+
+    CHECK(html.find("<script>alert") == std::string::npos);
+    CHECK(html.find("</script><script>alert") == std::string::npos);
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("generate_index: a multi-leg flight lists its whole route", "[report][index][legs]")
+{
+    fs::path root = make_tmp_data_dir();
+    {
+        std::ofstream out(root / "flights" / "2026-10-24_LSZB_LSZB_EC35.json");
+        out << R"({"version":9,"date":"2026-10-24","departure_icao":"LSZB","arrival_icao":"LSZB","departure_lat":46.9152,"departure_lon":7.4959,"departure_distance_m":0,"landings":[{"airport_icao":"LSZB","airport_distance_m":14000,"nearby_place":"Thun","lat":46.758,"lon":7.628},{"airport_icao":"LSZB","airport_distance_m":20,"lat":46.9152,"lon":7.4959}]})";
+    }
+    HtmlReport::generate_index(root.string() + "/");
+
+    CHECK(slurp(root / "index.html").find("<b>LSZB &rarr; LS1 &rarr; LSZB</b>") != std::string::npos);
 
     fs::remove_all(root);
 }

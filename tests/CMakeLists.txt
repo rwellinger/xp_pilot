@@ -40,6 +40,7 @@ add_executable(xp_pilot_tests
     test_settings_migration.cpp
     test_settings_profiles.cpp
     test_ui_render.cpp
+    test_flight_legs.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE

@@ -2,6 +2,7 @@
 
 #include "runway_data.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -117,7 +118,40 @@ inline Candidate evaluate(const Runway &runway, int landing_end, double td_lat, 
     c.length_m   = static_cast<float>(length_m);
     return c;
 }
+inline double distance_to_segment_m(const RunwayEnd &a, const RunwayEnd &b, double lat, double lon)
+{
+    const LocalPoint end   = to_local_meters(a.lat, a.lon, b.lat, b.lon);
+    const LocalPoint point = to_local_meters(a.lat, a.lon, lat, lon);
+    const double     len2  = end.east_m * end.east_m + end.north_m * end.north_m;
+    double           t     = 0.0;
+    if (len2 > 0.0)
+        t = std::clamp((point.east_m * end.east_m + point.north_m * end.north_m) / len2, 0.0, 1.0);
+    return std::hypot(point.east_m - t * end.east_m, point.north_m - t * end.north_m);
+}
 } // namespace detail
+
+// Ground distance between two positions. Equirectangular, so meant for the tens of
+// kilometres around an airport, not for a route across a continent.
+inline float distance_m(double lat_a, double lon_a, double lat_b, double lon_b)
+{
+    const detail::LocalPoint p = detail::to_local_meters(lat_a, lon_a, lat_b, lon_b);
+    return static_cast<float>(std::hypot(p.east_m, p.north_m));
+}
+
+// How far a position lies from the nearest runway centerline or helipad of an airport,
+// or -1 when the airport has neither. Measured to the surfaces rather than to the
+// airport reference point, which on a large field can sit kilometres from the apron.
+inline float distance_to_nearest_surface_m(const AirportSurfaces &surfaces, double lat, double lon)
+{
+    double nearest = -1.0;
+    auto   keep    = [&nearest](double d) { nearest = (nearest < 0.0) ? d : std::min(nearest, d); };
+
+    for (const Runway &runway : surfaces.runways)
+        keep(detail::distance_to_segment_m(runway.ends[0], runway.ends[1], lat, lon));
+    for (const Helipad &helipad : surfaces.helipads)
+        keep(distance_m(helipad.lat, helipad.lon, lat, lon));
+    return static_cast<float>(nearest);
+}
 
 // Pick the runway direction the aircraft touched down on. Among the candidates that fit
 // heading and pavement, the one closest to the centerline wins.

@@ -20,13 +20,14 @@
 #include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include <array>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
 
 // Where the landing popup appears on screen. Stored in the settings file by name so the
 // file stays readable and an unknown value degrades to the default.
-enum class PopupPosition
+enum class PopupPosition : std::uint8_t
 {
     TopLeft,
     TopCenter,
@@ -82,6 +83,10 @@ void stop();
 // plugin sits in the load message. Needs init() to have run.
 void note_aircraft_changed();
 
+// Note that the user's aircraft was (re)placed — loaded, or moved to a new airport. A
+// helicopter's lift-off is ignored until it has settled on the ground afterwards.
+void note_aircraft_placed();
+
 // Re-show the most recent landing popup — bound to a command so it can be summoned
 // for screenshots. Falls back to the newest logged flight when this X-Plane session
 // has no landing yet. Returns false when there is nothing to show.
@@ -119,7 +124,7 @@ void               regen_all_reports();
 
 // Where the profile a landing is rated against came from. Shown on the settings screen,
 // because a rating that looks wrong is only explicable together with its source.
-enum class ProfileSource
+enum class ProfileSource : std::uint8_t
 {
     UserOverride,   // assigned by the user, by name or as custom thresholds
     IcaoList,       // named in the bundled flight_logger_profiles.json

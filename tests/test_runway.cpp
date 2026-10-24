@@ -124,3 +124,60 @@ TEST_CASE("locate_touchdown: rejects positions and headings off the runway")
     CHECK(RunwayGeometry::locate_touchdown({}, TD_ON_CENTERLINE_LAT, TD_ON_CENTERLINE_LON, RWY14_COURSE_DEG)
               .runway_ident.empty());
 }
+
+TEST_CASE("load_surfaces: keeps helipads with their airport")
+{
+    const auto found = RunwayData::load_surfaces(fixture_path(), {"LSZB"});
+
+    REQUIRE(found.count("LSZB") == 1);
+    CHECK(found.at("LSZB").runways.size() == 2);
+    REQUIRE(found.at("LSZB").helipads.size() == 1);
+    CHECK(found.at("LSZB").helipads[0].lat == Catch::Approx(46.9108687));
+    CHECK(found.at("LSZB").helipads[0].lon == Catch::Approx(7.5032009));
+}
+
+TEST_CASE("load_surfaces: a heliport opens its own airport block")
+{
+    const auto found = RunwayData::load_surfaces(fixture_path(), {"LSGG", "XHEL"});
+
+    REQUIRE(found.size() == 2);
+    CHECK(found.at("LSGG").helipads.empty()); // the heliport's pad must not leak into Geneva
+    CHECK(found.at("XHEL").runways.empty());
+    CHECK(found.at("XHEL").helipads.size() == 1);
+}
+
+TEST_CASE("distance_to_nearest_surface_m: on the runway is no distance at all")
+{
+    const auto surfaces = RunwayData::load_surfaces(fixture_path(), {"LSZB"}).at("LSZB");
+
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m(surfaces, TD_ON_CENTERLINE_LAT, TD_ON_CENTERLINE_LON) ==
+          Catch::Approx(0.0).margin(1.0));
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m(surfaces, TD_5M_RIGHT_LAT, TD_5M_RIGHT_LON) ==
+          Catch::Approx(5.0).margin(0.5));
+}
+
+TEST_CASE("distance_to_nearest_surface_m: measures to the helipad when it is closest")
+{
+    AirportSurfaces pad_only;
+    pad_only.helipads.push_back({46.9108687, 7.5032009});
+
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m(pad_only, 46.9108687, 7.5032009) ==
+          Catch::Approx(0.0).margin(0.1));
+    // 0.001 deg of latitude is ~111 m.
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m(pad_only, 46.9118687, 7.5032009) ==
+          Catch::Approx(111.2).margin(0.5));
+}
+
+TEST_CASE("distance_to_nearest_surface_m: a field beyond the runway end is measured to that end")
+{
+    const auto surfaces = RunwayData::load_surfaces(fixture_path(), {"LSZB"}).at("LSZB");
+
+    // Straight north of the RWY 14 end at 46.9193252 / 7.4908128.
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m(surfaces, 46.9400000, 7.4908128) ==
+          Catch::Approx(2299.0).margin(5.0));
+}
+
+TEST_CASE("distance_to_nearest_surface_m: an airport without surfaces is unknown")
+{
+    CHECK(RunwayGeometry::distance_to_nearest_surface_m({}, 46.9, 7.5) == Catch::Approx(-1.0));
+}

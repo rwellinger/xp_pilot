@@ -17,6 +17,7 @@
  */
 
 #include "ui_flight_list.hpp"
+#include "flight_legs.hpp"
 #include "flight_logger.hpp"
 #include "ui_flight_view.hpp"
 #include "ui_theme.hpp"
@@ -80,6 +81,17 @@ std::vector<FlightData> read_flight_summaries(const std::string &dir)
         summaries.push_back(std::move(flight));
     }
     return summaries;
+}
+
+// "LSZB-LSZB", or "LSZB-LSZB +2" for a flight with two stops in between: the list
+// column stays narrow, the detail panel shows the full route.
+std::string route_cell(const FlightData &flight)
+{
+    const FlightLegs::Route route = FlightLegs::derive_route(flight);
+    std::string cell = route.stops.front().name + "-" + route.stops.back().name;
+    if (route.intermediate_stops() > 0)
+        cell += " +" + std::to_string(route.intermediate_stops());
+    return cell;
 }
 
 FlightData read_flight_detail(const std::string &dir, const std::string &filename)
@@ -291,7 +303,7 @@ void draw_list_panel(FlightList &list, const ImVec2 &size)
                 select_flight(list, i);
 
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted((entry.departure_icao + "-" + entry.arrival_icao).c_str());
+            ImGui::TextUnformatted(list.route_cells[i].c_str());
 
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(entry.aircraft_icao.c_str());
@@ -373,6 +385,9 @@ void FlightListScreen::reload(FlightList &list)
 {
     list.entries = read_flight_summaries(flights_dir(list.subdir));
     list.checked.assign(list.entries.size(), false);
+    list.route_cells.clear();
+    for (const auto &entry : list.entries)
+        list.route_cells.push_back(route_cell(entry));
     list.confirm_batch_archive = false;
     list.confirm_batch_delete  = false;
     list.loaded                = true;

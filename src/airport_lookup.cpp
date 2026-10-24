@@ -22,6 +22,7 @@
 #include <XPLM/XPLMNavigation.h>
 #include <XPLM/XPLMUtilities.h>
 #include <ctime> // std::time, time_t
+#include <map>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -37,6 +38,9 @@ std::string         s_cache_icao; // guarded by s_cache_mutex
 std::vector<Runway> s_cache;      // guarded by s_cache_mutex
 std::thread         s_loader;
 std::string         s_loader_icao; // flight-loop thread only
+
+std::string s_nearest_id; // last nearest-airport answer, flight-loop thread only
+time_t      s_nearest_checked_at = 0;
 
 std::vector<Runway> cached_runways_for(const std::string &icao)
 {
@@ -60,6 +64,30 @@ bool needs_runway_fix(const LandingData &landing)
     return !landing.is_rotorcraft && landing.runway_ident.empty() && !landing.airport_icao.empty();
 }
 
+std::set<std::string> airports_of(const FlightData &flight)
+{
+    std::set<std::string> icaos;
+    if (!flight.departure_icao.empty())
+        icaos.insert(flight.departure_icao);
+    for (const auto &landing : flight.landings)
+    {
+        if (!landing.airport_icao.empty())
+            icaos.insert(landing.airport_icao);
+    }
+    return icaos;
+}
+
+// -1 when the airport is missing from the global apt.dat — a custom-scenery field the
+// scan can't see. Unknown counts as on the airport, which is what the ICAO claims.
+float distance_to_airport(const std::map<std::string, AirportSurfaces> &surfaces_by_airport,
+                          const std::string &icao, double lat, double lon)
+{
+    auto it = surfaces_by_airport.find(icao);
+    if (it == surfaces_by_airport.end())
+        return -1.f;
+    return RunwayGeometry::distance_to_nearest_surface_m(it->second, lat, lon);
+}
+
 void join_loader()
 {
     if (s_loader.joinable())
@@ -79,25 +107,27 @@ bool AirportLookup::analysis_enabled() { return s_analysis_enabled; }
 std::string AirportLookup::nearest_airport_id(double latitude, double longitude)
 {
     // XPLMFindNavAid is expensive — cache result with 5-second TTL
-    static std::string cached_id;
-    static time_t      last_check = 0;
-    time_t             now        = std::time(nullptr);
-    if (now - last_check < 5)
-        return cached_id;
-    last_check = now;
+    if (std::time(nullptr) - s_nearest_checked_at < 5)
+        return s_nearest_id;
+    return nearest_airport_id_now(latitude, longitude);
+}
+
+std::string AirportLookup::nearest_airport_id_now(double latitude, double longitude)
+{
+    s_nearest_checked_at = std::time(nullptr);
 
     float      lat = static_cast<float>(latitude);
     float      lon = static_cast<float>(longitude);
     XPLMNavRef ref = XPLMFindNavAid(nullptr, nullptr, &lat, &lon, nullptr, xplm_Nav_Airport);
     if (ref == XPLM_NAV_NOT_FOUND)
     {
-        cached_id = "";
-        return "";
+        s_nearest_id.clear();
+        return s_nearest_id;
     }
     char outID[32] = {};
     XPLMGetNavAidInfo(ref, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, outID, nullptr, nullptr);
-    cached_id = outID;
-    return cached_id;
+    s_nearest_id = outID;
+    return s_nearest_id;
 }
 
 void AirportLookup::request_runway_preload(const std::string &icao)
@@ -144,34 +174,31 @@ void AirportLookup::apply_runway_fix(LandingData &landing)
     place_on_runway(runways, landing);
 }
 
-void AirportLookup::resolve_runways(std::vector<LandingData> &landings)
+void AirportLookup::resolve_ground_points(FlightData &flight)
 {
     join_loader();
-    if (!s_analysis_enabled || landings.empty())
-        return;
-
-    std::set<std::string> icaos;
-    for (const auto &landing : landings)
-    {
-        if (needs_runway_fix(landing))
-            icaos.insert(landing.airport_icao);
-    }
+    const std::set<std::string> icaos = airports_of(flight);
     if (icaos.empty())
         return;
 
-    const auto runways_by_airport = RunwayData::load_runways(s_apt_dat_path, icaos);
-    if (runways_by_airport.empty())
+    const auto surfaces_by_airport = RunwayData::load_surfaces(s_apt_dat_path, icaos);
+    if (surfaces_by_airport.empty())
     {
-        XPLMDebugString("[xp_pilot] Runway analysis: no airport data found\n");
+        XPLMDebugString("[xp_pilot] Airport lookup: no airport data found\n");
         return;
     }
 
-    for (auto &landing : landings)
-    {
-        auto it = runways_by_airport.find(landing.airport_icao);
-        if (!needs_runway_fix(landing) || it == runways_by_airport.end())
-            continue;
+    if (flight.departure_lat != 0.0 || flight.departure_lon != 0.0)
+        flight.departure_distance_m =
+            distance_to_airport(surfaces_by_airport, flight.departure_icao, flight.departure_lat, flight.departure_lon);
 
-        place_on_runway(it->second, landing);
+    for (auto &landing : flight.landings)
+    {
+        landing.airport_distance_m =
+            distance_to_airport(surfaces_by_airport, landing.airport_icao, landing.lat, landing.lon);
+
+        auto it = surfaces_by_airport.find(landing.airport_icao);
+        if (s_analysis_enabled && needs_runway_fix(landing) && it != surfaces_by_airport.end())
+            place_on_runway(it->second.runways, landing);
     }
 }
