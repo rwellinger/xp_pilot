@@ -25,6 +25,7 @@
 #include <array>
 #include <map>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -121,7 +122,7 @@ inline const ProfileOverride *find_profile_override(const std::map<std::string, 
 
 // What sim/aircraft/prop/acf_en_type reports for one engine. Only the distinctions
 // that change the landing profile are named; the rest is decided by mass.
-enum class EngineKind
+enum class EngineKind : std::uint8_t
 {
     Piston,  // carburetted, injected and electric — same approach speeds
     Turbine, // free or fixed turbine driving a propeller

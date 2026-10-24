@@ -18,6 +18,7 @@
 
 
 #pragma once
+#include <cstdint>
 #include <filesystem>
 
 namespace Settings
@@ -26,7 +27,7 @@ namespace Settings
 // What happened to the settings file on start-up. The caller turns this into a
 // Log.txt line; the migration itself stays free of the X-Plane SDK so it can be
 // tested.
-enum class MigrationOutcome
+enum class MigrationOutcome : std::uint8_t
 {
     NothingToMigrate,   // no old file, or the new one already exists
     Migrated,           // old file moved to the new location

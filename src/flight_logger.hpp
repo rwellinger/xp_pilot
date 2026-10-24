@@ -20,13 +20,14 @@
 #include "flight_logger_logic.hpp"
 #include "html_report.hpp"
 #include <array>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
 
 // Where the landing popup appears on screen. Stored in the settings file by name so the
 // file stays readable and an unknown value degrades to the default.
-enum class PopupPosition
+enum class PopupPosition : std::uint8_t
 {
     TopLeft,
     TopCenter,
@@ -123,7 +124,7 @@ void               regen_all_reports();
 
 // Where the profile a landing is rated against came from. Shown on the settings screen,
 // because a rating that looks wrong is only explicable together with its source.
-enum class ProfileSource
+enum class ProfileSource : std::uint8_t
 {
     UserOverride,   // assigned by the user, by name or as custom thresholds
     IcaoList,       // named in the bundled flight_logger_profiles.json
