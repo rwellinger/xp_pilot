@@ -346,6 +346,18 @@ std::string profile_of(const ProfileMapping &mapping, const std::string &icao)
 
 } // namespace
 
+// The ICAO codes the xp_heli_assistent profiles recognise their airframes by.
+TEST_CASE("helicopters supported by xp_heli_assistent get a helicopter profile", "[flight_logger][profiles]")
+{
+    const ProfileMapping mapping = load_profile_mapping();
+
+    for (const char *icao : {"R22", "R44", "HC02", "G2CA"})
+        CHECK(profile_of(mapping, icao) == "light_helicopter");
+    for (const char *icao : {"R66", "206B3", "EC30", "AS50", "B407", "412", "A109", "A139", "S76", "EXPL", "MD902",
+                             "LAMA"})
+        CHECK(profile_of(mapping, icao) == "turbine_helicopter");
+}
+
 // The regression this guards: a match string that no aircraft in the sim actually
 // reports. "ASK2" and "EVOL" were written from the model name rather than the ICAO the
 // airframe sends, so both entries sat in the list without ever matching and their

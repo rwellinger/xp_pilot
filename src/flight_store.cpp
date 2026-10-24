@@ -81,6 +81,9 @@ json landings_to_json(const std::vector<LandingData> &landings)
                            {"lon", ld.lon},
                            {"heading_true", ld.heading_true},
                            {"airport_icao", ld.airport_icao},
+                           {"airport_distance_m", ld.airport_distance_m},
+                           {"nearby_place", ld.nearby_place},
+                           {"liftoff_time", (long long)ld.liftoff_time},
                            {"runway_ident", ld.runway_ident},
                            {"runway_offset_m", ld.runway_offset_m},
                            {"runway_distance_m", ld.runway_distance_m},
@@ -132,11 +135,15 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
         path = flights_dir + base + "_" + std::to_string(flight.start_time) + ".json";
 
     json obj;
-    obj["version"]           = 8;
+    obj["version"]           = 9;
     obj["date"]              = flight.date;
     obj["start_utc"]         = flight.start_utc;
     obj["end_utc"]           = flight.end_utc;
     obj["departure_icao"]    = departure;
+    obj["departure_lat"]          = flight.departure_lat;
+    obj["departure_lon"]          = flight.departure_lon;
+    obj["departure_distance_m"]   = flight.departure_distance_m;
+    obj["departure_nearby_place"] = flight.departure_nearby_place;
     obj["arrival_icao"]      = arrival;
     obj["aircraft_icao"]     = aircraft;
     obj["aircraft_tail"]     = flight.aircraft_tail;

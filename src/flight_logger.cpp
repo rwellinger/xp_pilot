@@ -17,6 +17,7 @@
  */
 
 #include "airport_lookup.hpp"
+#include "city_data.hpp"
 #include "flight_logger.hpp"
 #include "flight_logger_logic.hpp"
 #include "flight_store.hpp"
@@ -547,6 +548,7 @@ static bool shutdown_triggered(const std::string &plane_icao)
 // The lookup module has no datarefs of its own; this is the seam that feeds it the
 // aircraft's current position.
 static std::string get_airport_id() { return AirportLookup::nearest_airport_id(dr_d(dr_lat), dr_d(dr_lon)); }
+static std::string get_airport_id_now() { return AirportLookup::nearest_airport_id_now(dr_d(dr_lat), dr_d(dr_lon)); }
 
 // ── Feature toggles (persisted via the settings file) ────────────────────────
 static bool s_write_enabled       = true;
@@ -716,7 +718,10 @@ enum class State : uint8_t
 };
 
 static State                    s_state = State::Idle;
+static float                    s_seconds_on_ground    = 0.f; // continuous, active sim time
+static bool                     s_settled_since_placed = false;
 static std::string              s_departure_icao;
+static double                   s_departure_lat = 0, s_departure_lon = 0;
 static std::string              s_arrival_icao;
 static std::string              s_aircraft_icao;
 static std::string              s_aircraft_tail;
@@ -745,6 +750,12 @@ static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
 static constexpr float AGL_AIRBORNE_M     = 15.0f; // ~50 ft (fixed-wing climb-out)
 static constexpr float AGL_AIRBORNE_HELI_M = 3.0f; // ~10 ft (rotorcraft lift-off / touch-and-go)
 
+// X-Plane places a freshly loaded aircraft slightly above the ground and lets it drop.
+// For a helicopter, which starts recording the moment it is off the ground, that drop
+// would be a flight with a hard landing — so lift-off only counts once it has stood
+// on the ground this long since it was placed.
+static constexpr float HELI_GROUND_SETTLE_SEC = 3.0f;
+
 static float agl_airborne_threshold() { return s_is_rotorcraft ? AGL_AIRBORNE_HELI_M : AGL_AIRBORNE_M; }
 
 // Guards the rating paths against a session whose profile was never resolved, which
@@ -760,6 +771,7 @@ static void session_reset()
 {
     s_state = State::Idle;
     s_departure_icao.clear();
+    s_departure_lat = s_departure_lon = 0;
     s_arrival_icao.clear();
     s_aircraft_icao.clear();
     s_aircraft_tail.clear();
@@ -819,6 +831,19 @@ static void cache_airport_when_stationary(const Frame &f)
         s_last_gnd_apt = apt;
 }
 
+static void track_ground_settling(const Frame &f, float elapsed_real_sec)
+{
+    if (!f.on_gnd)
+    {
+        s_seconds_on_ground = 0.f;
+        return;
+    }
+    if (f.paused == 0 && f.in_replay == 0)
+        s_seconds_on_ground += elapsed_real_sec;
+    if (s_seconds_on_ground >= HELI_GROUND_SETTLE_SEC)
+        s_settled_since_placed = true;
+}
+
 static void handle_engine_edge_detection(bool on_gnd)
 {
     int cur_eng = any_engine_running() ? 1 : 0;
@@ -846,6 +871,12 @@ static void handle_engine_edge_detection(bool on_gnd)
 
 // ── State handlers ───────────────────────────────────────────────────────────
 
+static void record_liftoff_point()
+{
+    s_departure_lat = dr_d(dr_lat);
+    s_departure_lon = dr_d(dr_lon);
+}
+
 static void handle_idle_state(const Frame &f)
 {
     const std::string icao  = dr_str(dr_acf_icao);
@@ -860,6 +891,8 @@ static void handle_idle_state(const Frame &f)
         // Helicopters skip the Rolling phase — flight starts the moment the skids leave the ground.
         if (f.on_gnd && f.agl <= AGL_AIRBORNE_HELI_M)
             return;
+        if (!s_settled_since_placed)
+            return;
 
         s_is_rotorcraft   = true;
         s_aircraft_icao   = icao;
@@ -868,6 +901,7 @@ static void handle_idle_state(const Frame &f)
         s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
         s_start_time     = std::time(nullptr);
         s_state          = State::Airborne;
+        record_liftoff_point();
         landing_arm();
         if (s_write_enabled)
             Overlay::show("REC  Flight recording started", 5.f);
@@ -897,6 +931,7 @@ static void handle_rolling_state(const Frame &f)
     if (s_departure_icao.empty())
         s_departure_icao = get_airport_id();
     s_state = State::Airborne;
+    record_liftoff_point();
     landing_arm();
     if (s_write_enabled)
         Overlay::show("REC  Flight recording started", 5.f);
@@ -1081,7 +1116,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     s_ld_captured.rating = eval_rating(s_ld_captured, session_landing_profile().thresholds);
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = s_bounce_count;
-    s_ld_captured.airport_icao = get_airport_id();
+    s_ld_captured.airport_icao = get_airport_id_now();
     AirportLookup::apply_runway_fix(s_ld_captured);
     s_landings.push_back(s_ld_captured);
     s_arrival_icao = s_ld_captured.airport_icao;
@@ -1112,7 +1147,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
         FlightLoggerLogic::rotorcraft_rating_index(touchdown, session_landing_profile().thresholds));
     s_ld_captured.time         = std::time(nullptr);
     s_ld_captured.bounce_count = 0;
-    s_ld_captured.airport_icao = get_airport_id();
+    s_ld_captured.airport_icao = get_airport_id_now();
     s_ld_captured_valid        = true;
     AirportLookup::apply_runway_fix(s_ld_captured);
 
@@ -1205,6 +1240,8 @@ static void handle_landed_state(const Frame &f)
 {
     if (f.agl > agl_airborne_threshold())
     {
+        if (!s_landings.empty())
+            s_landings.back().liftoff_time = std::time(nullptr);
         s_state = State::Airborne;
         landing_arm();
         if (s_write_enabled)
@@ -1336,6 +1373,7 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
     accumulate_flight_time(f, elapsed_real_sec);
     record_pause_release(f);
     cache_airport_when_stationary(f);
+    track_ground_settling(f, elapsed_real_sec);
     handle_engine_edge_detection(f.on_gnd);
 
     switch (s_state)
@@ -1378,6 +1416,8 @@ static FlightData build_flight_data(time_t end_time)
     strftime(buf, sizeof(buf), "%H:%M", tm);
     fd.end_utc           = buf;
     fd.departure_icao    = s_departure_icao;
+    fd.departure_lat     = s_departure_lat;
+    fd.departure_lon     = s_departure_lon;
     fd.arrival_icao      = s_arrival_icao;
     fd.aircraft_icao     = s_aircraft_icao;
     fd.aircraft_tail     = s_aircraft_tail;
@@ -1399,6 +1439,26 @@ static FlightData build_flight_data(time_t end_time)
     return fd;
 }
 
+// The largest place within roughly 20 km — what an off-field site is called by. A
+// recognisable town reads better than the nearest hamlet.
+static std::string nearby_place(double lat, double lon)
+{
+    constexpr double SEARCH_RADIUS_DEG = 0.2;
+    const auto       places = CityData::load_cities(s_config_dir + "cities.dat",
+                                                    {lat - SEARCH_RADIUS_DEG, lat + SEARCH_RADIUS_DEG,
+                                                     lon - SEARCH_RADIUS_DEG, lon + SEARCH_RADIUS_DEG},
+                                                    1);
+    return places.empty() ? std::string() : places.front().name;
+}
+
+static void name_nearby_places(FlightData &fd)
+{
+    if (fd.departure_lat != 0.0 || fd.departure_lon != 0.0)
+        fd.departure_nearby_place = nearby_place(fd.departure_lat, fd.departure_lon);
+    for (auto &landing : fd.landings)
+        landing.nearby_place = nearby_place(landing.lat, landing.lon);
+}
+
 static void finalize_flight()
 {
     if (dr_i(dr_in_replay))
@@ -1416,9 +1476,9 @@ static void finalize_flight()
     if (s_arrival_icao.empty() && !s_last_gnd_apt.empty())
         s_arrival_icao = s_last_gnd_apt;
 
-    AirportLookup::resolve_runways(s_landings);
-
     FlightData fd = build_flight_data(s_end_time);
+    AirportLookup::resolve_ground_points(fd);
+    name_nearby_places(fd);
 
     const std::string filename = FlightStore::save(fd, s_output_dir);
     if (filename.empty())
@@ -1524,6 +1584,12 @@ void FlightLogger::regen_all_reports()
 }
 
 void FlightLogger::note_aircraft_changed() { s_airframe_log_pending = true; }
+
+void FlightLogger::note_aircraft_placed()
+{
+    s_seconds_on_ground    = 0.f;
+    s_settled_since_placed = false;
+}
 
 void FlightLogger::init()
 {

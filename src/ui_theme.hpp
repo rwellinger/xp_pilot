@@ -95,6 +95,7 @@ inline constexpr ImU32 map_track_high = IM_COL32(255, 246, 214, 255);
 inline constexpr ImU32 map_pause     = IM_COL32(198, 124, 255, 255);
 inline constexpr ImU32 map_departure = IM_COL32(60, 230, 90, 255);
 inline constexpr ImU32 map_arrival   = IM_COL32(255, 72, 72, 255);
+inline constexpr ImU32 map_touchdown = IM_COL32(255, 102, 204, 255); // intermediate stops, as in the HTML report
 inline constexpr ImU32 map_scale     = IM_COL32(139, 153, 175, 255); // text_dim, as ImDrawList wants ImU32
 
 // Landing rating colours, shared by the logbook, the detail view and the popup.

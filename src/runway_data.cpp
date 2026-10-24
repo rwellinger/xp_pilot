@@ -8,9 +8,15 @@
 
 namespace
 {
-// apt.dat row codes we care about. 101 (water) and 102 (helipad) carry no centerline.
-constexpr const char *ROW_AIRPORT     = "1";
-constexpr const char *ROW_LAND_RUNWAY = "100";
+// apt.dat row codes we care about. 101 (water) carries no centerline.
+constexpr const char *ROW_AIRPORT       = "1";
+constexpr const char *ROW_SEAPLANE_BASE = "16";
+constexpr const char *ROW_HELIPORT      = "17";
+constexpr const char *ROW_LAND_RUNWAY   = "100";
+constexpr const char *ROW_HELIPAD       = "102";
+
+// "102 <designator> <lat> <lon> <heading> <length> <width> ..."
+constexpr size_t HELIPAD_MIN_FIELDS = 4;
 
 // "100 <width> <surface> <shoulder> <smoothness> <cl_lights> <edge_lights> <signs>"
 // followed by two ends of nine fields each.
@@ -60,6 +66,30 @@ bool parse_land_runway(const std::vector<std::string> &fields, Runway &out)
     return true;
 }
 
+bool parse_helipad(const std::vector<std::string> &fields, Helipad &out)
+{
+    if (fields.size() < HELIPAD_MIN_FIELDS)
+        return false;
+
+    out.lat = to_double(fields[2]);
+    out.lon = to_double(fields[3]);
+    return true;
+}
+
+// Seaplane bases and heliports open a new airport block just like land airports do;
+// missing them would hand their helipads to whatever airport preceded them.
+bool is_airport_row(const std::string &code)
+{
+    return code == ROW_AIRPORT || code == ROW_SEAPLANE_BASE || code == ROW_HELIPORT;
+}
+
+bool is_wanted_row(const std::string &line)
+{
+    return starts_with_row_code(line, ROW_AIRPORT) || starts_with_row_code(line, ROW_SEAPLANE_BASE) ||
+           starts_with_row_code(line, ROW_HELIPORT) || starts_with_row_code(line, ROW_LAND_RUNWAY) ||
+           starts_with_row_code(line, ROW_HELIPAD);
+}
+
 // The airport row is "1 <elevation> <tower> <deprecated> <ICAO> <name...>". Field 4 is
 // the identifier XPLMGetNavAidInfo also reports, so it matches what the logger recorded.
 std::string airport_id_of(const std::vector<std::string> &fields)
@@ -68,10 +98,10 @@ std::string airport_id_of(const std::vector<std::string> &fields)
 }
 } // namespace
 
-std::map<std::string, std::vector<Runway>> RunwayData::load_runways(const std::string           &apt_dat_path,
-                                                                    const std::set<std::string> &icaos)
+std::map<std::string, AirportSurfaces> RunwayData::load_surfaces(const std::string           &apt_dat_path,
+                                                                 const std::set<std::string> &icaos)
 {
-    std::map<std::string, std::vector<Runway>> found;
+    std::map<std::string, AirportSurfaces> found;
     if (icaos.empty())
         return found;
 
@@ -86,31 +116,49 @@ std::map<std::string, std::vector<Runway>> RunwayData::load_runways(const std::s
         // Cheap prefilter — apt.dat has a dozen other row codes starting with '1'
         // (110 pavement, 1302 metadata, ...) and tokenizing them all is the bulk of
         // the cost on a 12-million-line file.
-        if (!starts_with_row_code(line, ROW_AIRPORT) && !starts_with_row_code(line, ROW_LAND_RUNWAY))
+        if (!is_wanted_row(line))
             continue;
 
         std::vector<std::string> fields = split_whitespace(line);
         if (fields.empty())
             continue;
 
-        if (fields[0] == ROW_AIRPORT)
+        if (is_airport_row(fields[0]))
         {
             const std::string id = airport_id_of(fields);
             current_icao         = icaos.count(id) ? id : std::string();
             if (!current_icao.empty())
-                found.emplace(current_icao, std::vector<Runway>());
+                found.emplace(current_icao, AirportSurfaces());
             else if (found.size() == icaos.size())
                 break; // every requested airport is complete
             continue;
         }
 
-        if (current_icao.empty() || fields[0] != ROW_LAND_RUNWAY)
+        if (current_icao.empty())
             continue;
 
-        Runway runway;
-        if (parse_land_runway(fields, runway))
-            found[current_icao].push_back(runway);
+        if (fields[0] == ROW_LAND_RUNWAY)
+        {
+            Runway runway;
+            if (parse_land_runway(fields, runway))
+                found[current_icao].runways.push_back(runway);
+        }
+        else if (fields[0] == ROW_HELIPAD)
+        {
+            Helipad helipad;
+            if (parse_helipad(fields, helipad))
+                found[current_icao].helipads.push_back(helipad);
+        }
     }
 
     return found;
+}
+
+std::map<std::string, std::vector<Runway>> RunwayData::load_runways(const std::string           &apt_dat_path,
+                                                                    const std::set<std::string> &icaos)
+{
+    std::map<std::string, std::vector<Runway>> runways;
+    for (auto &[icao, surfaces] : load_surfaces(apt_dat_path, icaos))
+        runways.emplace(icao, std::move(surfaces.runways));
+    return runways;
 }

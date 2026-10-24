@@ -35,7 +35,8 @@ struct FlightList
     bool        allow_archive = false; // archive actions and "rebuild reports" are logbook-only
 
     std::vector<FlightData> entries;
-    std::vector<bool>       checked; // parallel to entries
+    std::vector<bool>        checked;     // parallel to entries
+    std::vector<std::string> route_cells; // parallel to entries, derived once on load
     bool                    loaded = false;
 
     int         selected = -1;

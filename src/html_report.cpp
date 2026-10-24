@@ -17,6 +17,7 @@
  */
 
 #include "html_report.hpp"
+#include "flight_legs.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -214,6 +215,8 @@ canvas{background:#16213e;border-radius:8px}
 .lcard .rwy{width:560px;max-width:100%;height:auto;display:block;margin-top:10px}
 a{color:#00d4ff}table{width:100%;border-collapse:collapse}
 thead tr{color:#888;border-bottom:1px solid #333}
+.dot-touchdown{background:#ff66cc}
+.legs{margin-bottom:20px}.legs td,.legs th{padding:4px 12px 4px 0;text-align:left}
 .badge-heli{background:#3a5;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;margin-left:6px;vertical-align:middle}
 </style>)";
 
@@ -610,8 +613,8 @@ std::string pauses_js_array(const std::vector<PauseEvent> &pauses)
     return "[" + js + "]";
 }
 
-std::string landing_cards_html(const FlightData &fd, const std::string &profile_name,
-                               const std::array<int, 4> &thresholds)
+std::string landing_cards_html(const FlightData &fd, const FlightLegs::Route &route,
+                               const std::string &profile_name, const std::array<int, 4> &thresholds)
 {
     if (fd.landings.empty())
         return "<p style='color:#888'>No landing recorded.</p>";
@@ -619,16 +622,94 @@ std::string landing_cards_html(const FlightData &fd, const std::string &profile_
     std::string out;
     for (size_t i = 0; i < fd.landings.size(); ++i)
     {
-        if (fd.landings.size() > 1)
-        {
-            char h[64];
-            snprintf(h, sizeof(h), "<h3>Landing %zu</h3>\n", i + 1);
-            out += h;
-        }
+        // An off-field landing is always headed, or its place would appear nowhere but the map.
+        const FlightLegs::Place &place = route.legs[i].to;
+        if (fd.landings.size() > 1 || place.off_field)
+            out += "<h3>Landing " + std::to_string(i + 1) + " - " + esc(place.label) + "</h3>\n";
         out += landing_card(fd.landings[i], profile_name, thresholds);
     }
     return out;
 }
+
+std::string route_html(const FlightLegs::Route &route, bool full_labels)
+{
+    std::string html;
+    for (const auto &stop : route.stops)
+    {
+        if (!html.empty())
+            html += " &rarr; ";
+        html += esc(full_labels ? stop.label : stop.name);
+    }
+    return html;
+}
+
+std::string ground_time_cell(const FlightLegs::Leg &leg, bool final_landing)
+{
+    if (final_landing)
+        return "&ndash;";
+    if (leg.touch_and_go)
+        return "Touch-and-go";
+    return leg.ground_sec > 0 ? fmt_dur_sec(leg.ground_sec) : "?";
+}
+
+// Only a flight that actually went somewhere in between gets the table; a circuit of
+// touch-and-goes is fully described by its landing cards.
+std::string legs_table_html(const FlightData &fd, const FlightLegs::Route &route)
+{
+    if (route.intermediate_stops() == 0)
+        return "";
+
+    std::ostringstream html;
+    html << "<h3>Legs</h3><table class=\"legs\"><thead><tr><th>#</th><th>From</th><th>To</th><th>Flight</th>"
+            "<th>On ground</th><th>Landing</th></tr></thead><tbody>";
+    for (size_t i = 0; i < route.legs.size(); ++i)
+    {
+        const auto        &leg    = route.legs[i];
+        const std::string &rating = fd.landings[leg.landing_index].rating;
+        html << "<tr><td>" << i + 1 << "</td><td>" << esc(leg.from.label) << "</td><td>" << esc(leg.to.label)
+             << "</td><td>" << (leg.airborne_sec > 0 ? fmt_dur_sec(leg.airborne_sec) : "?") << "</td><td>"
+             << ground_time_cell(leg, i + 1 == route.legs.size()) << "</td><td style=\"color:" << rating_color(rating)
+             << "\">" << esc(rating) << "</td></tr>";
+    }
+    html << "</tbody></table>";
+    return html.str();
+}
+
+// A JSON string literal is a valid JS one. Place names come from outside data, so '<' is
+// escaped as well: inside a string, "</script>" would still close the element.
+std::string js_string(const std::string &text)
+{
+    const std::string quoted = json(text).dump(-1, ' ', false, json::error_handler_t::replace);
+    std::string       out;
+    out.reserve(quoted.size());
+    for (char c : quoted)
+        out += (c == '<') ? std::string("\\u003c") : std::string(1, c);
+    return out;
+}
+
+std::string touchdowns_js_array(const FlightData &fd, const FlightLegs::Route &route)
+{
+    std::string js;
+    for (const auto &leg : route.legs)
+    {
+        const LandingData &landing = fd.landings[leg.landing_index];
+        if (landing.lat == 0.0 && landing.lon == 0.0)
+            continue; // logged before touchdown positions were recorded
+        char position[64];
+        snprintf(position, sizeof(position), "[%.6f,%.6f,", landing.lat, landing.lon);
+        js += (js.empty() ? "" : ",") + std::string(position) +
+              js_string("Landing " + std::to_string(leg.landing_index + 1) + " - " + leg.to.label) + "]";
+    }
+    return "[" + js + "]";
+}
+
+struct MapMarkers
+{
+    std::string pauses;     // JS array
+    std::string touchdowns; // JS array
+    std::string departure;  // JS string literal
+    std::string arrival;    // JS string literal
+};
 
 constexpr const char *REPORT_CDN_HEAD =
     "<link rel=\"stylesheet\" href=\"https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css\"/>"
@@ -658,7 +739,7 @@ std::string line_chart_js(const char *canvas_id, const char *label, const char *
     return js.str();
 }
 
-std::string map_and_charts_script(const TrackJsArrays &track, const std::string &js_pauses, const char *time_fmt)
+std::string map_and_charts_script(const TrackJsArrays &track, const MapMarkers &markers, const char *time_fmt)
 {
     char clat_s[32], clon_s[32];
     snprintf(clat_s, sizeof(clat_s), "%.6f", track.center_lat);
@@ -667,7 +748,8 @@ std::string map_and_charts_script(const TrackJsArrays &track, const std::string 
     std::ostringstream js;
     js << "<script>"
        << "var lats=" << track.lats << ",lons=" << track.lons << ",alts=" << track.alts << ",spds=" << track.spds
-       << ",pauses=" << js_pauses << ";"
+       << ",pauses=" << markers.pauses << ",touchdowns=" << markers.touchdowns << ";"
+       << "var departureLabel=" << markers.departure << ",arrivalLabel=" << markers.arrival << ";"
        << "var map=new maplibregl.Map({container:'map',style:'" << OPENFREEMAP_STYLE << "',center:[" << clon_s << ","
        << clat_s << "],zoom:8,attributionControl:false});"
        << "map.addControl(new maplibregl.AttributionControl({customAttribution:'" << MAP_ATTRIBUTION << "'}));"
@@ -676,8 +758,9 @@ if(!lats.length)return;
 var coords=lats.map(function(la,i){return[lons[i],la];});
 map.addSource('track',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
 map.addLayer({id:'track',type:'line',source:'track',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#00d4ff','line-width':2}});
-var pts=[{c:coords[0],l:'Departure',k:'#00ff80'},{c:coords[coords.length-1],l:'Arrival',k:'#ff4040'}];
+var pts=[{c:coords[0],l:departureLabel,k:'#00ff80'},{c:coords[coords.length-1],l:arrivalLabel,k:'#ff4040'}];
 pauses.forEach(function(p){pts.push({c:[p[1],p[0]],l:'Pause '+p[2],k:'#ffcc00'});});
+if(touchdowns.length>1)touchdowns.forEach(function(t){pts.push({c:[t[1],t[0]],l:t[2],k:'#ff66cc'});});
 map.addSource('points',{type:'geojson',data:{type:'FeatureCollection',features:pts.map(function(p){return{type:'Feature',geometry:{type:'Point',coordinates:p.c},properties:{label:p.l,color:p.k}};})}});
 map.addLayer({id:'points',type:'circle',source:'points',paint:{'circle-radius':6,'circle-color':['get','color'],'circle-stroke-width':1,'circle-stroke-color':'#101010'}});
 var bounds=coords.reduce(function(b,c){return b.extend(c);},new maplibregl.LngLatBounds(coords[0],coords[0]));
@@ -696,10 +779,10 @@ map.on('mouseleave','points',function(){map.getCanvas().style.cursor='';popup.re
     return js.str();
 }
 
-std::string flight_header_html(const FlightData &fd)
+std::string flight_header_html(const FlightData &fd, const FlightLegs::Route &route)
 {
     std::ostringstream html;
-    html << "<h1>" << esc(fd.departure_icao) << " &rarr; " << esc(fd.arrival_icao) << "</h1>"
+    html << "<h1>" << route_html(route, false) << "</h1>"
          << "<h2>" << esc(fd.date) << " " << esc(fd.start_utc) << "&ndash;" << esc(fd.end_utc) << " UTC &bull; "
          << esc(fd.aircraft_icao) << " " << esc(fd.aircraft_tail)
          << (fd.aircraft_category == "rotorcraft" ? "<span class=\"badge-heli\">Helicopter</span>" : "") << "</h2>"
@@ -713,10 +796,13 @@ std::string flight_header_html(const FlightData &fd)
 std::string HtmlReport::generate(const FlightData &fd, const std::string &data_dir, const std::string &json_filename,
                                  const std::string &profile_name, const std::array<int, 4> &thresholds)
 {
+    const FlightLegs::Route       route   = FlightLegs::derive_route(fd);
     const TrackJsArrays           track   = track_js_arrays(fd.track);
     const std::vector<PauseEvent> pauses  = resolve_pauses(fd);
-    const std::string             js_pauses = pauses_js_array(pauses);
-    const std::string             lcards  = landing_cards_html(fd, profile_name, thresholds);
+    const std::string             lcards  = landing_cards_html(fd, route, profile_name, thresholds);
+    const MapMarkers              markers = {pauses_js_array(pauses), touchdowns_js_array(fd, route),
+                                             js_string("Departure - " + route.stops.front().label),
+                                             js_string("Arrival - " + route.stops.back().label)};
 
     const bool  is_short_flight = fd.block_time_min < 30;
     const int   ac_height       = is_short_flight ? 180 : 240;
@@ -724,17 +810,20 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
     const char *time_fmt        = is_short_flight ? "ms" : "hm";
 
     std::ostringstream html;
-    html << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>" << esc(fd.departure_icao) << " to "
-         << esc(fd.arrival_icao) << "</title>" << REPORT_CDN_HEAD << FL_CSS << "</head><body>"
-         << flight_header_html(fd) << "<div id=\"map\"></div>"
+    html << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>" << route_html(route, false)
+         << "</title>" << REPORT_CDN_HEAD << FL_CSS << "</head><body>" << flight_header_html(fd, route)
+         << "<div id=\"map\"></div>"
          << (pauses.empty() ? ""
                             : "<p class=\"legend\"><span class=\"dot dot-pause\"></span>Pause &mdash; sim was "
                               "paused here; the time is not part of the block time</p>")
+         << (fd.landings.size() > 1 ? "<p class=\"legend\"><span class=\"dot dot-touchdown\"></span>Touchdown</p>"
+                                    : "")
+         << legs_table_html(fd, route)
          << "<div class=\"chart-box\" style=\"height:" << ac_height << "px\"><canvas id=\"ac\"></canvas></div>"
          << "<div class=\"chart-box\" style=\"height:" << sc_height << "px\"><canvas id=\"sc\"></canvas></div>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
-         << map_and_charts_script(track, js_pauses, time_fmt) << "</body></html>";
+         << map_and_charts_script(track, markers, time_fmt) << "</body></html>";
 
     std::string   rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";
     std::ofstream f(data_dir + "reports/" + rname);
@@ -768,7 +857,7 @@ void HtmlReport::generate_index(const std::string &data_dir)
 
     struct Row
     {
-        std::string date, start_utc, dep, arr, ac, tail, link, rating;
+        std::string date, start_utc, route_html, ac, tail, link, rating;
         int         dur = 0, alt = 0;
     };
     std::vector<Row> rows;
@@ -787,7 +876,8 @@ void HtmlReport::generate_index(const std::string &data_dir)
         for (auto &ld : fd.landings)
             last_rating = ld.rating;
 
-        rows.push_back({fd.date, fd.start_utc, fd.departure_icao, fd.arrival_icao, fd.aircraft_icao, fd.aircraft_tail,
+        rows.push_back({fd.date, fd.start_utc, route_html(FlightLegs::derive_route(fd), false), fd.aircraft_icao,
+                        fd.aircraft_tail,
                         "reports/" + fname.substr(0, fname.rfind('.')) + ".html", last_rating, fd.block_time_min,
                         fd.max_altitude_ft});
     }
@@ -801,9 +891,9 @@ void HtmlReport::generate_index(const std::string &data_dir)
         std::string ts = !r.start_utc.empty() ? (r.date + " " + r.start_utc + " UTC") : r.date;
         char        buf[1024];
         snprintf(buf, sizeof(buf),
-                 "<tr><td>%s</td><td><b>%s &rarr; %s</b></td><td>%s %s</td><td>%s</td>"
+                 "<tr><td>%s</td><td><b>%s</b></td><td>%s %s</td><td>%s</td>"
                  "<td>%d ft</td><td style=\"color:%s\">%s</td><td><a href=\"%s\">Report</a></td></tr>\n",
-                 esc(ts).c_str(), esc(r.dep).c_str(), esc(r.arr).c_str(), esc(r.ac).c_str(), esc(r.tail).c_str(),
+                 esc(ts).c_str(), r.route_html.c_str(), esc(r.ac).c_str(), esc(r.tail).c_str(),
                  fmt_dur(r.dur).c_str(), r.alt, c.c_str(), esc(r.rating).c_str(), esc(r.link).c_str());
         tbody << buf;
     }
@@ -855,6 +945,10 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
         fd.start_utc       = j.value("start_utc", "");
         fd.end_utc         = j.value("end_utc", "");
         fd.departure_icao  = j.value("departure_icao", "");
+        fd.departure_lat          = j.value("departure_lat", 0.0);
+        fd.departure_lon          = j.value("departure_lon", 0.0);
+        fd.departure_distance_m   = j.value("departure_distance_m", -1.0f);
+        fd.departure_nearby_place = j.value("departure_nearby_place", "");
         fd.arrival_icao    = j.value("arrival_icao", "");
         fd.aircraft_icao     = j.value("aircraft_icao", "");
         fd.aircraft_tail     = j.value("aircraft_tail", "");
@@ -936,6 +1030,9 @@ FlightData parse_flight_json(const std::string &content, const std::string &file
                 ld.wind_status    = lj.value("wind_status", "STEADY");
                 ld.crosswind_side = lj.value("crosswind_side", "");
                 ld.airport_icao   = lj.value("airport_icao", "");
+                ld.airport_distance_m = lj.value("airport_distance_m", -1.0f);
+                ld.nearby_place       = lj.value("nearby_place", "");
+                ld.liftoff_time       = lj.value("liftoff_time", static_cast<time_t>(0));
 
                 ld.runway_ident      = lj.value("runway_ident", "");
                 ld.runway_offset_m   = lj.value("runway_offset_m", 0.0f);

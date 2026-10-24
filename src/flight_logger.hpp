@@ -82,6 +82,10 @@ void stop();
 // plugin sits in the load message. Needs init() to have run.
 void note_aircraft_changed();
 
+// Note that the user's aircraft was (re)placed — loaded, or moved to a new airport. A
+// helicopter's lift-off is ignored until it has settled on the ground afterwards.
+void note_aircraft_placed();
+
 // Re-show the most recent landing popup — bound to a command so it can be summoned
 // for screenshots. Falls back to the newest logged flight when this X-Plane session
 // has no landing yet. Returns false when there is nothing to show.
