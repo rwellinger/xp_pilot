@@ -579,6 +579,48 @@ TEST_CASE("generate_index: lists every flight JSON in the directory", "[report][
     fs::remove_all(root);
 }
 
+TEST_CASE("generate_index: flights of one day are listed by start time", "[report][index]")
+{
+    fs::path root = make_tmp_data_dir();
+    // By filename the 206B3 flight would come last although it started latest.
+    std::ofstream(root / "flights" / "2026-10-25_LSZG_LSZG_206B3.json")
+        << R"({"date":"2026-10-25","start_utc":"18:10","start_time":1792951800,"aircraft_icao":"206B3"})";
+    std::ofstream(root / "flights" / "2026-10-25_LSZG_LSZG_LAMA.json")
+        << R"({"date":"2026-10-25","start_utc":"08:40","start_time":1792917600,"aircraft_icao":"LAMA"})";
+    std::ofstream(root / "flights" / "2026-10-25_LSZG_LSZG_LAMA_1792929600.json")
+        << R"({"date":"2026-10-25","start_utc":"12:00","start_time":1792929600,"aircraft_icao":"LAMA"})";
+
+    HtmlReport::generate_index(root.string() + "/");
+
+    const std::string idx = slurp(root / "index.html");
+    CHECK(idx.find("2026-10-25 18:10") < idx.find("2026-10-25 12:00"));
+    CHECK(idx.find("2026-10-25 12:00") < idx.find("2026-10-25 08:40"));
+
+    fs::remove_all(root);
+}
+
+TEST_CASE("flown_later: start time decides, the filename only breaks ties", "[report][order]")
+{
+    FlightData earlier;
+    earlier.date       = "2026-10-25";
+    earlier.start_utc  = "08:40";
+    earlier.start_time = 1792917600;
+    earlier.filename   = "2026-10-25_LSZG_LSZG_LAMA.json";
+
+    FlightData later  = earlier;
+    later.start_utc   = "18:10";
+    later.start_time  = 1792951800;
+    later.filename    = "2026-10-25_LSZB_LSZB_206B3.json";
+
+    CHECK(flown_later(later, earlier));
+    CHECK_FALSE(flown_later(earlier, later));
+
+    FlightData twin = earlier;
+    twin.filename   = "2026-10-25_LSZG_LSZG_LAMA_1792917600.json";
+    CHECK(flown_later(twin, earlier) != flown_later(earlier, twin));
+    CHECK_FALSE(flown_later(earlier, earlier));
+}
+
 TEST_CASE("generate_index: silently handles missing flights directory", "[report][index]")
 {
     fs::path root = fs::temp_directory_path() / "xp_pilot_index_no_flights_dir_xyz";

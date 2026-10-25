@@ -689,8 +689,10 @@ static void landing_arm()
     s_ld_armed          = true;
     s_ld_captured       = {};
     s_ld_captured_valid = false;
-    s_prev_on_any       = false;
-    s_prev_on_all       = false;
+    // Seeded from the sim rather than assumed airborne: a touchdown is a rising edge of
+    // gear contact, and an aircraft armed while still on the ground has not landed.
+    s_prev_on_any       = dr_i(dr_onground) != 0;
+    s_prev_on_all       = dr_i(dr_onground_all) != 0;
     s_bounce_count      = 0;
     s_worst_fpm_mag     = 0.f;
     s_main_gear_lifted  = false;
@@ -719,6 +721,7 @@ enum class State : uint8_t
 
 static State                    s_state = State::Idle;
 static float                    s_seconds_on_ground    = 0.f; // continuous, active sim time
+static float                    s_seconds_off_ground   = 0.f; // continuous, active sim time
 static bool                     s_settled_since_placed = false;
 static std::string              s_departure_icao;
 static double                   s_departure_lat = 0, s_departure_lon = 0;
@@ -744,11 +747,14 @@ static double                  s_active_seconds     = 0.0;
 static double                  s_total_seconds      = 0.0;
 static double                  s_last_sample_active = 0.0;
 static std::vector<PauseEvent> s_pauses;
+// Flight clocks as they stood at the most recent landing, so a session that ends in
+// the air can still be saved up to that landing.
+static double                  s_active_seconds_at_last_landing = 0.0;
+static double                  s_total_seconds_at_last_landing  = 0.0;
 
 static constexpr float GS_ROLLING_MPS     = 15.4f; // 30 kts
 static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
 static constexpr float AGL_AIRBORNE_M     = 15.0f; // ~50 ft (fixed-wing climb-out)
-static constexpr float AGL_AIRBORNE_HELI_M = 3.0f; // ~10 ft (rotorcraft lift-off / touch-and-go)
 
 // X-Plane places a freshly loaded aircraft slightly above the ground and lets it drop.
 // For a helicopter, which starts recording the moment it is off the ground, that drop
@@ -756,7 +762,12 @@ static constexpr float AGL_AIRBORNE_HELI_M = 3.0f; // ~10 ft (rotorcraft lift-of
 // on the ground this long since it was placed.
 static constexpr float HELI_GROUND_SETTLE_SEC = 3.0f;
 
-static float agl_airborne_threshold() { return s_is_rotorcraft ? AGL_AIRBORNE_HELI_M : AGL_AIRBORNE_M; }
+// AGL alone cannot tell a hovering helicopter from one standing on an elevated pad, so
+// rotorcraft go by skid contact instead.
+static bool rotorcraft_lifted_off()
+{
+    return s_seconds_off_ground >= FlightLoggerLogic::ROTORCRAFT_LIFTOFF_CONFIRM_SEC;
+}
 
 // Guards the rating paths against a session whose profile was never resolved, which
 // would otherwise silently rate against the wrong thresholds.
@@ -779,6 +790,7 @@ static void session_reset()
     s_landing_profile = {};
     s_start_time = s_end_time = 0;
     s_active_seconds = s_last_sample_active = s_total_seconds = 0.0;
+    s_active_seconds_at_last_landing = s_total_seconds_at_last_landing = 0.0;
     s_max_altitude_ft = s_max_speed_kts = 0;
     s_track.clear();
     s_landings.clear();
@@ -793,6 +805,7 @@ static int block_time_minutes() { return static_cast<int>(s_active_seconds / 60.
 static int paused_seconds() { return FlightLoggerLogic::paused_seconds(s_total_seconds, s_active_seconds); }
 
 static void finalize_flight();
+static void end_session_on_placement();
 
 // ── Per-frame data shared across state handlers ──────────────────────────────
 
@@ -820,6 +833,16 @@ static Frame read_frame()
     return f;
 }
 
+// The frame values go with every transition, so an unexpected recording can be
+// explained from Log.txt alone.
+static void log_transition(const char *transition, const Frame &f)
+{
+    char msg[160];
+    snprintf(msg, sizeof(msg), "[xp_pilot] State: %s (on_gnd=%d agl=%.1f m gs=%.1f m/s)\n", transition,
+             f.on_gnd ? 1 : 0, static_cast<double>(f.agl), static_cast<double>(f.gs));
+    XPLMDebugString(msg);
+}
+
 // ── Airport caching ──────────────────────────────────────────────────────────
 
 static void cache_airport_when_stationary(const Frame &f)
@@ -831,15 +854,13 @@ static void cache_airport_when_stationary(const Frame &f)
         s_last_gnd_apt = apt;
 }
 
-static void track_ground_settling(const Frame &f, float elapsed_real_sec)
+static void track_ground_contact(const Frame &f, float elapsed_real_sec)
 {
-    if (!f.on_gnd)
-    {
-        s_seconds_on_ground = 0.f;
-        return;
-    }
-    if (f.paused == 0 && f.in_replay == 0)
-        s_seconds_on_ground += elapsed_real_sec;
+    const bool sim_running = f.paused == 0 && f.in_replay == 0;
+    s_seconds_on_ground =
+        FlightLoggerLogic::continuous_active_seconds(s_seconds_on_ground, f.on_gnd, sim_running, elapsed_real_sec);
+    s_seconds_off_ground =
+        FlightLoggerLogic::continuous_active_seconds(s_seconds_off_ground, !f.on_gnd, sim_running, elapsed_real_sec);
     if (s_seconds_on_ground >= HELI_GROUND_SETTLE_SEC)
         s_settled_since_placed = true;
 }
@@ -888,10 +909,8 @@ static void handle_idle_state(const Frame &f)
 
     if (is_heli)
     {
-        // Helicopters skip the Rolling phase — flight starts the moment the skids leave the ground.
-        if (f.on_gnd && f.agl <= AGL_AIRBORNE_HELI_M)
-            return;
-        if (!s_settled_since_placed)
+        // Helicopters skip the Rolling phase — flight starts once the skids have left the ground.
+        if (!rotorcraft_lifted_off() || !s_settled_since_placed)
             return;
 
         s_is_rotorcraft   = true;
@@ -905,7 +924,7 @@ static void handle_idle_state(const Frame &f)
         landing_arm();
         if (s_write_enabled)
             Overlay::show("REC  Flight recording started", 5.f);
-        XPLMDebugString("[xp_pilot] State: Idle -> Airborne (rotorcraft, skipped Rolling)\n");
+        log_transition("Idle -> Airborne (rotorcraft, skipped Rolling)", f);
         return;
     }
 
@@ -919,7 +938,7 @@ static void handle_idle_state(const Frame &f)
     s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
     s_start_time     = std::time(nullptr);
     s_state          = State::Rolling;
-    XPLMDebugString("[xp_pilot] State: Idle -> Rolling\n");
+    log_transition("Idle -> Rolling", f);
 }
 
 static void handle_rolling_state(const Frame &f)
@@ -935,7 +954,7 @@ static void handle_rolling_state(const Frame &f)
     landing_arm();
     if (s_write_enabled)
         Overlay::show("REC  Flight recording started", 5.f);
-    XPLMDebugString("[xp_pilot] State: Rolling -> Airborne\n");
+    log_transition("Rolling -> Airborne", f);
 }
 
 // Sample track/max-stats every 10 seconds of active flight time while airborne (writer
@@ -1107,8 +1126,20 @@ static void capture_main_gear_touchdown(const Frame &f, bool on_any)
     s_worst_fpm_mag     = fpm_mag;
 }
 
+static void complete_landing(const Frame &f, const char *transition)
+{
+    s_landings.push_back(s_ld_captured);
+    s_arrival_icao                   = s_ld_captured.airport_icao;
+    s_active_seconds_at_last_landing = s_active_seconds;
+    s_total_seconds_at_last_landing  = s_total_seconds;
+    s_state                          = State::Landed;
+    LandingPopup::post(s_ld_captured);
+    landing_arm();
+    log_transition(transition, f);
+}
+
 // Finalize landing once the nose gear touches down after the mains.
-static void finalize_landing_on_nose_gear(bool on_all)
+static void finalize_landing_on_nose_gear(const Frame &f, bool on_all)
 {
     if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
         return;
@@ -1118,12 +1149,7 @@ static void finalize_landing_on_nose_gear(bool on_all)
     s_ld_captured.bounce_count = s_bounce_count;
     s_ld_captured.airport_icao = get_airport_id_now();
     AirportLookup::apply_runway_fix(s_ld_captured);
-    s_landings.push_back(s_ld_captured);
-    s_arrival_icao = s_ld_captured.airport_icao;
-    s_state        = State::Landed;
-    LandingPopup::post(s_ld_captured);
-    landing_arm();
-    XPLMDebugString("[xp_pilot] State: Airborne -> Landed\n");
+    complete_landing(f, "Airborne -> Landed");
 }
 
 // Skid-landing helicopters touch down with both contact points simultaneously, so
@@ -1150,13 +1176,7 @@ static void capture_helicopter_touchdown(const Frame &f, bool on_all)
     s_ld_captured.airport_icao = get_airport_id_now();
     s_ld_captured_valid        = true;
     AirportLookup::apply_runway_fix(s_ld_captured);
-
-    s_landings.push_back(s_ld_captured);
-    s_arrival_icao = s_ld_captured.airport_icao;
-    s_state        = State::Landed;
-    LandingPopup::post(s_ld_captured);
-    landing_arm();
-    XPLMDebugString("[xp_pilot] State: Airborne -> Landed (rotorcraft)\n");
+    complete_landing(f, "Airborne -> Landed (rotorcraft)");
 }
 
 // Snapshot speed and descent rate at the 50-ft gate — the point a landing is actually
@@ -1230,15 +1250,20 @@ static void handle_airborne_state(const Frame &f)
             s_max_agl_since_td = agl_ft_now;
     }
 
-    finalize_landing_on_nose_gear(on_all);
+    finalize_landing_on_nose_gear(f, on_all);
 
     s_prev_on_any = on_any;
     s_prev_on_all = on_all;
 }
 
+static bool lifted_off_again(const Frame &f)
+{
+    return s_is_rotorcraft ? rotorcraft_lifted_off() : f.agl > AGL_AIRBORNE_M;
+}
+
 static void handle_landed_state(const Frame &f)
 {
-    if (f.agl > agl_airborne_threshold())
+    if (lifted_off_again(f))
     {
         if (!s_landings.empty())
             s_landings.back().liftoff_time = std::time(nullptr);
@@ -1246,7 +1271,7 @@ static void handle_landed_state(const Frame &f)
         landing_arm();
         if (s_write_enabled)
             Overlay::show("REC  Touch-and-Go", 4.f);
-        XPLMDebugString("[xp_pilot] State: Landed -> Airborne (T&G)\n");
+        log_transition("Landed -> Airborne (T&G)", f);
         return;
     }
 
@@ -1258,7 +1283,7 @@ static void handle_landed_state(const Frame &f)
     {
         s_end_time = std::time(nullptr);
         s_state    = State::Shutdown;
-        XPLMDebugString("[xp_pilot] State: Landed -> Shutdown\n");
+        log_transition("Landed -> Shutdown", f);
         finalize_flight();
     }
 }
@@ -1328,6 +1353,9 @@ static void record_pause_release(const Frame &f)
 // a plugin sits in the load message, so the callback only raises this flag and the work
 // happens on the next flight loop, once the aircraft is up.
 static bool s_airframe_log_pending = false;
+// Same deferral for a placement: ending the session saves a flight, which is no work
+// for the load message either.
+static bool s_placement_pending = false;
 
 // Report the airframe facts and the profile they resolve to. The profile is otherwise
 // only visible as one line in the HTML report, which leaves a surprising rating with no
@@ -1358,6 +1386,13 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
         s_airframe_log_pending = false;
         log_airframe_now();
     }
+    if (s_placement_pending)
+    {
+        s_placement_pending = false;
+        end_session_on_placement();
+        // Captured at the previous position; the next departure is wherever the aircraft is now.
+        s_last_gnd_apt.clear();
+    }
 
     // Both logger features off → no state machine work this frame.
     // Reset any mid-flight state so re-enabling starts cleanly from Idle.
@@ -1373,7 +1408,7 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
     accumulate_flight_time(f, elapsed_real_sec);
     record_pause_release(f);
     cache_airport_when_stationary(f);
-    track_ground_settling(f, elapsed_real_sec);
+    track_ground_contact(f, elapsed_real_sec);
     handle_engine_edge_detection(f.on_gnd);
 
     switch (s_state)
@@ -1459,7 +1494,7 @@ static void name_nearby_places(FlightData &fd)
         landing.nearby_place = nearby_place(landing.lat, landing.lon);
 }
 
-static void finalize_flight()
+static void save_flight(FlightData fd)
 {
     if (dr_i(dr_in_replay))
     {
@@ -1473,10 +1508,9 @@ static void finalize_flight()
         session_reset();
         return;
     }
-    if (s_arrival_icao.empty() && !s_last_gnd_apt.empty())
-        s_arrival_icao = s_last_gnd_apt;
+    if (fd.arrival_icao.empty())
+        fd.arrival_icao = s_last_gnd_apt;
 
-    FlightData fd = build_flight_data(s_end_time);
     AirportLookup::resolve_ground_points(fd);
     name_nearby_places(fd);
 
@@ -1495,12 +1529,56 @@ static void finalize_flight()
         HtmlReport::generate_index(s_output_dir);
     }
 
-    std::string dep = s_departure_icao.empty() ? "?" : s_departure_icao;
-    std::string arr = s_arrival_icao.empty() ? "?" : s_arrival_icao;
+    std::string dep = fd.departure_icao.empty() ? "?" : fd.departure_icao;
+    std::string arr = fd.arrival_icao.empty() ? "?" : fd.arrival_icao;
     Overlay::show("Flight saved: " + dep + " -> " + arr, 8.f, 0.2f, 1.f, 0.4f);
 
     s_lb_needs_refresh = true;
     session_reset();
+}
+
+static void finalize_flight() { save_flight(build_flight_data(s_end_time)); }
+
+static void save_up_to_last_landing()
+{
+    s_active_seconds = s_active_seconds_at_last_landing;
+    s_total_seconds  = s_total_seconds_at_last_landing;
+    FlightData fd    = build_flight_data(s_landings.back().time);
+    FlightLoggerLogic::cut_after_last_landing(fd);
+    save_flight(std::move(fd));
+}
+
+static void discard_session()
+{
+    session_reset();
+    if (s_write_enabled)
+        Overlay::show("Recording discarded: aircraft repositioned", 6.f, 1.f, 0.6f, 0.2f);
+}
+
+// A new flight or an aircraft reload moves the aircraft without restarting the plugin,
+// so a session still running belongs to the previous flight. Left alone, the aircraft
+// being set down at its new position would read as that flight's landing.
+static void end_session_on_placement()
+{
+    if (!flight_in_progress())
+        return;
+
+    if (s_state == State::Landed)
+    {
+        XPLMDebugString("[xp_pilot] Aircraft repositioned after landing – saving flight\n");
+        s_end_time = std::time(nullptr);
+        finalize_flight();
+    }
+    else if (!s_landings.empty())
+    {
+        XPLMDebugString("[xp_pilot] Aircraft repositioned in flight – saving up to the last landing\n");
+        save_up_to_last_landing();
+    }
+    else
+    {
+        XPLMDebugString("[xp_pilot] Aircraft repositioned before any landing – recording discarded\n");
+        discard_session();
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1588,7 +1666,9 @@ void FlightLogger::note_aircraft_changed() { s_airframe_log_pending = true; }
 void FlightLogger::note_aircraft_placed()
 {
     s_seconds_on_ground    = 0.f;
+    s_seconds_off_ground   = 0.f;
     s_settled_since_placed = false;
+    s_placement_pending    = true;
 }
 
 void FlightLogger::init()

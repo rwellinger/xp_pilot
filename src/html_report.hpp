@@ -159,6 +159,12 @@ struct FlightData
     std::vector<PauseEvent>  pauses;
 };
 
+// Most recent flight first. Filenames sort by date and then by airports and aircraft,
+// not by time of day, so the start decides; the filename only breaks ties, which keeps
+// the order stable. Date and start time lead because a hand-edited or very old log may
+// lack the epoch value.
+bool flown_later(const FlightData &a, const FlightData &b);
+
 // The pauses to display: the recorded ones, or — for flights logged before they were
 // tracked individually — the ones reconstructed from the gaps between track points.
 std::vector<PauseEvent> resolve_pauses(const FlightData &fd);

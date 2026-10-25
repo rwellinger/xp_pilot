@@ -2,6 +2,14 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.9.1
+
+  - **Fixed: a helicopter could log a flight with a landing without ever taking off** — a single frame without skid contact right after loading was enough to start a recording, and the touchdown check then took the helicopter still standing on the pad for a landing. A lift-off now needs 2 seconds off the ground, counted in unpaused sim time, and a landing needs a real transition from air to ground. Height above terrain no longer counts for helicopters, so an elevated helipad cannot start a flight either.
+  - **Fixed: starting a new flight without restarting X-Plane could add a landing to the previous one** — a recording still running carried over to the new position, and setting the aircraft down there counted as its landing. Moving the aircraft now ends the running recording: a flight that has landed is saved, a flight in the air is saved up to its last landing, and one without any landing is discarded with a notice on screen.
+  - **Fixed: flights of the same day were listed in the wrong order** — the logbook and archive lists, the HTML index and **Show Last Landing Rating** went by filename, which sorts a day's flights by airports and aircraft type rather than by time. A JetRanger flight in the evening ended up below a Lama flight from the morning, and the landing popup could replay an older landing than the latest one. All of them now go by the start of the flight, newest first.
+  - `Log.txt` now shows ground contact, height above terrain and ground speed with every recording state change, so an unexpected recording can be traced.
+  - No file format change; flight logs stay at `version: 9`.
+
 ### What's New in v1.9.0
 
   - **Multi-leg flights and off-field landings** — a helicopter mission from the airport to a rescue site, on to a second one and back used to show up as touch-and-goes at the same airfield. A landing more than 500 m from every runway and helipad of the nearest airport now counts as a landing site (`LS1`, `LS2`, …) named after the nearest town, and the flight reads as a route: `LSZB → LS1 → LS2 → LSZB`.

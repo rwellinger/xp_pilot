@@ -17,12 +17,12 @@
  */
 
 #include "flight_store.hpp"
-#include <algorithm>
 #include <cstdio> // snprintf
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 using json = nlohmann::json;
@@ -175,8 +175,6 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
 
 bool FlightStore::load_last_landing(const std::string &output_dir, LandingData &out)
 {
-    // Filenames start with the date, so descending name order visits the most recent
-    // flights first.
     const std::string        flights_dir = output_dir + "flights/";
     std::vector<std::string> filenames;
 
@@ -190,20 +188,22 @@ bool FlightStore::load_last_landing(const std::string &output_dir, LandingData &
         if (entry.is_regular_file() && name.size() > 5 && name.substr(name.size() - 5) == ".json")
             filenames.push_back(name);
     }
-    std::sort(filenames.rbegin(), filenames.rend());
 
+    FlightData newest;
+    bool       found = false;
     for (const auto &name : filenames)
     {
         std::ifstream f(flights_dir + name);
         if (!f.is_open())
             continue;
         const std::string content((std::istreambuf_iterator<char>(f)), {});
-        const FlightData  flight = parse_flight_json(content, name);
-        if (!flight.landings.empty())
-        {
-            out = flight.landings.back();
-            return true;
-        }
+        FlightData        flight = parse_flight_json(content, name);
+        if (flight.landings.empty() || (found && !flown_later(flight, newest)))
+            continue;
+        newest = std::move(flight);
+        found  = true;
     }
-    return false;
+    if (found)
+        out = newest.landings.back();
+    return found;
 }

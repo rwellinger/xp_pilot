@@ -345,6 +345,58 @@ inline int paused_seconds(double total_seconds, double active_seconds)
     return paused > 0.0 ? static_cast<int>(std::lround(paused)) : 0;
 }
 
+// ── Ground contact ───────────────────────────────────────────────────────────
+
+// How long a rotorcraft must stay off the ground before it counts as having lifted
+// off. A single frame without skid contact — a jolt on the pad, the aircraft's own
+// start-up scripts — would otherwise start a flight that never left the ground.
+inline constexpr float ROTORCRAFT_LIFTOFF_CONFIRM_SEC = 2.f;
+
+// Continuous time a ground-contact condition has held, counted in active sim time only.
+// While the sim is paused or in replay the count freezes rather than resets: the
+// datarefs are frozen too, so the condition neither starts over nor makes progress.
+inline float continuous_active_seconds(float seconds_so_far, bool condition_holds, bool sim_running,
+                                       float elapsed_sec)
+{
+    if (!condition_holds)
+        return 0.f;
+    return sim_running ? seconds_so_far + elapsed_sec : seconds_so_far;
+}
+
+// ── Ending a flight early ────────────────────────────────────────────────────
+
+// Cuts a flight back to its last landing, for a session that ends while airborne —
+// the aircraft was placed somewhere else mid-flight. What came after that landing never
+// reached the ground again, so it is no part of the logged flight. The maxima are
+// rebuilt from the remaining track, which is where they were sampled from.
+inline void cut_after_last_landing(FlightData &flight)
+{
+    if (flight.landings.empty())
+        return;
+
+    LandingData &last_landing = flight.landings.back();
+    const time_t cutoff       = last_landing.time;
+    last_landing.liftoff_time = 0;
+    if (!last_landing.airport_icao.empty())
+        flight.arrival_icao = last_landing.airport_icao;
+
+    auto &track = flight.track;
+    track.erase(std::remove_if(track.begin(), track.end(), [cutoff](const TrackPoint &point) { return point.t > cutoff; }),
+                track.end());
+    auto &pauses = flight.pauses;
+    pauses.erase(
+        std::remove_if(pauses.begin(), pauses.end(), [cutoff](const PauseEvent &pause) { return pause.t >= cutoff; }),
+        pauses.end());
+
+    flight.max_altitude_ft = 0;
+    flight.max_speed_kts   = 0;
+    for (const auto &point : track)
+    {
+        flight.max_altitude_ft = std::max(flight.max_altitude_ft, point.alt_ft);
+        flight.max_speed_kts   = std::max(flight.max_speed_kts, point.spd_kts);
+    }
+}
+
 inline constexpr double TRACK_BOUNDS_PADDING_FRACTION = 0.05;
 inline constexpr double TRACK_BOUNDS_MIN_PADDING_DEG  = 0.001;
 

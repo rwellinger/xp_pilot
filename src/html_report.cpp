@@ -27,6 +27,7 @@
 #include <fstream>
 #include <json.hpp>
 #include <sstream>
+#include <tuple>
 
 using json = nlohmann::json;
 
@@ -833,6 +834,12 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
     return rname;
 }
 
+bool flown_later(const FlightData &a, const FlightData &b)
+{
+    return std::tie(a.date, a.start_utc, a.start_time, a.filename) >
+           std::tie(b.date, b.start_utc, b.start_time, b.filename);
+}
+
 // ── Index generation ──────────────────────────────────────────────────────────
 
 void HtmlReport::generate_index(const std::string &data_dir)
@@ -853,7 +860,17 @@ void HtmlReport::generate_index(const std::string &data_dir)
                 fnames.push_back(n);
         }
     }
-    std::sort(fnames.begin(), fnames.end());
+
+    std::vector<FlightData> flights;
+    for (auto &fname : fnames)
+    {
+        std::ifstream f(fdir + fname);
+        if (!f.is_open())
+            continue;
+        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        flights.push_back(parse_flight_json(content, fname));
+    }
+    std::sort(flights.begin(), flights.end(), flown_later);
 
     struct Row
     {
@@ -862,15 +879,8 @@ void HtmlReport::generate_index(const std::string &data_dir)
     };
     std::vector<Row> rows;
 
-    for (auto &fname : fnames)
+    for (const auto &fd : flights)
     {
-        std::string   path = fdir + fname;
-        std::ifstream f(path);
-        if (!f.is_open())
-            continue;
-        std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        FlightData  fd = parse_flight_json(content, fname);
-
         // Last rating
         std::string last_rating;
         for (auto &ld : fd.landings)
@@ -878,11 +888,9 @@ void HtmlReport::generate_index(const std::string &data_dir)
 
         rows.push_back({fd.date, fd.start_utc, route_html(FlightLegs::derive_route(fd), false), fd.aircraft_icao,
                         fd.aircraft_tail,
-                        "reports/" + fname.substr(0, fname.rfind('.')) + ".html", last_rating, fd.block_time_min,
-                        fd.max_altitude_ft});
+                        "reports/" + fd.filename.substr(0, fd.filename.rfind('.')) + ".html", last_rating,
+                        fd.block_time_min, fd.max_altitude_ft});
     }
-
-    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.date > b.date; });
 
     std::ostringstream tbody;
     for (auto &r : rows)

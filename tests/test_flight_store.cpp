@@ -329,6 +329,29 @@ TEST_CASE("FlightStore::load_last_landing picks the newest flight that has one",
     CHECK(found.rating == "BUTTER!");
 }
 
+// Same day: the filename would put the LSZG flight first, although the LSZB one started later.
+TEST_CASE("FlightStore::load_last_landing goes by start time within a day", "[flight_store]")
+{
+    TempOutputDir dir("last_landing_same_day");
+
+    FlightData morning               = sample_flight();
+    morning.departure_icao           = "LSZG";
+    morning.start_utc                = "08:15";
+    morning.landings[0].rating       = "ACCEPTABLE";
+    REQUIRE_FALSE(FlightStore::save(morning, dir.path()).empty());
+
+    FlightData evening               = sample_flight();
+    evening.departure_icao           = "LSZB";
+    evening.start_utc                = "18:15";
+    evening.start_time               = morning.start_time + 10 * 3600;
+    evening.landings[0].rating       = "BUTTER!";
+    REQUIRE_FALSE(FlightStore::save(evening, dir.path()).empty());
+
+    LandingData found;
+    REQUIRE(FlightStore::load_last_landing(dir.path(), found));
+    CHECK(found.rating == "BUTTER!");
+}
+
 TEST_CASE("FlightStore::load_last_landing reports nothing when there are no flights", "[flight_store]")
 {
     TempOutputDir dir("no_flights");

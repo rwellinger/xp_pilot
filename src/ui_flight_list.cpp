@@ -30,7 +30,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <functional>
 #include <imgui.h>
 #include <iterator>
 #include <utility>
@@ -50,7 +49,7 @@ std::string report_path_for(const std::string &subdir, const std::string &flight
 }
 
 // Every *.json in `dir` (non-recursive), parsed as a FlightData without its track
-// samples, newest first — the filenames start with the date.
+// samples, newest first.
 std::vector<FlightData> read_flight_summaries(const std::string &dir)
 {
     std::vector<FlightData> summaries;
@@ -68,8 +67,6 @@ std::vector<FlightData> read_flight_summaries(const std::string &dir)
         if (name.size() > 5 && name.substr(name.size() - 5) == ".json")
             filenames.push_back(name);
     }
-    std::sort(filenames.begin(), filenames.end(), std::greater<std::string>());
-
     for (const auto &filename : filenames)
     {
         std::ifstream file(dir + filename);
@@ -80,6 +77,7 @@ std::vector<FlightData> read_flight_summaries(const std::string &dir)
         flight.track.clear(); // summary only — keep memory low
         summaries.push_back(std::move(flight));
     }
+    std::sort(summaries.begin(), summaries.end(), flown_later);
     return summaries;
 }
 

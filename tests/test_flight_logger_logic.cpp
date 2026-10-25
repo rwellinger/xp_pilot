@@ -761,3 +761,93 @@ TEST_CASE("Custom thresholds decide the rating exactly as a bundled profile does
     CHECK(FlightLoggerLogic::rating_label(FlightLoggerLogic::fixed_wing_rating_index(touchdown, lenient)) ==
           std::string("BUTTER!"));
 }
+
+TEST_CASE("Ground contact time grows only while the condition holds and the sim runs", "[flight_logger][liftoff]")
+{
+    using FlightLoggerLogic::continuous_active_seconds;
+
+    CHECK(continuous_active_seconds(1.5f, true, true, 0.5f) == 2.f);
+    // One frame back on the skids starts the count over.
+    CHECK(continuous_active_seconds(1.5f, false, true, 0.5f) == 0.f);
+    // A pause neither confirms a lift-off nor throws away the time already counted.
+    CHECK(continuous_active_seconds(1.5f, true, false, 0.5f) == 1.5f);
+}
+
+TEST_CASE("A single frame off the ground does not confirm a rotorcraft lift-off", "[flight_logger][liftoff]")
+{
+    using FlightLoggerLogic::continuous_active_seconds;
+    constexpr float frame_sec = 1.f / 30.f;
+
+    float off_ground = 0.f;
+    off_ground       = continuous_active_seconds(off_ground, true, true, frame_sec);
+    off_ground       = continuous_active_seconds(off_ground, false, true, frame_sec);
+    CHECK(off_ground < FlightLoggerLogic::ROTORCRAFT_LIFTOFF_CONFIRM_SEC);
+
+    for (int frame = 0; frame < 90; ++frame)
+        off_ground = continuous_active_seconds(off_ground, true, frame < 30 || frame >= 60, frame_sec);
+    // 90 frames off the ground, 30 of them paused: 2 s of active time.
+    CHECK(off_ground >= FlightLoggerLogic::ROTORCRAFT_LIFTOFF_CONFIRM_SEC - 0.001f);
+}
+
+static FlightData flight_with_two_landings()
+{
+    FlightData flight;
+    flight.arrival_icao = "LSZB";
+
+    LandingData first;
+    first.time         = 1000;
+    first.liftoff_time = 1100;
+    first.airport_icao = "LSZG";
+    LandingData second;
+    second.time         = 2000;
+    second.liftoff_time = 2100;
+    second.airport_icao = "LSZH";
+    flight.landings = {first, second};
+
+    TrackPoint before;
+    before.t       = 1900;
+    before.alt_ft  = 3000;
+    before.spd_kts = 110;
+    TrackPoint after;
+    after.t       = 2200;
+    after.alt_ft  = 9000;
+    after.spd_kts = 160;
+    flight.track           = {before, after};
+    flight.max_altitude_ft = 9000;
+    flight.max_speed_kts   = 160;
+
+    PauseEvent early_pause;
+    early_pause.t = 1500;
+    PauseEvent late_pause;
+    late_pause.t  = 2300;
+    flight.pauses = {early_pause, late_pause};
+    return flight;
+}
+
+TEST_CASE("A flight cut at its last landing ends there", "[flight_logger][placement]")
+{
+    FlightData flight = flight_with_two_landings();
+    FlightLoggerLogic::cut_after_last_landing(flight);
+
+    REQUIRE(flight.landings.size() == 2);
+    CHECK(flight.landings[0].liftoff_time == 1100);
+    CHECK(flight.landings[1].liftoff_time == 0);
+    CHECK(flight.arrival_icao == "LSZH");
+    REQUIRE(flight.track.size() == 1);
+    CHECK(flight.track[0].t == 1900);
+    REQUIRE(flight.pauses.size() == 1);
+    CHECK(flight.pauses[0].t == 1500);
+    CHECK(flight.max_altitude_ft == 3000);
+    CHECK(flight.max_speed_kts == 110);
+}
+
+TEST_CASE("Cutting a flight without landings leaves it untouched", "[flight_logger][placement]")
+{
+    FlightData flight = flight_with_two_landings();
+    flight.landings.clear();
+    FlightLoggerLogic::cut_after_last_landing(flight);
+
+    CHECK(flight.track.size() == 2);
+    CHECK(flight.pauses.size() == 2);
+    CHECK(flight.max_altitude_ft == 9000);
+}
