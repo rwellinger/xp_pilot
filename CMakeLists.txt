@@ -46,7 +46,9 @@ add_library(xp_pilot MODULE
     src/landing_detector.cpp
     src/flight_store.cpp
     src/flight_store_migration.cpp
+    src/flight_summary.cpp
     src/html_report.cpp
+    src/summary_report.cpp
     src/runway_data.cpp
     src/airspace_data.cpp
     src/map_overlay_cache.cpp
@@ -57,6 +59,7 @@ add_library(xp_pilot MODULE
     src/ui_flight_view.cpp
     src/ui_home.cpp
     src/ui_landing_profiles.cpp
+    src/ui_summary.cpp
     src/settings.cpp
     src/settings_migration.cpp
     src/settings_profiles.cpp

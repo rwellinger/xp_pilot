@@ -17,9 +17,11 @@
  */
 
 #include "flight_store.hpp"
+#include <algorithm>
 #include <cstdio> // snprintf
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <json.hpp>
 #include <string>
 #include <utility>
@@ -116,6 +118,33 @@ json landings_to_json(const std::vector<LandingData> &landings)
     return entries;
 }
 
+// Bare names of the flight files in `dir`; empty when it does not exist.
+std::vector<std::string> json_filenames(const std::string &dir)
+{
+    std::vector<std::string> filenames;
+    std::error_code          ec;
+    auto                     entries = std::filesystem::directory_iterator(dir, ec);
+    if (ec)
+        return filenames;
+    for (const auto &entry : entries)
+    {
+        const std::string name = entry.path().filename().string();
+        if (entry.is_regular_file() && name.size() > 5 && name.substr(name.size() - 5) == ".json")
+            filenames.push_back(name);
+    }
+    return filenames;
+}
+
+bool read_flight_file(const std::string &dir, const std::string &filename, FlightData &out)
+{
+    std::ifstream file(dir + filename);
+    if (!file.is_open())
+        return false;
+    const std::string content((std::istreambuf_iterator<char>(file)), {});
+    out = parse_flight_json(content, filename);
+    return true;
+}
+
 } // namespace
 
 std::string FlightStore::save(const FlightData &flight, const std::string &output_dir)
@@ -175,29 +204,15 @@ std::string FlightStore::save(const FlightData &flight, const std::string &outpu
 
 bool FlightStore::load_last_landing(const std::string &output_dir, LandingData &out)
 {
-    const std::string        flights_dir = output_dir + "flights/";
-    std::vector<std::string> filenames;
-
-    std::error_code ec;
-    auto            entries = std::filesystem::directory_iterator(flights_dir, ec);
-    if (ec)
-        return false;
-    for (const auto &entry : entries)
-    {
-        const std::string name = entry.path().filename().string();
-        if (entry.is_regular_file() && name.size() > 5 && name.substr(name.size() - 5) == ".json")
-            filenames.push_back(name);
-    }
+    const std::string flights_dir = output_dir + "flights/";
 
     FlightData newest;
     bool       found = false;
-    for (const auto &name : filenames)
+    for (const auto &name : json_filenames(flights_dir))
     {
-        std::ifstream f(flights_dir + name);
-        if (!f.is_open())
+        FlightData flight;
+        if (!read_flight_file(flights_dir, name, flight))
             continue;
-        const std::string content((std::istreambuf_iterator<char>(f)), {});
-        FlightData        flight = parse_flight_json(content, name);
         if (flight.landings.empty() || (found && !flown_later(flight, newest)))
             continue;
         newest = std::move(flight);
@@ -206,4 +221,37 @@ bool FlightStore::load_last_landing(const std::string &output_dir, LandingData &
     if (found)
         out = newest.landings.back();
     return found;
+}
+
+std::vector<FlightData> FlightStore::read_summaries(const std::string &flights_dir)
+{
+    std::vector<FlightData> summaries;
+    for (const auto &name : json_filenames(flights_dir))
+    {
+        FlightData flight;
+        if (!read_flight_file(flights_dir, name, flight))
+            continue;
+        flight.track.clear();
+        summaries.push_back(std::move(flight));
+    }
+    std::sort(summaries.begin(), summaries.end(), flown_later);
+    return summaries;
+}
+
+std::vector<FlightSummary::LoggedFlight> FlightStore::read_logged_flights(const std::string &output_dir)
+{
+    std::vector<FlightSummary::LoggedFlight> logged;
+    for (const std::string &dir : {output_dir + "flights/", output_dir + "flights/archived/"})
+    {
+        for (const auto &name : json_filenames(dir))
+        {
+            FlightData flight;
+            if (!read_flight_file(dir, name, flight))
+                continue;
+            const double distance_nm = FlightSummary::track_distance_nm(flight.track);
+            flight.track.clear();
+            logged.push_back({std::move(flight), distance_nm});
+        }
+    }
+    return logged;
 }

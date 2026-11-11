@@ -9,6 +9,7 @@
 #include "html_report.hpp"
 #include "ui_flight_view.hpp"
 #include "ui_home.hpp"
+#include "ui_summary.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <algorithm>
@@ -351,6 +352,29 @@ TEST_CASE("the status bar renders without a flight in progress", "[ui]")
     const ImDrawData *draw_data = render_frames([] { Home::draw_status_bar(FlightLogger::LiveFlight{}); });
 
     CHECK(draw_data->TotalVtxCount > 0);
+}
+
+TEST_CASE("a reports screen frame renders", "[ui]")
+{
+    ImGuiHeadlessContext ctx;
+
+    FlightSummary::LoggedFlight logged{load_fixture("sample_flight.json"), 42.0};
+    logged.flight.track.clear();
+
+    // Opened on an empty month, then switched to all time with the fixture flight in it.
+    SummaryScreen::State state;
+    SummaryScreen::load(state, {logged}, 0);
+    state.filter.period = FlightSummary::Period::all_time();
+    state.summary       = FlightSummary::summarize(state.flights, state.filter);
+    state.route_cells.assign(state.summary.flight_list.size(), "LSZB-LSGG");
+
+    SummaryScreen::Action action    = SummaryScreen::Action::None;
+    const ImDrawData     *draw_data = render_frames([&] { action = SummaryScreen::draw(state); });
+
+    CHECK(draw_data->TotalVtxCount > 0);
+    CHECK(action == SummaryScreen::Action::None);
+    CHECK(state.summary.flights == 1);
+    CHECK(state.periods.back() == FlightSummary::Period::all_time());
 }
 
 TEST_CASE("the home grid fits its panel without scrolling", "[ui]")

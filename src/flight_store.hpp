@@ -17,8 +17,10 @@
  */
 
 #pragma once
+#include "flight_summary.hpp"
 #include "html_report.hpp"
 #include <string>
+#include <vector>
 
 // Reading and writing the flight log on disk. Owns the JSON format — over 3000
 // users have logs in it, so its field names and fallbacks are compatibility surface.
@@ -32,5 +34,13 @@ std::string save(const FlightData &flight, const std::string &output_dir);
 // Newest logged flight that actually contains a landing, so the popup can be replayed
 // in a fresh X-Plane session. False when no logged flight has one.
 bool load_last_landing(const std::string &output_dir, LandingData &out);
+
+// Every flight in `flights_dir` (non-recursive), parsed without its track samples to
+// keep memory low, newest first.
+std::vector<FlightData> read_summaries(const std::string &flights_dir);
+
+// Active and archived flights alike: archiving tidies the logbook, it does not unfly a
+// flight. The track is reduced to the distance flown before it is dropped.
+std::vector<FlightSummary::LoggedFlight> read_logged_flights(const std::string &output_dir);
 
 } // namespace FlightStore

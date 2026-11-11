@@ -2,8 +2,20 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
-### What's New (unreleased)
+### What's New in v1.10.0
 
+  - **Flight summaries** ([#25](https://github.com/rwellinger/xp_pilot/issues/25)) — a new **Reports** tile on the home screen adds up your flying over a month, a year or all time, for every aircraft or for one type only. Until now the logbook only ever showed one flight at a time.
+    - **Totals** — flights, block time, landings, distance flown and airports visited.
+    - **Landing quality** — average, softest and hardest descent rate, maximum G, and how your landings spread across BUTTER! to WASTED!.
+    - **Breakdown** — time and landings per aircraft type, your most visited airports and most flown routes, and the list of flights in the period.
+    - The screen opens on the current month. The period and aircraft pulldowns only offer what your log actually contains.
+    - Archived flights always count: archiving tidies the logbook, it does not unfly a flight.
+    - Distance is measured along the recorded track, so it reflects the route actually flown rather than the direct line between airports.
+  - **Printable reports and PDF** — **Open Report** on the Reports screen writes the summary as an HTML page to `Output/x_pilot_reports/summaries/` and opens it in the browser, just like a flight report.
+    - The summary and every flight report now have a **Print / Save as PDF** button. Printing switches to a light A4 layout, so a page no longer costs a full sheet of dark toner. Use the browser's *Save as PDF* to keep it as a file.
+    - Every printed page carries a footer saying the report is for **flight simulation use only and not a valid pilot logbook record**. The summary also shows this at the top.
+    - Existing flight reports get the button once they are regenerated: new flights automatically, older ones via **Rebuild All Reports**.
+  - **Fixed: the map attribution in flight reports appeared twice** — the notice the report adds itself now matches the one the map tiles bring along, so it is shown once.
   - **Fixed: a flight saved while the sim was paused lost its last pause** — loading a new flight or relocating the aircraft from the pause menu, or shutting down while paused, counted the pause in the **Paused** time but left it off the route, so the report showed paused time without a marker for it. The open pause is now closed at the moment the flight is saved and shown on the map like any other.
   - **Fixed: a pause could carry over into the next flight** — in rare cases a pause begun in one flight turned up in the following one, with the time and position of the earlier flight. A pause now always belongs to the flight it was taken in.
   - **General improvements** of stability and maintainability.
@@ -199,7 +211,9 @@ Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)*
   - Auto QNH: silent altimeter sync + optional on-screen warnings for mismatches and pilot/copilot disagreement
   - Manual QNH commands: `xp_pilot/qnh/set_qnh`, `xp_pilot/qnh/set_flightlevel`
   - Bindable logbook commands: `xp_pilot/logbook/toggle`, `xp_pilot/logbook/show_last_landing`
-  - In-sim ImGui logbook window — tablet-style home screen with a live status bar, plus Live, Logbook, Archive and Settings screens
+  - In-sim ImGui logbook window — tablet-style home screen with a live status bar, plus Live, Logbook, Archive, Reports and Settings screens
+  - Flight summaries per month, year or all time, for all aircraft or a single type — totals, landing quality, aircraft, airports and routes
+  - Printable summary and flight reports — light A4 layout via the browser's *Save as PDF*, marked as for flight simulation use only
   - Live screen — position, altitude, speed, running block time and the route flown so far, while the flight is still in progress
   - Track map with airspaces, water, borders and place names — drawn entirely from local data, no network and no API key
   - Adjustable UI scale (80%–200%) for high-DPI displays, with a reset reachable from the plugin menu

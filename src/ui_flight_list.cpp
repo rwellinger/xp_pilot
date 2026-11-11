@@ -19,6 +19,7 @@
 #include "ui_flight_list.hpp"
 #include "flight_legs.hpp"
 #include "flight_logger.hpp"
+#include "flight_store.hpp"
 #include "ui_flight_view.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
@@ -46,39 +47,6 @@ std::string reports_dir(const std::string &subdir) { return FlightLogger::output
 std::string report_path_for(const std::string &subdir, const std::string &flight_filename)
 {
     return reports_dir(subdir) + flight_filename.substr(0, flight_filename.rfind('.')) + ".html";
-}
-
-// Every *.json in `dir` (non-recursive), parsed as a FlightData without its track
-// samples, newest first.
-std::vector<FlightData> read_flight_summaries(const std::string &dir)
-{
-    std::vector<FlightData> summaries;
-
-    std::vector<std::string> filenames;
-    std::error_code          ec;
-    auto                     entries = std::filesystem::directory_iterator(dir, ec);
-    if (ec)
-        return summaries;
-    for (const auto &entry : entries)
-    {
-        if (!entry.is_regular_file())
-            continue;
-        const std::string name = entry.path().filename().string();
-        if (name.size() > 5 && name.substr(name.size() - 5) == ".json")
-            filenames.push_back(name);
-    }
-    for (const auto &filename : filenames)
-    {
-        std::ifstream file(dir + filename);
-        if (!file.is_open())
-            continue;
-        std::string content((std::istreambuf_iterator<char>(file)), {});
-        FlightData  flight = parse_flight_json(content, filename);
-        flight.track.clear(); // summary only — keep memory low
-        summaries.push_back(std::move(flight));
-    }
-    std::sort(summaries.begin(), summaries.end(), flown_later);
-    return summaries;
 }
 
 // "LSZB-LSZB", or "LSZB-LSZB +2" for a flight with two stops in between: the list
@@ -381,7 +349,7 @@ bool draw_detail_actions(FlightList &list)
 
 void FlightListScreen::reload(FlightList &list)
 {
-    list.entries = read_flight_summaries(flights_dir(list.subdir));
+    list.entries = FlightStore::read_summaries(flights_dir(list.subdir));
     list.checked.assign(list.entries.size(), false);
     list.route_cells.clear();
     for (const auto &entry : list.entries)

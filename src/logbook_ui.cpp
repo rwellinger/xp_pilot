@@ -21,6 +21,7 @@
 #include "auto_qnh.hpp"
 #include "airport_lookup.hpp"
 #include "flight_logger.hpp"
+#include "flight_store.hpp"
 #include "ui_landing_popup.hpp"
 #include "ui_overlay.hpp"
 #include "settings.hpp"
@@ -28,6 +29,8 @@
 #include "ui_flight_view.hpp"
 #include "ui_home.hpp"
 #include "ui_landing_profiles.hpp"
+#include "ui_summary.hpp"
+#include "summary_report.hpp"
 #include "ui_theme.hpp"
 #include "ui_widgets.hpp"
 #include <XPLM/XPLMDataAccess.h>
@@ -42,6 +45,7 @@
 #include <GL/gl.h>
 #endif
 #include <algorithm>
+#include <ctime>
 // Keep explicit: MSVC needs it; Clang often pulls it in transitively and flags it unused.
 #include <cstdio> // snprintf
 #include <string>
@@ -86,6 +90,8 @@ static FlightListScreen::FlightList s_archive = make_list("archived/", false);
 // Shown on the archive tile. Counting files is cheap, parsing them is not — the
 // archive itself stays lazily loaded until its screen is opened.
 static size_t s_archive_count = 0;
+
+static SummaryScreen::State s_summary;
 
 // ── Time ──────────────────────────────────────────────────────────────────────
 
@@ -313,6 +319,14 @@ static void draw_settings_screen()
     ImGui::EndTable();
 }
 
+static void write_summary_report()
+{
+    s_summary.report_path   = SummaryReport::generate(s_summary.summary, s_summary.filter, FlightLogger::output_dir());
+    s_summary.report_failed = s_summary.report_path.empty();
+    if (!s_summary.report_failed)
+        FlightView::open_in_browser(s_summary.report_path);
+}
+
 // Screen chrome: back navigation and title, then the screen itself.
 static void draw_current_screen(const FlightLogger::LiveFlight &live)
 {
@@ -322,6 +336,11 @@ static void draw_current_screen(const FlightLogger::LiveFlight &live)
         Ui::begin_content_panel("home_panel");
         Home::draw_tiles(live, {s_logbook.entries.size(), s_archive_count, AutoQNH::enabled()}, s_screen);
         Ui::end_content_panel();
+        // Read afresh on every visit: flights may have been logged, archived or deleted
+        // since, and parsing the log once per visit is cheap next to doing it per frame.
+        if (s_screen == Screen::Reports)
+            SummaryScreen::load(s_summary, FlightStore::read_logged_flights(FlightLogger::output_dir()),
+                                std::time(nullptr));
         return;
 
     case Screen::Live:
@@ -350,6 +369,14 @@ static void draw_current_screen(const FlightLogger::LiveFlight &live)
         ImGui::Separator();
         FlightListScreen::draw(s_archive);
         s_archive_count = s_archive.entries.size();
+        return;
+
+    case Screen::Reports:
+        if (Ui::view_header(ICON_FA_FILE_LINES, "REPORTS"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        if (SummaryScreen::draw(s_summary) == SummaryScreen::Action::OpenReport)
+            write_summary_report();
         return;
 
     case Screen::Settings:

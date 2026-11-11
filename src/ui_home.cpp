@@ -24,6 +24,7 @@
 #include <cmath>
 #include <cstdio>
 #include <imgui.h>
+#include <iterator> // std::size
 
 namespace
 {
@@ -135,33 +136,44 @@ void Home::draw_status_bar(const FlightLogger::LiveFlight &live)
 
 void Home::draw_tiles(const FlightLogger::LiveFlight &live, const TileSummary &summary, Screen &screen)
 {
-    const ImVec2 available = ImGui::GetContentRegionAvail();
-    const float  gap       = Theme::scaled(16.f);
-
-    // Two columns, two rows, as square as the window allows. The grid has to fit the
-    // panel exactly or it scrolls on every frame, so item spacing is pinned to the gap
-    // and no extra spacers are emitted — the row break already provides the vertical gap.
-    const float  tile_w = std::floor((available.x - gap) * 0.5f);
-    const float  tile_h = std::floor(std::min(tile_w, (available.y - gap) * 0.5f));
-    const ImVec2 tile{tile_w, std::max(Theme::scaled(90.f), tile_h)};
-
     char flights[32], archived[32];
     snprintf(flights, sizeof(flights), "%zu flight%s", summary.flight_count, summary.flight_count == 1 ? "" : "s");
     snprintf(archived, sizeof(archived), "%zu archived", summary.archive_count);
 
+    struct Tile
+    {
+        const char *icon;
+        const char *title;
+        const char *subtitle;
+        Screen      target;
+    };
+    const Tile tiles[] = {
+        {ICON_FA_PLANE_DEP, "LIVE", live_subtitle(live), Screen::Live},
+        {ICON_FA_BOOK, "LOGBOOK", flights, Screen::Logbook},
+        {ICON_FA_ARCHIVE, "ARCHIVE", archived, Screen::Archive},
+        {ICON_FA_FILE_LINES, "REPORTS", "Month, year, all time", Screen::Reports},
+        {ICON_FA_GEAR, "SETTINGS", summary.auto_qnh_on ? "Auto QNH on" : "Auto QNH off", Screen::Settings},
+    };
+    constexpr int columns = 3;
+    constexpr int rows    = 2;
+
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const float  gap       = Theme::scaled(16.f);
+
+    // As square as the window allows. The grid has to fit the panel exactly or it
+    // scrolls on every frame, so item spacing is pinned to the gap and no extra spacers
+    // are emitted — the row break already provides the vertical gap.
+    const float  tile_w = std::floor((available.x - gap * (columns - 1)) / columns);
+    const float  tile_h = std::floor(std::min(tile_w, (available.y - gap * (rows - 1)) / rows));
+    const ImVec2 tile{tile_w, std::max(Theme::scaled(90.f), tile_h)};
+
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(gap, gap));
-
-    if (Ui::icon_tile(ICON_FA_PLANE_DEP, "LIVE", live_subtitle(live), tile))
-        screen = Screen::Live;
-    ImGui::SameLine();
-    if (Ui::icon_tile(ICON_FA_BOOK, "LOGBOOK", flights, tile))
-        screen = Screen::Logbook;
-
-    if (Ui::icon_tile(ICON_FA_ARCHIVE, "ARCHIVE", archived, tile))
-        screen = Screen::Archive;
-    ImGui::SameLine();
-    if (Ui::icon_tile(ICON_FA_GEAR, "SETTINGS", summary.auto_qnh_on ? "Auto QNH on" : "Auto QNH off", tile))
-        screen = Screen::Settings;
-
+    for (int i = 0; i < static_cast<int>(std::size(tiles)); ++i)
+    {
+        if (i % columns != 0)
+            ImGui::SameLine();
+        if (Ui::icon_tile(tiles[i].icon, tiles[i].title, tiles[i].subtitle, tile))
+            screen = tiles[i].target;
+    }
     ImGui::PopStyleVar();
 }
