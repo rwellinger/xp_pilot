@@ -19,6 +19,8 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
     ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
     ${CMAKE_SOURCE_DIR}/src/flight_store.cpp
+    ${CMAKE_SOURCE_DIR}/src/flight_state_machine.cpp
+    ${CMAKE_SOURCE_DIR}/src/landing_detector.cpp
     ${CMAKE_SOURCE_DIR}/src/settings_migration.cpp
     ${CMAKE_SOURCE_DIR}/src/settings_profiles.cpp
     ${CMAKE_SOURCE_DIR}/src/map_overlay_cache.cpp
@@ -41,6 +43,9 @@ add_executable(xp_pilot_tests
     test_settings_profiles.cpp
     test_ui_render.cpp
     test_flight_legs.cpp
+    test_flight_session.cpp
+    test_flight_state_machine.cpp
+    test_landing_detector.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE

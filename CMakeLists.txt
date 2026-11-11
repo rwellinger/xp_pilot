@@ -42,6 +42,8 @@ add_library(xp_pilot MODULE
     src/auto_qnh.cpp
     src/airport_lookup.cpp
     src/flight_logger.cpp
+    src/flight_state_machine.cpp
+    src/landing_detector.cpp
     src/flight_store.cpp
     src/flight_store_migration.cpp
     src/html_report.cpp
