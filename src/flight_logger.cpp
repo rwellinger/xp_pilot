@@ -20,9 +20,12 @@
 #include "city_data.hpp"
 #include "flight_logger.hpp"
 #include "flight_logger_logic.hpp"
+#include "flight_session.hpp"
+#include "flight_state_machine.hpp"
 #include "flight_store.hpp"
 #include "flight_store_migration.hpp"
 #include "html_report.hpp"
+#include "landing_detector.hpp"
 #include "sim_clock.hpp"
 #include "ui_landing_popup.hpp"
 #include "ui_overlay.hpp"
@@ -35,7 +38,6 @@
 // Keep these explicit: MSVC needs them; Clang often pulls them in transitively and flags them unused.
 #include <cstdio> // snprintf
 #include <ctime>  // std::time, time_t
-#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>
@@ -582,94 +584,7 @@ bool FlightLogger::replay_last_landing_popup()
 // LANDING DETECTION
 // ════════════════════════════════════════════════════════════════
 
-// Ring buffer for windowed averaging
-struct RingBuf
-{
-    std::deque<float> vals;
-    std::deque<float> times;
-    int               size;
-    RingBuf(int n) noexcept : size(n) {}
-    void push(float v, float t)
-    {
-        vals.push_front(v);
-        times.push_front(t);
-        while (static_cast<int>(vals.size()) > size)
-        {
-            vals.pop_back();
-            times.pop_back();
-        }
-    }
-    float avg() const
-    {
-        if (vals.empty())
-            return 0.f;
-        float s = 0.f;
-        for (auto v : vals)
-            s += v;
-        return s / static_cast<float>(vals.size());
-    }
-    float tspan() const
-    {
-        if (times.size() < 2)
-            return 0.f;
-        return times.front() - times.back();
-    }
-    void clear()
-    {
-        vals.clear();
-        times.clear();
-    }
-};
-
-static RingBuf     s_agl_buf{30};
-static RingBuf     s_g_buf{30};
-// Attitude at the moment of contact decides a rotorcraft landing, and a single jittery
-// frame should not decide it — so both are smoothed the same way as the G-force.
-static RingBuf     s_roll_buf{30};
-static RingBuf     s_yaw_rate_buf{30};
-static float       s_float_timer = 0;
-static float       s_float_final = 0;
-static bool        s_prev_on_any = false;
-static bool        s_prev_on_all = false;
-static bool        s_ld_armed    = false;
-static LandingData s_ld_captured;
-static bool        s_ld_captured_valid = false;
-static int         s_bounce_count      = 0;     // Touchdowns nach dem ersten, vor Bug-Touchdown
-static float       s_worst_fpm_mag     = 0.f;   // |fpm| des bisher schlechtesten Touchdowns
-static bool        s_main_gear_lifted  = false; // wahr, sobald Hauptfahrwerk nach erstem Touchdown abgehoben hat
-static float       s_max_agl_since_td  = 0.f;   // [ft] max. AGL seit letztem Hauptfahrwerk-Touchdown
-
-// 50-ft-Gate: Zustand des Anflugs beim Kreuzen von 50 ft AGL im Sinkflug.
-static constexpr float GATE_AGL_M = 15.24f; // 50 ft
-static bool            s_gate_captured = false;
-static float           s_gate_ias_kts  = 0.f;
-static float           s_gate_fpm      = 0.f;
-static float           s_gate_flap_ratio = 0.f;
-static float           s_prev_agl_m    = 0.f; // Vorframe-Werte für die Gate-Interpolation
-static float           s_prev_ias_kts  = 0.f;
-static float           s_prev_vs_fpm   = 0.f;
-
-static std::string eval_flare(float Q, float Qrad)
-{
-    float qrate = std::abs(Q);
-    if (qrate <= 1.f)
-        return "Very good flare";
-    std::string r = (qrate > 2.f) ? "Poor, " : "Good, but ";
-    r += (Q < 0) ? "late" : "early";
-    if (std::abs(Qrad) > 1.f)
-        r = "Aggressive, " + r;
-    return r + " flare";
-}
-
-static std::string eval_rating(const LandingData &ld, const std::array<int, 4> &p)
-{
-    FlightLoggerLogic::FixedWingTouchdown touchdown;
-    touchdown.descent_fpm   = ld.fpm;
-    touchdown.g_force       = ld.g_force;
-    touchdown.crosswind_kts = static_cast<float>(ld.crosswind_kts);
-    touchdown.wind          = wind_condition_from_string(ld.wind_status);
-    return FlightLoggerLogic::rating_label(FlightLoggerLogic::fixed_wing_rating_index(touchdown, p));
-}
+static LandingDetector s_landing;
 
 static void calc_wind(float spd, float wind_dir, float hdg, float &hw_out, float &xw_out)
 {
@@ -678,192 +593,92 @@ static void calc_wind(float spd, float wind_dir, float hdg, float &hw_out, float
     xw_out      = spd * std::sin(angle);
 }
 
-static void landing_arm()
-{
-    s_agl_buf.clear();
-    s_g_buf.clear();
-    s_roll_buf.clear();
-    s_yaw_rate_buf.clear();
-    s_float_timer       = 0;
-    s_float_final       = 0;
-    s_ld_armed          = true;
-    s_ld_captured       = {};
-    s_ld_captured_valid = false;
-    // Seeded from the sim rather than assumed airborne: a touchdown is a rising edge of
-    // gear contact, and an aircraft armed while still on the ground has not landed.
-    s_prev_on_any       = dr_i(dr_onground) != 0;
-    s_prev_on_all       = dr_i(dr_onground_all) != 0;
-    s_bounce_count      = 0;
-    s_worst_fpm_mag     = 0.f;
-    s_main_gear_lifted  = false;
-    s_max_agl_since_td  = 0.f;
-    s_gate_captured     = false;
-    s_gate_ias_kts      = 0.f;
-    s_gate_fpm          = 0.f;
-    s_gate_flap_ratio   = 0.f;
-    s_prev_agl_m        = 0.f;
-    s_prev_ias_kts      = 0.f;
-    s_prev_vs_fpm       = 0.f;
-}
 
 // ════════════════════════════════════════════════════════════════
 // STATE MACHINE
 // ════════════════════════════════════════════════════════════════
 
-enum class State : uint8_t
-{
-    Idle,
-    Rolling,
-    Airborne,
-    Landed,
-    Shutdown
-};
-
-static State                    s_state = State::Idle;
-static float                    s_seconds_on_ground    = 0.f; // continuous, active sim time
-static float                    s_seconds_off_ground   = 0.f; // continuous, active sim time
-static bool                     s_settled_since_placed = false;
-static std::string              s_departure_icao;
-static double                   s_departure_lat = 0, s_departure_lon = 0;
-static std::string              s_arrival_icao;
-static std::string              s_aircraft_icao;
-static std::string              s_aircraft_tail;
-static bool                     s_is_rotorcraft   = false;
-// Resolved when recording starts and kept for the flight: the airframe datarefs the
-// classification reads describe the loaded aircraft, not the one a stored flight flew.
-static FlightLogger::ResolvedProfile s_landing_profile;
-static time_t                   s_start_time      = 0;
-static time_t                   s_end_time        = 0;
-static int                      s_max_altitude_ft = 0;
-static int                      s_max_speed_kts   = 0;
-static std::vector<TrackPoint>  s_track;
-static std::vector<LandingData> s_landings;
-static std::string              s_last_gnd_apt;
-static int                      s_prev_any_eng = -1; // -1 = unknown
-
-// Flight time excluding sim pause: only frames with sim/time/paused == 0 are counted,
-// so a flight parked in pause for hours no longer inflates the block time.
-static double                  s_active_seconds     = 0.0;
-static double                  s_total_seconds      = 0.0;
-static double                  s_last_sample_active = 0.0;
-static std::vector<PauseEvent> s_pauses;
-// Flight clocks as they stood at the most recent landing, so a session that ends in
-// the air can still be saved up to that landing.
-static double                  s_active_seconds_at_last_landing = 0.0;
-static double                  s_total_seconds_at_last_landing  = 0.0;
-
-static constexpr float GS_ROLLING_MPS     = 15.4f; // 30 kts
-static constexpr float GS_TAXI_STOP_MPS   = 2.6f;  // 5 kts
-static constexpr float AGL_AIRBORNE_M     = 15.0f; // ~50 ft (fixed-wing climb-out)
-
-// X-Plane places a freshly loaded aircraft slightly above the ground and lets it drop.
-// For a helicopter, which starts recording the moment it is off the ground, that drop
-// would be a flight with a hard landing — so lift-off only counts once it has stood
-// on the ground this long since it was placed.
-static constexpr float HELI_GROUND_SETTLE_SEC = 3.0f;
-
-// AGL alone cannot tell a hovering helicopter from one standing on an elevated pad, so
-// rotorcraft go by skid contact instead.
-static bool rotorcraft_lifted_off()
-{
-    return s_seconds_off_ground >= FlightLoggerLogic::ROTORCRAFT_LIFTOFF_CONFIRM_SEC;
-}
+static FlightSession                     s_session;
+static FlightStateMachine::GroundContact s_ground_contact;
+static FlightStateMachine::PauseTracker  s_pause_tracker;
+static std::string                       s_last_gnd_apt;
+static int                               s_prev_any_eng = -1; // -1 = unknown
 
 // Guards the rating paths against a session whose profile was never resolved, which
 // would otherwise silently rate against the wrong thresholds.
-static FlightLogger::ResolvedProfile session_landing_profile()
+static FlightLogger::ResolvedProfile session_landing_profile(const FlightSession &session)
 {
-    if (!s_landing_profile.name.empty())
-        return s_landing_profile;
-    return get_rating_profile(s_aircraft_icao, s_is_rotorcraft);
+    if (!session.landing_profile.name.empty())
+        return session.landing_profile;
+    return get_rating_profile(session.aircraft_icao, session.is_rotorcraft);
 }
 
-static void session_reset()
-{
-    s_state = State::Idle;
-    s_departure_icao.clear();
-    s_departure_lat = s_departure_lon = 0;
-    s_arrival_icao.clear();
-    s_aircraft_icao.clear();
-    s_aircraft_tail.clear();
-    s_is_rotorcraft   = false;
-    s_landing_profile = {};
-    s_start_time = s_end_time = 0;
-    s_active_seconds = s_last_sample_active = s_total_seconds = 0.0;
-    s_active_seconds_at_last_landing = s_total_seconds_at_last_landing = 0.0;
-    s_max_altitude_ft = s_max_speed_kts = 0;
-    s_track.clear();
-    s_landings.clear();
-    s_pauses.clear();
-}
+static void session_reset() { s_session.reset(); }
 
 // Block time is the accumulated active (unpaused) flight time; the pause total is
 // what the wall clock ran beyond it.
-static int block_time_seconds() { return static_cast<int>(std::lround(s_active_seconds)); }
-static int block_time_minutes() { return static_cast<int>(s_active_seconds / 60.0); }
+static int block_time_seconds() { return static_cast<int>(std::lround(s_session.active_seconds)); }
+static int block_time_minutes() { return static_cast<int>(s_session.active_seconds / 60.0); }
 
-static int paused_seconds() { return FlightLoggerLogic::paused_seconds(s_total_seconds, s_active_seconds); }
+static int paused_seconds()
+{
+    return FlightLoggerLogic::paused_seconds(s_session.total_seconds, s_session.active_seconds);
+}
 
 static void finalize_flight();
 static void end_session_on_placement();
 
 // ── Per-frame data shared across state handlers ──────────────────────────────
 
-struct Frame
+// The one place the state machine and landing detection read the sim, so every step of a
+// frame sees the same values and the logic behind it can run on synthetic frames in tests.
+static FrameInput read_frame()
 {
-    float gs        = 0;
-    float agl       = 0;
-    float localtime = 0;
-    float gforce    = 0;
-    bool  on_gnd    = false;
-    int   paused    = 0;
-    int   in_replay = 0;
-};
-
-static Frame read_frame()
-{
-    Frame f;
-    f.gs        = dr_f(dr_gs);
-    f.on_gnd    = dr_i(dr_onground) != 0;
-    f.agl       = dr_f(dr_agl);
-    f.localtime = dr_f(dr_localtime);
-    f.gforce    = dr_f(dr_gforce);
-    f.paused    = dr_i(dr_paused);
-    f.in_replay = dr_i(dr_in_replay);
+    FrameInput f;
+    f.ground_speed_mps   = dr_f(dr_gs);
+    f.agl_m              = dr_f(dr_agl);
+    f.local_time_sec     = dr_f(dr_localtime);
+    f.g_force            = dr_f(dr_gforce);
+    f.on_any_gear        = dr_i(dr_onground) != 0;
+    f.on_all_gear        = dr_i(dr_onground_all) != 0;
+    f.paused             = dr_i(dr_paused);
+    f.in_replay          = dr_i(dr_in_replay);
+    f.ias_kts            = dr_f(dr_ias);
+    f.vertical_speed_fpm = dr_f(dr_vertfpm);
+    f.latitude           = dr_d(dr_lat);
+    f.longitude          = dr_d(dr_lon);
+    f.elevation_m        = dr_d(dr_elevation);
+    f.roll_deg           = dr_f(dr_roll);
+    f.yaw_rate_deg_s     = dr_f(dr_yaw_rate);
+    f.pitch_deg          = dr_f(dr_Q);
+    f.pitch_rate_deg_s   = dr_f(dr_Qrad);
+    f.flap_handle_ratio  = dr_f(dr_flap_handle);
+    f.sim_seconds        = SimClock::seconds();
+    f.wall_time          = std::time(nullptr);
     return f;
 }
 
 // The frame values go with every transition, so an unexpected recording can be
 // explained from Log.txt alone.
-static void log_transition(const char *transition, const Frame &f)
+static void log_transition(const char *transition, const FrameInput &f)
 {
     char msg[160];
     snprintf(msg, sizeof(msg), "[xp_pilot] State: %s (on_gnd=%d agl=%.1f m gs=%.1f m/s)\n", transition,
-             f.on_gnd ? 1 : 0, static_cast<double>(f.agl), static_cast<double>(f.gs));
+             f.on_any_gear ? 1 : 0, static_cast<double>(f.agl_m), static_cast<double>(f.ground_speed_mps));
     XPLMDebugString(msg);
 }
 
 // ── Airport caching ──────────────────────────────────────────────────────────
 
-static void cache_airport_when_stationary(const Frame &f)
+static void cache_airport_when_stationary(const FrameInput &f)
 {
-    if (!f.on_gnd || f.gs >= GS_TAXI_STOP_MPS)
+    if (!f.on_any_gear || f.ground_speed_mps >= FlightStateMachine::GROUND_SPEED_TAXI_STOP_MPS)
         return;
     auto apt = get_airport_id();
     if (!apt.empty())
         s_last_gnd_apt = apt;
 }
 
-static void track_ground_contact(const Frame &f, float elapsed_real_sec)
-{
-    const bool sim_running = f.paused == 0 && f.in_replay == 0;
-    s_seconds_on_ground =
-        FlightLoggerLogic::continuous_active_seconds(s_seconds_on_ground, f.on_gnd, sim_running, elapsed_real_sec);
-    s_seconds_off_ground =
-        FlightLoggerLogic::continuous_active_seconds(s_seconds_off_ground, !f.on_gnd, sim_running, elapsed_real_sec);
-    if (s_seconds_on_ground >= HELI_GROUND_SETTLE_SEC)
-        s_settled_since_placed = true;
-}
 
 static void handle_engine_edge_detection(bool on_gnd)
 {
@@ -892,118 +707,10 @@ static void handle_engine_edge_detection(bool on_gnd)
 
 // ── State handlers ───────────────────────────────────────────────────────────
 
-static void record_liftoff_point()
-{
-    s_departure_lat = dr_d(dr_lat);
-    s_departure_lon = dr_d(dr_lon);
-}
 
-static void handle_idle_state(const Frame &f)
-{
-    const std::string icao  = dr_str(dr_acf_icao);
-    const std::string pname = get_profile_name(icao);
-    // X-Plane knows the airframe category itself, so an unlisted ICAO no longer ends up
-    // in the fixed-wing path — where a helicopter lifting off from a hover would never
-    // reach the rolling speed that starts a recording.
-    const bool is_heli = get_profile_category(pname) == "rotorcraft" || dr_i(dr_is_heli) != 0;
 
-    if (is_heli)
-    {
-        // Helicopters skip the Rolling phase — flight starts once the skids have left the ground.
-        if (!rotorcraft_lifted_off() || !s_settled_since_placed)
-            return;
 
-        s_is_rotorcraft   = true;
-        s_aircraft_icao   = icao;
-        s_landing_profile = resolve_landing_profile(icao, true);
-        s_aircraft_tail  = dr_str(dr_acf_tail);
-        s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
-        s_start_time     = std::time(nullptr);
-        s_state          = State::Airborne;
-        record_liftoff_point();
-        landing_arm();
-        if (s_write_enabled)
-            Overlay::show("REC  Flight recording started", 5.f);
-        log_transition("Idle -> Airborne (rotorcraft, skipped Rolling)", f);
-        return;
-    }
 
-    if (f.gs <= GS_ROLLING_MPS || !f.on_gnd)
-        return;
-
-    s_is_rotorcraft   = false;
-    s_aircraft_icao   = icao;
-    s_landing_profile = resolve_landing_profile(icao, false);
-    s_aircraft_tail  = dr_str(dr_acf_tail);
-    s_departure_icao = !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
-    s_start_time     = std::time(nullptr);
-    s_state          = State::Rolling;
-    log_transition("Idle -> Rolling", f);
-}
-
-static void handle_rolling_state(const Frame &f)
-{
-    if (f.agl <= AGL_AIRBORNE_M)
-        return;
-
-    s_last_sample_active = s_active_seconds;
-    if (s_departure_icao.empty())
-        s_departure_icao = get_airport_id();
-    s_state = State::Airborne;
-    record_liftoff_point();
-    landing_arm();
-    if (s_write_enabled)
-        Overlay::show("REC  Flight recording started", 5.f);
-    log_transition("Rolling -> Airborne", f);
-}
-
-// Sample track/max-stats every 10 seconds of active flight time while airborne (writer
-// only). Pausing the sim pauses the sampler, which keeps the report's altitude/speed
-// charts — they derive their time axis from the sample index — on a true 10 s grid.
-static void update_track_sample()
-{
-    if (!s_write_enabled)
-        return;
-    if (s_active_seconds - s_last_sample_active < 10.0)
-        return;
-
-    s_last_sample_active = s_active_seconds;
-    time_t     now       = std::time(nullptr);
-    int        alt_ft    = static_cast<int>(dr_d(dr_elevation) * 3.28084);
-    int        spd_kts = static_cast<int>(std::lround(dr_f(dr_ias)));
-    int        vs      = static_cast<int>(dr_f(dr_vertfpm));
-
-    // Dropping an implausible sample leaves a 10 s hole in the chart's time axis. That
-    // is the cheaper error: a garbage reading would otherwise stick in the maximum for
-    // the rest of the flight.
-    const bool has_previous = !s_track.empty();
-    if (!FlightLoggerLogic::is_plausible_speed_sample(spd_kts, has_previous ? s_track.back().spd_kts : 0,
-                                                      has_previous))
-        return;
-
-    TrackPoint tp;
-    tp.t       = now;
-    tp.lat     = dr_d(dr_lat);
-    tp.lon     = dr_d(dr_lon);
-    tp.alt_ft  = alt_ft;
-    tp.spd_kts = spd_kts;
-    tp.vs_fpm  = vs;
-    s_track.push_back(tp);
-    if (alt_ft > s_max_altitude_ft)
-        s_max_altitude_ft = alt_ft;
-    if (spd_kts > s_max_speed_kts)
-        s_max_speed_kts = spd_kts;
-}
-
-// Vertical speed derived from the AGL ring buffer — smoother than the raw dataref,
-// which spikes on gear compression. Falls back to the dataref while the buffer fills.
-static float smoothed_vertical_speed_fpm(float agl_m)
-{
-    const float tspan = s_agl_buf.tspan();
-    if (tspan <= 0.f)
-        return dr_f(dr_vertfpm);
-    return ((agl_m - s_agl_buf.avg()) / (tspan / 2.f)) * 196.85f;
-}
 
 // How the aircraft was configured when it arrived. Recorded as context rather than as a
 // rating criterion — "Flaps 30, gear down, speedbrake armed" explains a landing that the
@@ -1014,7 +721,6 @@ static void fill_configuration(LandingData &ld)
     ld.gear_retractable  = dr_i(dr_gear_retract) != 0;
     ld.gear_deploy_ratio = gear_deploy_ratio_min();
     ld.flap_ratio        = dr_f(dr_flap_deploy);
-    ld.gate_flap_ratio   = s_gate_flap_ratio;
     ld.speedbrake_ratio  = dr_f(dr_speedbrake);
     // Flight-director-only counts as hand-flown; the master must be engaged for an autoland.
     ld.autopilot_engaged = dr_i(dr_autopilot) >= 2;
@@ -1022,9 +728,9 @@ static void fill_configuration(LandingData &ld)
 
 // Weather at the airport, not at the aircraft: the cloud base is reported MSL, so it only
 // becomes a ceiling once referenced to the elevation the aircraft just touched down at.
-static void fill_weather(LandingData &ld, const Frame &f)
+static void fill_weather(LandingData &ld, const FrameInput &f)
 {
-    const float field_elevation_m = static_cast<float>(dr_d(dr_elevation)) - f.agl;
+    const float field_elevation_m = static_cast<float>(f.elevation_m) - f.agl_m;
 
     ld.visibility_m        = dr_f(dr_visibility_sm) * 1609.344f;
     ld.has_ceiling         = ceiling_above_field_ft(field_elevation_m, ld.ceiling_ft_agl);
@@ -1035,15 +741,13 @@ static void fill_weather(LandingData &ld, const Frame &f)
                    : MeteoCondition::Vmc;
 }
 
-// Fill the airframe-agnostic landing metrics (vertical speed, G, wind). Fixed-wing
-// callers layer pitch/flare/float on top; rotorcraft callers don't.
-static void fill_landing_metrics(LandingData &ld, const Frame &f)
+// What the sim knows about a touchdown beyond the frame: heading, wind, configuration and
+// weather. The kinematics come from LandingDetection.
+static void describe_touchdown_conditions(LandingData &ld, const FrameInput &f)
 {
     const float wind_spd = dr_f(dr_wind_spd);
     const float wind_dir = dr_f(dr_wind_dir);
     const float magpsi   = dr_f(dr_magpsi);
-
-    const float gVS = smoothed_vertical_speed_fpm(f.agl);
 
     float hw = 0.f, xw = 0.f;
     calc_wind(wind_spd, wind_dir, magpsi, hw, xw);
@@ -1051,16 +755,7 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
                           : (wind_spd < 6.f) ? WindCondition::Light
                                              : WindCondition::Steady;
 
-    ld.fpm              = gVS;
-    ld.g_force          = s_g_buf.avg();
-    ld.agl_ft           = f.agl * 3.28084f;
-    ld.ias_kts          = dr_f(dr_ias);
-    ld.ground_speed_kts = dr_f(dr_gs) * 1.94384f;
-    ld.bank_deg         = s_roll_buf.avg();
-    ld.yaw_rate_deg_s   = s_yaw_rate_buf.avg();
-    ld.lat              = dr_d(dr_lat);
-    ld.lon              = dr_d(dr_lon);
-    ld.heading_true     = dr_f(dr_truepsi);
+    ld.heading_true   = dr_f(dr_truepsi);
     ld.wind_speed_kts = static_cast<int>(std::lround(wind_spd));
     ld.wind_dir_mag   = static_cast<int>(std::lround(wind_dir));
     ld.wind_status    = wind_condition_to_string(wcond);
@@ -1072,281 +767,55 @@ static void fill_landing_metrics(LandingData &ld, const Frame &f)
     fill_weather(ld, f);
 }
 
-// Record landing metrics when main gear touches down. On bounces (multiple main-gear
-// touchdowns before the nose gear settles), the *worst* touchdown's metrics win — so
-// the rating reflects the hardest impact rather than the cushioned final settle.
-static void capture_main_gear_touchdown(const Frame &f, bool on_any)
+static bool flight_in_progress() { return s_session.in_progress(); }
+
+// Logs each pause so an unexpected block time can be traced from Log.txt without
+// picking the flight JSON apart.
+static void record_pause_release(const FrameInput &f)
 {
-    if (!s_ld_armed || s_prev_on_any || !on_any)
+    if (!FlightStateMachine::record_pause_release(s_pause_tracker, s_session, f))
         return;
 
-    // Bounce-Klassifikation: Wenn schon ein Touchdown erfasst ist, prüfen ob das ein
-    // echter Bounce war (Hauptfahrwerk hat kurz abgehoben, AGL < 5 ft) oder ein
-    // Hop/Mini-T&G (AGL >= 5 ft). Bei einem Hop ignorieren wir den zweiten Touchdown
-    // — der erste bleibt das offizielle Rating, ein späterer Touch-and-Go (AGL > 50 ft)
-    // erzeugt sowieso einen separaten Landing-Eintrag.
-    constexpr float BOUNCE_AGL_LIMIT_FT = 5.f;
-    const bool      is_bounce = s_ld_captured_valid && s_main_gear_lifted && s_max_agl_since_td < BOUNCE_AGL_LIMIT_FT;
-    const bool      is_hop    = s_ld_captured_valid && !is_bounce;
-    if (is_hop)
+    char msg[128];
+    snprintf(msg, sizeof(msg), "[xp_pilot] Sim resumed after %d s (excluded from block time)\n",
+             s_session.pauses.back().sec);
+    XPLMDebugString(msg);
+}
+
+static void announce(const char *message, float seconds)
+{
+    if (s_write_enabled)
+        Overlay::show(message, seconds);
+}
+
+static void react_to_transition(FlightStateMachine::Transition transition, const FrameInput &f)
+{
+    using FlightStateMachine::Transition;
+    switch (transition)
     {
-        s_main_gear_lifted = false;
-        s_max_agl_since_td = 0.f;
+    case Transition::None:
         return;
+    case Transition::ShutdownToIdle:
+        XPLMDebugString("[xp_pilot] State: Shutdown -> Idle\n");
+        return;
+    case Transition::IdleToAirborneRotorcraft:
+    case Transition::RollingToAirborne:
+        announce("REC  Flight recording started", 5.f);
+        break;
+    case Transition::TouchAndGo:
+        announce("REC  Touch-and-Go", 4.f);
+        break;
+    case Transition::AirborneToLanded:
+    case Transition::AirborneToLandedRotorcraft:
+        LandingPopup::post(s_session.landings.back());
+        break;
+    case Transition::IdleToRolling:
+    case Transition::LandedToShutdown:
+        break;
     }
-
-    LandingData candidate;
-    fill_landing_metrics(candidate, f);
-
-    const float Q    = dr_f(dr_Q);
-    const float Qrad = dr_f(dr_Qrad);
-    if (s_float_timer > 0.f && s_float_final == 0.f)
-        s_float_final = static_cast<float>(SimClock::seconds()) - s_float_timer;
-    candidate.pitch_deg    = Q;
-    candidate.pitch_rate   = Qrad;
-    candidate.float_time   = s_float_final;
-    candidate.flare        = eval_flare(Q, Qrad);
-    candidate.gate_ias_kts = s_gate_ias_kts;
-    candidate.gate_fpm     = s_gate_fpm;
-
-    const float fpm_mag = std::abs(candidate.fpm);
-
-    if (is_bounce)
-    {
-        ++s_bounce_count;
-        s_main_gear_lifted = false;
-        s_max_agl_since_td = 0.f;
-        // Nur überschreiben, wenn dieser Touchdown härter war als der bisher schlechteste.
-        if (fpm_mag <= s_worst_fpm_mag)
-            return;
-    }
-
-    s_ld_captured       = std::move(candidate);
-    s_ld_captured_valid = true;
-    s_worst_fpm_mag     = fpm_mag;
-}
-
-static void complete_landing(const Frame &f, const char *transition)
-{
-    s_landings.push_back(s_ld_captured);
-    s_arrival_icao                   = s_ld_captured.airport_icao;
-    s_active_seconds_at_last_landing = s_active_seconds;
-    s_total_seconds_at_last_landing  = s_total_seconds;
-    s_state                          = State::Landed;
-    LandingPopup::post(s_ld_captured);
-    landing_arm();
-    log_transition(transition, f);
-}
-
-// Finalize landing once the nose gear touches down after the mains.
-static void finalize_landing_on_nose_gear(const Frame &f, bool on_all)
-{
-    if (!s_ld_armed || !s_ld_captured_valid || s_prev_on_all || !on_all)
-        return;
-
-    s_ld_captured.rating = eval_rating(s_ld_captured, session_landing_profile().thresholds);
-    s_ld_captured.time         = std::time(nullptr);
-    s_ld_captured.bounce_count = s_bounce_count;
-    s_ld_captured.airport_icao = get_airport_id_now();
-    AirportLookup::apply_runway_fix(s_ld_captured);
-    complete_landing(f, "Airborne -> Landed");
-}
-
-// Skid-landing helicopters touch down with both contact points simultaneously, so
-// there is no main-gear-then-nose-gear sequence. Capture and finalize the landing
-// in one step on the rising edge of onground_all. Pitch/flare/float don't apply.
-static void capture_helicopter_touchdown(const Frame &f, bool on_all)
-{
-    if (!s_ld_armed || s_prev_on_all || !on_all)
-        return;
-
-    fill_landing_metrics(s_ld_captured, f);
-    s_ld_captured.is_rotorcraft = true;
-
-    FlightLoggerLogic::RotorcraftTouchdown touchdown;
-    touchdown.descent_fpm    = s_ld_captured.fpm;
-    touchdown.drift_kts      = s_ld_captured.ground_speed_kts;
-    touchdown.bank_deg       = s_ld_captured.bank_deg;
-    touchdown.yaw_rate_deg_s = s_ld_captured.yaw_rate_deg_s;
-    touchdown.g_force        = s_ld_captured.g_force;
-    s_ld_captured.rating = FlightLoggerLogic::rating_label(
-        FlightLoggerLogic::rotorcraft_rating_index(touchdown, session_landing_profile().thresholds));
-    s_ld_captured.time         = std::time(nullptr);
-    s_ld_captured.bounce_count = 0;
-    s_ld_captured.airport_icao = get_airport_id_now();
-    s_ld_captured_valid        = true;
-    AirportLookup::apply_runway_fix(s_ld_captured);
-    complete_landing(f, "Airborne -> Landed (rotorcraft)");
-}
-
-// Snapshot speed and descent rate at the 50-ft gate — the point a landing is actually
-// flown against. Interpolated between the two frames straddling the gate: at 20 fps and
-// 700 fpm a single frame spans roughly 3 ft, enough to skew the reading.
-static void capture_fifty_foot_gate(const Frame &f, float ias_kts, float vs_fpm)
-{
-    if (s_gate_captured || !s_ld_armed)
-        return;
-    if (s_prev_agl_m <= GATE_AGL_M || f.agl > GATE_AGL_M)
-        return;
-
-    const float descent = s_prev_agl_m - f.agl;
-    const float ratio   = (descent > 0.f) ? (s_prev_agl_m - GATE_AGL_M) / descent : 0.f;
-
-    s_gate_ias_kts = s_prev_ias_kts + (ias_kts - s_prev_ias_kts) * ratio;
-    s_gate_fpm     = s_prev_vs_fpm + (vs_fpm - s_prev_vs_fpm) * ratio;
-    // The handle rather than the surfaces: a flap selection made at the gate is a late
-    // change even while the surfaces are still travelling.
-    s_gate_flap_ratio = dr_f(dr_flap_handle);
-    s_gate_captured   = true;
-}
-
-static void handle_airborne_state(const Frame &f)
-{
-    update_track_sample();
-
-    const bool on_any = dr_i(dr_onground) != 0;
-    const bool on_all = dr_i(dr_onground_all) != 0;
-
-    if (f.paused == 0)
-    {
-        s_agl_buf.push(f.agl, f.localtime);
-        s_g_buf.push(f.gforce, f.localtime);
-        s_roll_buf.push(dr_f(dr_roll), f.localtime);
-        s_yaw_rate_buf.push(dr_f(dr_yaw_rate), f.localtime);
-    }
-
-    // Fetch the destination's runways early enough that the touchdown frame finds
-    // them cached. ~2000 ft AGL leaves roughly a minute of margin.
-    constexpr float APPROACH_PRELOAD_AGL_M = 610.f;
-    if (!s_is_rotorcraft && f.agl < APPROACH_PRELOAD_AGL_M)
-        AirportLookup::request_runway_preload(get_airport_id());
-
-    if (s_is_rotorcraft)
-    {
-        capture_helicopter_touchdown(f, on_all);
-        s_prev_on_any = on_any;
-        s_prev_on_all = on_all;
-        return;
-    }
-
-    const float ias_kts = dr_f(dr_ias);
-    const float vs_fpm  = smoothed_vertical_speed_fpm(f.agl);
-    capture_fifty_foot_gate(f, ias_kts, vs_fpm);
-    s_prev_agl_m   = f.agl;
-    s_prev_ias_kts = ias_kts;
-    s_prev_vs_fpm  = vs_fpm;
-
-    if (s_ld_armed && f.agl <= GATE_AGL_M && s_float_timer == 0.f)
-        s_float_timer = static_cast<float>(SimClock::seconds());
-
-    capture_main_gear_touchdown(f, on_any);
-
-    // Track lift-off und max. AGL zwischen Hauptfahrwerk-Touchdowns für Bounce-Erkennung.
-    if (s_ld_captured_valid && !on_any)
-    {
-        s_main_gear_lifted     = true;
-        const float agl_ft_now = f.agl * 3.28084f;
-        if (agl_ft_now > s_max_agl_since_td)
-            s_max_agl_since_td = agl_ft_now;
-    }
-
-    finalize_landing_on_nose_gear(f, on_all);
-
-    s_prev_on_any = on_any;
-    s_prev_on_all = on_all;
-}
-
-static bool lifted_off_again(const Frame &f)
-{
-    return s_is_rotorcraft ? rotorcraft_lifted_off() : f.agl > AGL_AIRBORNE_M;
-}
-
-static void handle_landed_state(const Frame &f)
-{
-    if (lifted_off_again(f))
-    {
-        if (!s_landings.empty())
-            s_landings.back().liftoff_time = std::time(nullptr);
-        s_state = State::Airborne;
-        landing_arm();
-        if (s_write_enabled)
-            Overlay::show("REC  Touch-and-Go", 4.f);
-        log_transition("Landed -> Airborne (T&G)", f);
-        return;
-    }
-
-    auto apt = get_airport_id();
-    if (!apt.empty())
-        s_arrival_icao = apt;
-
-    if (f.gs < GS_TAXI_STOP_MPS && shutdown_triggered(s_aircraft_icao))
-    {
-        s_end_time = std::time(nullptr);
-        s_state    = State::Shutdown;
-        log_transition("Landed -> Shutdown", f);
+    log_transition(FlightStateMachine::transition_label(transition), f);
+    if (transition == Transition::LandedToShutdown)
         finalize_flight();
-    }
-}
-
-static void handle_shutdown_state()
-{
-    session_reset();
-    XPLMDebugString("[xp_pilot] State: Shutdown -> Idle\n");
-}
-
-static bool flight_in_progress()
-{
-    return s_state == State::Rolling || s_state == State::Airborne || s_state == State::Landed;
-}
-
-// Flight-loop callbacks keep firing while the sim is paused or in replay, so gate the
-// active accumulator on those datarefs instead of trusting the wall clock. Freezing it
-// also freezes the track sampler, which keeps replayed frames out of the track and out
-// of the max altitude/speed statistics.
-//
-// The total counter runs unconditionally over the same frames, so that the pause total
-// — their difference — stays free of the quantisation noise a whole-second wall clock
-// would introduce.
-static void accumulate_flight_time(const Frame &f, float elapsed_real_sec)
-{
-    if (!flight_in_progress())
-        return;
-
-    s_total_seconds += elapsed_real_sec;
-    if (f.paused == 0 && f.in_replay == 0)
-        s_active_seconds += elapsed_real_sec;
-}
-
-// Records each pause with the position the aircraft was frozen at, so the report can
-// mark it on the route, and logs it so an unexpected block time can be traced from
-// Log.txt without picking the flight JSON apart.
-static void record_pause_release(const Frame &f)
-{
-    static int        prev_paused = 0;
-    static PauseEvent pending;
-
-    if (flight_in_progress())
-    {
-        if (f.paused != 0 && prev_paused == 0)
-        {
-            pending     = PauseEvent{};
-            pending.t   = std::time(nullptr);
-            pending.lat = dr_d(dr_lat);
-            pending.lon = dr_d(dr_lon);
-        }
-        else if (f.paused == 0 && prev_paused != 0 && pending.t != 0)
-        {
-            pending.sec = static_cast<int>(std::time(nullptr) - pending.t);
-            s_pauses.push_back(pending);
-            pending = PauseEvent{};
-
-            char msg[128];
-            snprintf(msg, sizeof(msg), "[xp_pilot] Sim resumed after %d s (excluded from block time)\n",
-                     s_pauses.back().sec);
-            XPLMDebugString(msg);
-        }
-    }
-    prev_paused = f.paused;
 }
 
 // Set while an aircraft change is waiting to be reported. X-Plane blocks for as long as
@@ -1377,6 +846,57 @@ static void log_airframe_now()
     XPLMDebugString(msg);
 }
 
+// The sim behind the state machine: datarefs, landing profiles and the airport lookup.
+class SimEnvironment final : public FlightStateMachine::Environment
+{
+  public:
+    FlightStateMachine::AircraftType identify_aircraft() const override
+    {
+        FlightStateMachine::AircraftType aircraft;
+        aircraft.icao = dr_str(dr_acf_icao);
+        // X-Plane knows the airframe category itself, so an unlisted ICAO no longer ends up
+        // in the fixed-wing path — where a helicopter lifting off from a hover would never
+        // reach the rolling speed that starts a recording.
+        aircraft.is_rotorcraft =
+            get_profile_category(get_profile_name(aircraft.icao)) == "rotorcraft" || dr_i(dr_is_heli) != 0;
+        return aircraft;
+    }
+
+    std::string aircraft_tail() const override { return dr_str(dr_acf_tail); }
+
+    FlightLogger::ResolvedProfile landing_profile(const std::string &icao, bool rotorcraft) const override
+    {
+        return resolve_landing_profile(icao, rotorcraft);
+    }
+
+    std::string departure_airport() const override
+    {
+        return !s_last_gnd_apt.empty() ? s_last_gnd_apt : get_airport_id();
+    }
+
+    std::string nearest_airport() const override { return get_airport_id(); }
+
+    bool shutdown_triggered(const std::string &icao) const override { return ::shutdown_triggered(icao); }
+
+    std::array<int, 4> rating_thresholds(const FlightSession &session) const override
+    {
+        return session_landing_profile(session).thresholds;
+    }
+
+    void describe_conditions(LandingData &landing, const FrameInput &frame) const override
+    {
+        describe_touchdown_conditions(landing, frame);
+    }
+
+    std::string landing_airport() const override { return get_airport_id_now(); }
+
+    void apply_runway_fix(LandingData &landing) const override { AirportLookup::apply_runway_fix(landing); }
+
+    void preload_runways() const override { AirportLookup::request_runway_preload(get_airport_id()); }
+};
+
+static const SimEnvironment s_environment{};
+
 static float triggers_cb(float elapsed_real_sec, float, int, void *)
 {
     // Ahead of the enabled check: the airframe line is a diagnostic and stays useful
@@ -1399,36 +919,22 @@ static float triggers_cb(float elapsed_real_sec, float, int, void *)
     const bool logger_active = s_write_enabled || LandingPopup::enabled();
     if (!logger_active)
     {
-        if (s_state != State::Idle)
+        if (s_session.state != FlightState::Idle)
             session_reset();
         return -1.f;
     }
 
-    const Frame f = read_frame();
-    accumulate_flight_time(f, elapsed_real_sec);
+    const FrameInput f = read_frame();
+    FlightStateMachine::accumulate_flight_time(s_session, f, elapsed_real_sec);
     record_pause_release(f);
     cache_airport_when_stationary(f);
-    track_ground_contact(f, elapsed_real_sec);
-    handle_engine_edge_detection(f.on_gnd);
+    FlightStateMachine::track_ground_contact(s_ground_contact, f, elapsed_real_sec);
+    handle_engine_edge_detection(f.on_any_gear);
 
-    switch (s_state)
-    {
-    case State::Idle:
-        handle_idle_state(f);
-        break;
-    case State::Rolling:
-        handle_rolling_state(f);
-        break;
-    case State::Airborne:
-        handle_airborne_state(f);
-        break;
-    case State::Landed:
-        handle_landed_state(f);
-        break;
-    case State::Shutdown:
-        handle_shutdown_state();
-        break;
-    }
+    // The track only feeds the saved flight, so a popup-only session does not sample it.
+    if (s_write_enabled && s_session.state == FlightState::Airborne)
+        FlightStateMachine::record_track_sample(s_session, f);
+    react_to_transition(FlightStateMachine::step(s_session, s_landing, s_ground_contact, f, s_environment), f);
     return -1.f;
 }
 
@@ -1442,7 +948,7 @@ static FlightData build_flight_data(time_t end_time)
 {
     FlightData fd;
     char       buf[16];
-    struct tm *tm = gmtime(&s_start_time);
+    struct tm *tm = gmtime(&s_session.start_time);
     strftime(buf, sizeof(buf), "%Y-%m-%d", tm);
     fd.date = buf;
     strftime(buf, sizeof(buf), "%H:%M", tm);
@@ -1450,27 +956,27 @@ static FlightData build_flight_data(time_t end_time)
     tm           = gmtime(&end_time);
     strftime(buf, sizeof(buf), "%H:%M", tm);
     fd.end_utc           = buf;
-    fd.departure_icao    = s_departure_icao;
-    fd.departure_lat     = s_departure_lat;
-    fd.departure_lon     = s_departure_lon;
-    fd.arrival_icao      = s_arrival_icao;
-    fd.aircraft_icao     = s_aircraft_icao;
-    fd.aircraft_tail     = s_aircraft_tail;
-    fd.aircraft_category = s_is_rotorcraft ? "rotorcraft" : "fixed_wing";
-    const auto session_profile  = session_landing_profile();
+    fd.departure_icao           = s_session.departure_icao;
+    fd.departure_lat            = s_session.departure_lat;
+    fd.departure_lon            = s_session.departure_lon;
+    fd.arrival_icao             = s_session.arrival_icao;
+    fd.aircraft_icao            = s_session.aircraft_icao;
+    fd.aircraft_tail            = s_session.aircraft_tail;
+    fd.aircraft_category        = s_session.is_rotorcraft ? "rotorcraft" : "fixed_wing";
+    const auto session_profile  = session_landing_profile(s_session);
     fd.landing_profile          = session_profile.name;
     fd.landing_thresholds       = session_profile.thresholds;
     fd.has_landing_thresholds   = true;
-    fd.start_time        = s_start_time;
+    fd.start_time               = s_session.start_time;
     fd.end_time          = end_time;
     fd.block_time_min    = block_time_minutes();
     fd.block_time_sec    = block_time_seconds();
     fd.paused_sec        = paused_seconds();
-    fd.max_altitude_ft   = s_max_altitude_ft;
-    fd.max_speed_kts     = s_max_speed_kts;
-    fd.track             = s_track;
-    fd.landings          = s_landings;
-    fd.pauses            = s_pauses;
+    fd.max_altitude_ft          = s_session.max_altitude_ft;
+    fd.max_speed_kts            = s_session.max_speed_kts;
+    fd.track                    = s_session.track;
+    fd.landings                 = s_session.landings;
+    fd.pauses                   = s_session.pauses;
     return fd;
 }
 
@@ -1537,13 +1043,18 @@ static void save_flight(FlightData fd)
     session_reset();
 }
 
-static void finalize_flight() { save_flight(build_flight_data(s_end_time)); }
+static void finalize_flight()
+{
+    if (FlightStateMachine::close_open_pause(s_pause_tracker, s_session, s_session.end_time))
+        XPLMDebugString("[xp_pilot] Flight saved while paused – pause closed at the save\n");
+    save_flight(build_flight_data(s_session.end_time));
+}
 
 static void save_up_to_last_landing()
 {
-    s_active_seconds = s_active_seconds_at_last_landing;
-    s_total_seconds  = s_total_seconds_at_last_landing;
-    FlightData fd    = build_flight_data(s_landings.back().time);
+    s_session.active_seconds = s_session.active_seconds_at_last_landing;
+    s_session.total_seconds  = s_session.total_seconds_at_last_landing;
+    FlightData fd            = build_flight_data(s_session.landings.back().time);
     FlightLoggerLogic::cut_after_last_landing(fd);
     save_flight(std::move(fd));
 }
@@ -1555,29 +1066,26 @@ static void discard_session()
         Overlay::show("Recording discarded: aircraft repositioned", 6.f, 1.f, 0.6f, 0.2f);
 }
 
-// A new flight or an aircraft reload moves the aircraft without restarting the plugin,
-// so a session still running belongs to the previous flight. Left alone, the aircraft
-// being set down at its new position would read as that flight's landing.
 static void end_session_on_placement()
 {
-    if (!flight_in_progress())
+    using FlightStateMachine::PlacementOutcome;
+    switch (FlightStateMachine::placement_outcome(s_session))
+    {
+    case PlacementOutcome::None:
         return;
-
-    if (s_state == State::Landed)
-    {
+    case PlacementOutcome::SaveFlight:
         XPLMDebugString("[xp_pilot] Aircraft repositioned after landing – saving flight\n");
-        s_end_time = std::time(nullptr);
+        s_session.end_time = std::time(nullptr);
         finalize_flight();
-    }
-    else if (!s_landings.empty())
-    {
+        return;
+    case PlacementOutcome::SaveUpToLastLanding:
         XPLMDebugString("[xp_pilot] Aircraft repositioned in flight – saving up to the last landing\n");
         save_up_to_last_landing();
-    }
-    else
-    {
+        return;
+    case PlacementOutcome::Discard:
         XPLMDebugString("[xp_pilot] Aircraft repositioned before any landing – recording discarded\n");
         discard_session();
+        return;
     }
 }
 
@@ -1665,10 +1173,8 @@ void FlightLogger::note_aircraft_changed() { s_airframe_log_pending = true; }
 
 void FlightLogger::note_aircraft_placed()
 {
-    s_seconds_on_ground    = 0.f;
-    s_seconds_off_ground   = 0.f;
-    s_settled_since_placed = false;
-    s_placement_pending    = true;
+    s_ground_contact.note_placed();
+    s_placement_pending = true;
 }
 
 void FlightLogger::init()
