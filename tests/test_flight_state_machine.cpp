@@ -594,3 +594,54 @@ TEST_CASE("A helicopter lands on the rising edge of full skid contact", "[state_
     CHECK(landing.airport_icao == "LSZB");
     CHECK(recorder.environment.runway_preloads == 0);
 }
+
+TEST_CASE("A pause begun in one session does not leak into the next", "[state_machine][pause]")
+{
+    FlightSession session;
+    session.state = FlightState::Airborne;
+    PauseTracker tracker;
+
+    FrameInput paused = climbing();
+    paused.paused     = 1;
+    FlightStateMachine::record_pause_release(tracker, session, paused);
+
+    // The session ends while paused, and the next one starts on a paused frame.
+    session.reset();
+    FlightStateMachine::record_pause_release(tracker, session, paused);
+    session.state = FlightState::Rolling;
+    FlightStateMachine::record_pause_release(tracker, session, paused);
+
+    FrameInput resumed = parked();
+    resumed.wall_time  = paused.wall_time + 900;
+    CHECK_FALSE(FlightStateMachine::record_pause_release(tracker, session, resumed));
+    CHECK(session.pauses.empty());
+}
+
+TEST_CASE("A flight saved while paused closes the open pause at the save", "[state_machine][pause]")
+{
+    FlightSession session;
+    session.state = FlightState::Landed;
+    PauseTracker tracker;
+
+    FrameInput paused = climbing();
+    paused.paused     = 1;
+    FlightStateMachine::record_pause_release(tracker, session, paused);
+
+    REQUIRE(FlightStateMachine::close_open_pause(tracker, session, paused.wall_time + 120));
+    REQUIRE(session.pauses.size() == 1);
+    CHECK(session.pauses[0].sec == 120);
+    CHECK(session.pauses[0].lat == Catch::Approx(47.46));
+    CHECK(session.pauses[0].lon == Catch::Approx(8.55));
+    CHECK(tracker.pending.t == 0);
+}
+
+TEST_CASE("Saving without an open pause adds none", "[state_machine][pause]")
+{
+    FlightSession session;
+    session.state = FlightState::Landed;
+    PauseTracker tracker;
+    FlightStateMachine::record_pause_release(tracker, session, climbing());
+
+    CHECK_FALSE(FlightStateMachine::close_open_pause(tracker, session, climbing().wall_time + 60));
+    CHECK(session.pauses.empty());
+}

@@ -1043,7 +1043,12 @@ static void save_flight(FlightData fd)
     session_reset();
 }
 
-static void finalize_flight() { save_flight(build_flight_data(s_session.end_time)); }
+static void finalize_flight()
+{
+    if (FlightStateMachine::close_open_pause(s_pause_tracker, s_session, s_session.end_time))
+        XPLMDebugString("[xp_pilot] Flight saved while paused – pause closed at the save\n");
+    save_flight(build_flight_data(s_session.end_time));
+}
 
 static void save_up_to_last_landing()
 {

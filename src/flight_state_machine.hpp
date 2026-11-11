@@ -131,8 +131,13 @@ struct PauseTracker
 };
 
 // Records each pause with the position the aircraft was frozen at. Returns true on the
-// frame a pause ends and lands in session.pauses.
+// frame a pause ends and lands in session.pauses. A pause begun in one session never
+// carries over into the next.
 bool record_pause_release(PauseTracker &tracker, FlightSession &session, const FrameInput &frame);
+
+// A flight saved while the sim is still paused would count the pause in its paused time
+// without a pause of its own. Closes it at end_time; returns true if one was open.
+bool close_open_pause(PauseTracker &tracker, FlightSession &session, time_t end_time);
 
 // One track point every TRACK_SAMPLE_INTERVAL_SEC of active flight time.
 void record_track_sample(FlightSession &session, const FrameInput &frame);

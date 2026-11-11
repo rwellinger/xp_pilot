@@ -2,6 +2,13 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New (unreleased)
+
+  - **Fixed: a flight saved while the sim was paused lost its last pause** — loading a new flight or relocating the aircraft from the pause menu, or shutting down while paused, counted the pause in the **Paused** time but left it off the route, so the report showed paused time without a marker for it. The open pause is now closed at the moment the flight is saved and shown on the map like any other.
+  - **Fixed: a pause could carry over into the next flight** — in rare cases a pause begun in one flight turned up in the following one, with the time and position of the earlier flight. A pause now always belongs to the flight it was taken in.
+  - **General improvements** of stability and maintainability.
+  - No file format change; flight logs stay at `version: 9`.
+
 ### What's New in v1.9.1
 
   - **Fixed: a helicopter could log a flight with a landing without ever taking off** — a single frame without skid contact right after loading was enough to start a recording, and the touchdown check then took the helicopter still standing on the pad for a landing. A lift-off now needs 2 seconds off the ground, counted in unpaused sim time, and a landing needs a real transition from air to ground. Height above terrain no longer counts for helicopters, so an elevated helipad cannot start a flight either.

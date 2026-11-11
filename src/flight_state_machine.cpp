@@ -295,7 +295,9 @@ void accumulate_flight_time(FlightSession &session, const FrameInput &frame, flo
 bool record_pause_release(PauseTracker &tracker, FlightSession &session, const FrameInput &frame)
 {
     bool released = false;
-    if (session.in_progress())
+    if (!session.in_progress())
+        tracker.pending = PauseEvent{};
+    else
     {
         if (frame.paused != 0 && tracker.previous_paused == 0)
         {
@@ -314,6 +316,16 @@ bool record_pause_release(PauseTracker &tracker, FlightSession &session, const F
     }
     tracker.previous_paused = frame.paused;
     return released;
+}
+
+bool close_open_pause(PauseTracker &tracker, FlightSession &session, time_t end_time)
+{
+    if (tracker.pending.t == 0)
+        return false;
+    tracker.pending.sec = static_cast<int>(end_time - tracker.pending.t);
+    session.pauses.push_back(tracker.pending);
+    tracker.pending = PauseEvent{};
+    return true;
 }
 
 // Pausing the sim pauses the sampler, which keeps the report's altitude/speed charts —
