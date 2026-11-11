@@ -17,6 +17,7 @@
  */
 
 #include "html_report.hpp"
+#include "html_common.hpp"
 
 #include <catch2/catch_amalgamated.hpp>
 
@@ -836,4 +837,22 @@ TEST_CASE("HtmlReport::generate: a fixed-wing flight shows no rotorcraft rows", 
     CHECK(html.find("Drift at touchdown") == std::string::npos);
     CHECK(html.find("Bank at touchdown") == std::string::npos);
     CHECK(html.find("Yaw rate at touchdown") == std::string::npos);
+}
+
+TEST_CASE("HtmlReport::generate: the report prints with the simulation-only footer", "[report][print]")
+{
+    fs::path    root  = make_tmp_data_dir();
+    std::string jname = "2026-04-29_LSZB_LSGG_DA42.json";
+
+    std::string html = render_report(parse_flight_json(read_fixture("sample_flight.json"), jname), root, jname);
+
+    CHECK(html.find("window.print()") != std::string::npos);
+    CHECK(html.find("@media print") != std::string::npos);
+    CHECK(html.find("class=\"print-footer\"") != std::string::npos);
+    CHECK(html.find(HtmlCommon::SIM_ONLY_NOTICE) != std::string::npos);
+    // A WebGL map only reaches the printout when its drawing buffer is kept.
+    CHECK(html.find("preserveDrawingBuffer:true") != std::string::npos);
+    CHECK(html.find("addEventListener('beforeprint'") != std::string::npos);
+
+    fs::remove_all(root);
 }

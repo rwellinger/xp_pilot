@@ -18,6 +18,7 @@
 
 #include "html_report.hpp"
 #include "flight_legs.hpp"
+#include "html_common.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -30,6 +31,12 @@
 #include <tuple>
 
 using json = nlohmann::json;
+using HtmlCommon::esc;
+using HtmlCommon::FL_CSS;
+using HtmlCommon::fmt_dur;
+using HtmlCommon::fmt_dur_sec;
+using HtmlCommon::rating_color;
+using HtmlCommon::stat_tile;
 
 // ── Wind condition converters (single source of truth for JSON strings) ──────
 
@@ -117,9 +124,9 @@ std::vector<PauseEvent> resolve_pauses(const FlightData &fd)
     return pauses_from_track_gaps(fd.track);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Shared HTML helpers (declared in html_common.hpp) ─────────────────────────
 
-static std::string esc(const std::string &s)
+std::string HtmlCommon::esc(const std::string &s)
 {
     std::string out;
     out.reserve(s.size());
@@ -139,7 +146,7 @@ static std::string esc(const std::string &s)
     return out;
 }
 
-static std::string fmt_dur(int min)
+std::string HtmlCommon::fmt_dur(int min)
 {
     char buf[32];
     int  h = min / 60, m = min % 60;
@@ -150,9 +157,7 @@ static std::string fmt_dur(int min)
     return buf;
 }
 
-// Second-resolution counterpart to fmt_dur(), used where a pause has to add up exactly:
-// "1h 23m" from an hour on, "8m 12s" below that, "50s" under a minute.
-static std::string fmt_dur_sec(int sec)
+std::string HtmlCommon::fmt_dur_sec(int sec)
 {
     char buf[32];
     if (sec >= 3600)
@@ -164,25 +169,12 @@ static std::string fmt_dur_sec(int sec)
     return buf;
 }
 
-static std::string stat_tile(const std::string &value, const std::string &label)
+std::string HtmlCommon::stat_tile(const std::string &value, const std::string &label)
 {
     return "<div class=\"stat\"><div class=\"val\">" + value + "</div><div class=\"lbl\">" + label + "</div></div>";
 }
 
-// Flights recorded with a sim pause show the full calculation — gross time, pause total,
-// net block time — to the second, so Total minus Paused visibly adds up. Everything else
-// keeps the single, minute-resolution Block Time tile it always had.
-static std::string time_stat_tiles(const FlightData &fd)
-{
-    if (fd.paused_sec <= 0)
-        return stat_tile(fmt_dur(fd.block_time_min), "Block Time");
-
-    return stat_tile(fmt_dur_sec(fd.block_time_sec + fd.paused_sec), "Total") +
-           stat_tile(fmt_dur_sec(fd.paused_sec), "Paused") +
-           stat_tile(fmt_dur_sec(fd.block_time_sec), "Block Time");
-}
-
-static std::string rating_color(const std::string &r)
+std::string HtmlCommon::rating_color(const std::string &r)
 {
     if (r == "BUTTER!")
         return "#ffff00";
@@ -197,29 +189,28 @@ static std::string rating_color(const std::string &r)
     return "#ffffff";
 }
 
-static const char *FL_CSS = R"(
-<style>
-body{background:#1a1a2e;color:#e0e0e0;font-family:sans-serif;margin:0;padding:16px}
-h1{color:#00d4ff}h2{color:#aaa;font-size:1em;font-weight:normal;margin-top:0}
-.stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
-.stat{background:#16213e;border-radius:8px;padding:10px 16px;min-width:120px}
-.stat .val{font-size:1.6em;color:#00d4ff}.stat .lbl{font-size:.8em;color:#888}
-#map{height:420px;border-radius:8px;margin-bottom:8px}
-.legend{color:#888;font-size:.85em;margin:0 0 20px}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:middle}
-.dot-pause{background:#ffcc00}
-canvas{background:#16213e;border-radius:8px}
-.chart-box{position:relative;margin-bottom:20px}
-.lcard{background:#16213e;border-radius:8px;padding:14px 18px;margin-bottom:12px;display:inline-block;min-width:300px}
-.lcard .rat{font-size:1.4em;font-weight:bold;margin-bottom:8px}
-.lcard table{border-collapse:collapse}.lcard td{padding:2px 10px 2px 0}
-.lcard .rwy{width:560px;max-width:100%;height:auto;display:block;margin-top:10px}
-a{color:#00d4ff}table{width:100%;border-collapse:collapse}
-thead tr{color:#888;border-bottom:1px solid #333}
-.dot-touchdown{background:#ff66cc}
-.legs{margin-bottom:20px}.legs td,.legs th{padding:4px 12px 4px 0;text-align:left}
-.badge-heli{background:#3a5;color:#fff;padding:2px 8px;border-radius:4px;font-size:.8em;margin-left:6px;vertical-align:middle}
-</style>)";
+std::string HtmlCommon::print_toolbar_html()
+{
+    return "<div class=\"toolbar\"><button onclick=\"window.print()\">Print / Save as PDF</button></div>";
+}
+
+std::string HtmlCommon::print_footer_html(const std::string &context)
+{
+    return "<div class=\"print-footer\">xp_pilot &bull; " + esc(context) + " &bull; " + SIM_ONLY_NOTICE + "</div>";
+}
+
+// Flights recorded with a sim pause show the full calculation — gross time, pause total,
+// net block time — to the second, so Total minus Paused visibly adds up. Everything else
+// keeps the single, minute-resolution Block Time tile it always had.
+static std::string time_stat_tiles(const FlightData &fd)
+{
+    if (fd.paused_sec <= 0)
+        return stat_tile(fmt_dur(fd.block_time_min), "Block Time");
+
+    return stat_tile(fmt_dur_sec(fd.block_time_sec + fd.paused_sec), "Total") +
+           stat_tile(fmt_dur_sec(fd.paused_sec), "Paused") +
+           stat_tile(fmt_dur_sec(fd.block_time_sec), "Block Time");
+}
 
 // ── Landing card HTML ─────────────────────────────────────────────────────────
 
@@ -721,22 +712,36 @@ constexpr const char *REPORT_CDN_HEAD =
 // style URL ends up inside every generated report, so any credential in it would travel
 // along whenever a report is shared.
 constexpr const char *OPENFREEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+// Kept in the report itself so the licence notice never depends on the tile server. It
+// must match the tile source's own attribution character for character: MapLibre only
+// drops an identical duplicate, so any difference shows the notice twice.
 constexpr const char *MAP_ATTRIBUTION =
-    "<a href=\"https://openfreemap.org\">OpenFreeMap</a> "
-    "<a href=\"https://www.openmaptiles.org/\">&copy; OpenMapTiles</a> Data from "
-    "<a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a>";
+    "<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> "
+    "<a href=\"https://www.openmaptiles.org/\" target=\"_blank\">&copy; OpenMapTiles</a> Data from "
+    "<a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\">OpenStreetMap</a>";
+
+// Chart.js does not resize to the printed page by itself.
+constexpr const char *CHART_PRINT_SCRIPT =
+    "window.addEventListener('beforeprint',function(){charts.forEach(function(c){c.resize();});});";
+
+// Mid greys, readable on the dark screen page and on the white printed one alike — the
+// print colours cannot depend on beforeprint, which not every PDF export fires.
+constexpr const char *CHART_TEXT_COLOR = "#999";
+constexpr const char *CHART_GRID_COLOR = "rgba(128,128,128,.3)";
 
 
 std::string line_chart_js(const char *canvas_id, const char *label, const char *data_var, const char *border_color,
                           const char *fill_color, const char *unit)
 {
     std::ostringstream js;
-    js << "new Chart(document.getElementById('" << canvas_id << "'),{type:'line',data:{labels:lb,datasets:[{label:'"
+    js << "charts.push(new Chart(document.getElementById('" << canvas_id << "'),{type:'line',data:{labels:lb,datasets:[{label:'"
        << label << "',data:" << data_var << ",borderColor:'" << border_color << "',backgroundColor:'" << fill_color
        << "',tension:.3,pointRadius:0,fill:true}]},options:{maintainAspectRatio:false,plugins:{legend:{labels:{color:'"
-          "#e0e0e0',font:{size:13}}}},scales:{x:{ticks:{color:'#aaa',font:{size:12},maxTicksLimit:8},grid:{color:'#"
-          "333'}},y:{beginAtZero:true,ticks:{color:'#aaa',font:{size:12},callback:function(v){return v+' "
-       << unit << "'}},grid:{color:'#333'}}}}});";
+       << CHART_TEXT_COLOR << "',font:{size:13}}}},scales:{x:{ticks:{color:'" << CHART_TEXT_COLOR
+       << "',font:{size:12},maxTicksLimit:8},grid:{color:'" << CHART_GRID_COLOR
+       << "'}},y:{beginAtZero:true,ticks:{color:'" << CHART_TEXT_COLOR
+       << "',font:{size:12},callback:function(v){return v+' " << unit << "'}},grid:{color:'" << CHART_GRID_COLOR
+       << "'}}}}}));";
     return js.str();
 }
 
@@ -752,7 +757,7 @@ std::string map_and_charts_script(const TrackJsArrays &track, const MapMarkers &
        << ",pauses=" << markers.pauses << ",touchdowns=" << markers.touchdowns << ";"
        << "var departureLabel=" << markers.departure << ",arrivalLabel=" << markers.arrival << ";"
        << "var map=new maplibregl.Map({container:'map',style:'" << OPENFREEMAP_STYLE << "',center:[" << clon_s << ","
-       << clat_s << "],zoom:8,attributionControl:false});"
+       << clat_s << "],zoom:8,attributionControl:false,canvasContextAttributes:{preserveDrawingBuffer:true}});"
        << "map.addControl(new maplibregl.AttributionControl({customAttribution:'" << MAP_ATTRIBUTION << "'}));"
        << R"(map.on('load',function(){
 if(!lats.length)return;
@@ -774,10 +779,18 @@ map.on('mouseleave','points',function(){map.getCanvas().style.cursor='';popup.re
        << "var lb=alts.map(function(_,i){var s=i*10;"
           "if(fmt==='ms'){var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}"
           "var h=Math.floor(s/3600),mm=Math.floor((s%3600)/60);return h+':'+(mm<10?'0':'')+mm;});"
+       << "var charts=[];"
        << line_chart_js("ac", "Altitude (ft)", "alts", "#00d4ff", "rgba(0,212,255,.08)", "ft")
        << line_chart_js("sc", "IAS (kts)", "spds", "#ff9900", "rgba(255,153,0,.08)", "kts")
-       << "</script>";
+       << CHART_PRINT_SCRIPT << "</script>";
     return js.str();
+}
+
+// "2026-04-29 LSZB → LSGG DA42 HB-LXY", identifying the flight on every printed page.
+std::string print_context(const FlightData &fd, const FlightLegs::Route &route)
+{
+    return fd.date + " " + FlightLegs::route_text(route, " \xe2\x86\x92 ", false) + " " + fd.aircraft_icao + " " +
+           fd.aircraft_tail;
 }
 
 std::string flight_header_html(const FlightData &fd, const FlightLegs::Route &route)
@@ -812,7 +825,8 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
 
     std::ostringstream html;
     html << "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><title>" << route_html(route, false)
-         << "</title>" << REPORT_CDN_HEAD << FL_CSS << "</head><body>" << flight_header_html(fd, route)
+         << "</title>" << REPORT_CDN_HEAD << FL_CSS << HtmlCommon::PRINT_CSS << "</head><body>"
+         << HtmlCommon::print_toolbar_html() << flight_header_html(fd, route)
          << "<div id=\"map\"></div>"
          << (pauses.empty() ? ""
                             : "<p class=\"legend\"><span class=\"dot dot-pause\"></span>Pause &mdash; sim was "
@@ -824,6 +838,7 @@ std::string HtmlReport::generate(const FlightData &fd, const std::string &data_d
          << "<div class=\"chart-box\" style=\"height:" << sc_height << "px\"><canvas id=\"sc\"></canvas></div>"
          << "<h3>Landing" << (fd.landings.size() > 1 ? "s" : "") << "</h3>" << lcards
          << "<p style=\"color:#444;font-size:.8em\"><a href=\"../index.html\">&larr; All flights</a></p>"
+         << HtmlCommon::print_footer_html(print_context(fd, route))
          << map_and_charts_script(track, markers, time_fmt) << "</body></html>";
 
     std::string   rname = json_filename.substr(0, json_filename.rfind('.')) + ".html";

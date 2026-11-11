@@ -19,6 +19,8 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/runway_data.cpp
     ${CMAKE_SOURCE_DIR}/src/airspace_data.cpp
     ${CMAKE_SOURCE_DIR}/src/flight_store.cpp
+    ${CMAKE_SOURCE_DIR}/src/flight_summary.cpp
+    ${CMAKE_SOURCE_DIR}/src/summary_report.cpp
     ${CMAKE_SOURCE_DIR}/src/flight_state_machine.cpp
     ${CMAKE_SOURCE_DIR}/src/landing_detector.cpp
     ${CMAKE_SOURCE_DIR}/src/settings_migration.cpp
@@ -30,6 +32,7 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/ui_widgets.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_home.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_summary.cpp
     ${IMGUI_TEST_SOURCES}
     test_smoke.cpp
     test_html_report.cpp
@@ -46,6 +49,8 @@ add_executable(xp_pilot_tests
     test_flight_session.cpp
     test_flight_state_machine.cpp
     test_landing_detector.cpp
+    test_flight_summary.cpp
+    test_summary_report.cpp
 )
 
 target_include_directories(xp_pilot_tests PRIVATE

@@ -22,7 +22,7 @@
 #include <cstdint>
 
 // The tablet home screen: a live status band that stays visible on every screen,
-// and the four tiles that lead into the detail screens.
+// and the tiles that lead into the detail screens.
 namespace Home
 {
 
@@ -32,6 +32,7 @@ enum class Screen : std::uint8_t
     Live,
     Logbook,
     Archive,
+    Reports,
     Settings
 };
 
@@ -48,7 +49,7 @@ struct TileSummary
 // Draws the same layout with placeholder values when no flight is running.
 void draw_status_bar(const FlightLogger::LiveFlight &live);
 
-// 2x2 tile grid. Sets `screen` when the user picks one.
+// Tile grid, three across. Sets `screen` when the user picks one.
 void draw_tiles(const FlightLogger::LiveFlight &live, const TileSummary &summary, Screen &screen);
 
 } // namespace Home
