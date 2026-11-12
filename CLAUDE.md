@@ -26,7 +26,7 @@ Modules coordinate through X-Plane's XPLM API:
 - **`flight_logger`** — Core data acquisition. Runs every frame sampling aircraft state via X-Plane datarefs. Saves flight data to `<X-Plane>/Output/x_pilot_reports/flights/` as JSON (resolved via `XPLMGetSystemPath`). Handles aircraft profiles for landing quality thresholds.
 - **`auto_qnh`** — Monitors altimeter settings, syncs to actual QNH, issues warnings for mismatches, and registers X-Plane commands.
 - **`logbook_ui`** — Dear ImGui window displaying flight history from JSON files, with delete/view/regenerate actions.
-- **`ui_about`** — About screen. Thin wrapper around the shared `xp_wellys_about` module (own repo, MIT; also used by thWelly's other plugins), filled in with xp_pilot's license notice. Content changes belong in that repo, not here.
+- **`ui_about`** — About screen. Thin wrapper around the shared `xp_wellys_about` module (own repo, MIT; also used by thWelly's other plugins), filled in with xp_pilot's license notice. Content changes belong in that repo, not here. Not listed in `3part-lizenz.md`: it is our own code, vendored only so one change reaches every plugin.
 - **`html_report`** — Parses flight JSON and generates HTML reports in `<X-Plane>/Output/x_pilot_reports/reports/`.
 
 Each module uses a C++ namespace with `init()` and `stop()` lifecycle functions.
