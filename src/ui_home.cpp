@@ -153,6 +153,7 @@ void Home::draw_tiles(const FlightLogger::LiveFlight &live, const TileSummary &s
         {ICON_FA_ARCHIVE, "ARCHIVE", archived, Screen::Archive},
         {ICON_FA_FILE_LINES, "REPORTS", "Month, year, all time", Screen::Reports},
         {ICON_FA_GEAR, "SETTINGS", summary.auto_qnh_on ? "Auto QNH on" : "Auto QNH off", Screen::Settings},
+        {ICON_FA_USER, "ABOUT", "Developer & plugins", Screen::About},
     };
     constexpr int columns = 3;
     constexpr int rows    = 2;

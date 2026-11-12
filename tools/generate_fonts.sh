@@ -20,7 +20,7 @@ IMGUI_TAG="v1.92.8"          # same pin as the Makefile — Roboto ships in that
 FONT_AWESOME_TAG="6.7.2"
 
 # Icons referenced by the UI. Keep in sync with the ICON_FA_* defines in src/ui_theme.hpp.
-ICON_CODEPOINTS="U+f00c,U+f00d,U+f013,U+f021,U+f02d,U+f053,U+f060,U+f06a,U+f0c8,U+f111,U+f14a,U+f15c,U+f187,U+f1f8,U+f279,U+f2f2,U+f35d,U+f5b0"
+ICON_CODEPOINTS="U+f007,U+f00c,U+f00d,U+f013,U+f021,U+f02d,U+f053,U+f060,U+f06a,U+f0c8,U+f111,U+f14a,U+f15c,U+f187,U+f1f8,U+f279,U+f2f2,U+f35d,U+f5b0"
 
 mkdir -p "$WORK_DIR" "$OUT_DIR"
 cd "$WORK_DIR"

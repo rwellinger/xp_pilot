@@ -221,11 +221,11 @@ The raw distances are stored with the flight, and whether a landing was off-fiel
 
 ## The logbook window
 
-The in-sim window is laid out like a tablet: a live status bar across the top, and a home screen of five tiles that lead into the detail screens.
+The in-sim window is laid out like a tablet: a live status bar across the top, and a home screen of six tiles that lead into the detail screens.
 
 ![Logbook home screen](images/001_home.jpg)
 
-Each tile carries an icon — a departing aircraft for Live, a book for Logbook, an archive box, a document for Reports, and a gear for Settings.
+Each tile carries an icon — a departing aircraft for Live, a book for Logbook, an archive box, a document for Reports, a gear for Settings, and a person for About.
 
 **Status bar** — always visible, on every screen. Shows the aircraft type and tail number, the departure airport and current position, and the live figures: altitude, indicated airspeed, vertical speed and running block time. A red **REC** marks a flight being recorded; between flights it reads **IDLE** and the figures show placeholders, so the bar never changes height.
 
@@ -238,6 +238,7 @@ Each tile carries an icon — a departing aircraft for Live, a book for Logbook,
 | **Archive** | Flights moved out of the active logbook, same layout, delete only |
 | **Reports** | Totals for a month, a year or all time, for all aircraft or one type — landing quality, aircraft, airports, routes and the flight list. **Open Report** opens a printable summary in the browser; archived flights count too |
 | **Settings** | Every feature toggle and the landing-profile assignment for the loaded aircraft, saved immediately to `xp_pilot.prf` |
+| **About** | Who builds xp_pilot, links to [my other X-Plane plugins](https://thwelly.ch/xplane-plugins/) and to [Buy Me a Coffee](https://buymeacoffee.com/thwelly), and the license notice |
 
 **Navigation** — each screen has a **‹ Home** button in its top-left corner. `Esc` steps back to the home screen, and pressing it again on the home screen closes the window. The window can be moved and resized freely, but never beyond the screen edge; its position and size are saved and restored on the next start, and brought back onto the screen if you have since switched to a smaller one. The **UI scale** setting adjusts fonts and spacing in 5% steps and leaves the window itself alone — it only grows a window that has become too small for the chosen scale. **Plugins → xp_pilot → Reset UI Scale & Window Size** restores 100% and the default window from outside the window.
 

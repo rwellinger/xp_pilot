@@ -27,6 +27,7 @@
 #include "settings.hpp"
 #include "ui_flight_list.hpp"
 #include "ui_flight_view.hpp"
+#include "ui_about.hpp"
 #include "ui_home.hpp"
 #include "ui_landing_profiles.hpp"
 #include "ui_summary.hpp"
@@ -387,6 +388,15 @@ static void draw_current_screen(const FlightLogger::LiveFlight &live)
         draw_settings_screen();
         Ui::end_content_panel();
         return;
+
+    case Screen::About:
+        if (Ui::view_header(ICON_FA_USER, "ABOUT THE DEVELOPER"))
+            s_screen = Screen::Home;
+        ImGui::Separator();
+        Ui::begin_content_panel("about_panel");
+        AboutScreen::draw();
+        Ui::end_content_panel();
+        return;
     }
 }
 
@@ -701,6 +711,7 @@ void LogbookUI::stop()
         XPLMDestroyWindow(s_wnd);
         s_wnd = nullptr;
     }
+    AboutScreen::release();
     ImGui_ImplOpenGL2_Shutdown();
     if (s_imgui_ctx)
     {

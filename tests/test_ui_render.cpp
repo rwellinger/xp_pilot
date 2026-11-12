@@ -16,7 +16,9 @@
 #include <cmath>
 #include <fstream>
 #include <imgui.h>
+#include <imgui_internal.h> // ImGui::FindWindowByName
 #include <ios>
+#include <wellys_about.hpp>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -286,7 +288,7 @@ TEST_CASE("every icon define resolves to a glyph in the embedded subset", "[ui]"
     const char *icons[] = {ICON_FA_CHECK,        ICON_FA_XMARK,      ICON_FA_GEAR,     ICON_FA_ROTATE, ICON_FA_BOOK,
                            ICON_FA_CHEVRON_LEFT, ICON_FA_ARROW_LEFT, ICON_FA_WARNING,  ICON_FA_SQUARE, ICON_FA_CIRCLE,
                            ICON_FA_SQUARE_CHECK, ICON_FA_FILE_LINES, ICON_FA_ARCHIVE,  ICON_FA_TRASH,  ICON_FA_MAP,
-                           ICON_FA_STOPWATCH,    ICON_FA_EXTERNAL,   ICON_FA_PLANE_DEP};
+                           ICON_FA_STOPWATCH,    ICON_FA_EXTERNAL,   ICON_FA_PLANE_DEP, ICON_FA_USER};
 
     ImFont      *font  = ImGui::GetIO().Fonts->Fonts[0];
     ImFontBaked *baked = font->GetFontBaked(Theme::font_size_base);
@@ -375,6 +377,55 @@ TEST_CASE("a reports screen frame renders", "[ui]")
     CHECK(action == SummaryScreen::Action::None);
     CHECK(state.summary.flights == 1);
     CHECK(state.periods.back() == FlightSummary::Period::all_time());
+}
+
+TEST_CASE("the about screen renders with and without the photo", "[ui]")
+{
+    ImGuiHeadlessContext ctx;
+
+    const WellysAbout::PluginInfo plugin{
+        "xp_pilot", "1.0.0", "Copyright (C) 2026 thWelly", "GPL-3.0-or-later", {{"Dear ImGui", "MIT"}}};
+    const auto fake_photo = static_cast<ImTextureID>(2);
+
+    for (const ImTextureID photo : {fake_photo, ImTextureID{}})
+    {
+        bool photo_drawn = false;
+        const ImDrawData *draw_data = render_frames(
+            [&]
+            {
+                CHECK_FALSE(Ui::view_header(ICON_FA_USER, "ABOUT THE DEVELOPER"));
+                Ui::begin_content_panel("about_panel");
+                WellysAbout::draw_content(plugin, photo);
+                Ui::end_content_panel();
+            });
+
+        REQUIRE(draw_data != nullptr);
+        CHECK(draw_data->TotalVtxCount > 0);
+        for (const ImDrawList *list : draw_data->CmdLists)
+            for (const ImDrawCmd &command : list->CmdBuffer)
+                photo_drawn = photo_drawn || command.GetTexID() == fake_photo;
+        CHECK(photo_drawn == (photo == fake_photo));
+    }
+}
+
+TEST_CASE("the about window fits its content", "[ui]")
+{
+    ImGuiHeadlessContext ctx;
+
+    const WellysAbout::PluginInfo plugin{"xp_pilot", "1.0.0", "Copyright (C) 2026 thWelly", "GPL-3.0-or-later", {}};
+    bool                          open = true;
+
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        ImGui::NewFrame();
+        WellysAbout::draw_window(open, plugin, static_cast<ImTextureID>(2));
+        ImGui::Render();
+    }
+
+    const ImGuiWindow *window = ImGui::FindWindowByName("About xp_pilot##wellys_about");
+    REQUIRE(window != nullptr);
+    CHECK(open);
+    CHECK(window->ScrollMax.y == 0.f);
 }
 
 TEST_CASE("the home grid fits its panel without scrolling", "[ui]")

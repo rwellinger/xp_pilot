@@ -17,6 +17,7 @@ the obligations that come with it.
 | OpenGL (system framework) | — | Platform API, no bundled implementation | macOS `-framework OpenGL`, Linux/Windows `OpenGL::GL` |
 | [Roboto](https://github.com/googlefonts/roboto) Medium, Latin-1 subset | from Dear ImGui 1.92.8 | Apache-2.0 | `tools/generate_fonts.sh` → `src/fonts/roboto_medium.hpp` (committed) |
 | [Font Awesome Free](https://fontawesome.com) solid, icon subset | 6.7.2 | SIL OFL 1.1 (font), CC BY 4.0 (icons) | `tools/generate_fonts.sh` → `src/fonts/fa_solid.hpp` (committed) |
+| [xp_wellys_about](https://github.com/rwellinger/xp_wellys_about) — own module, About screen | 1.0.0 | MIT (code); profile photo all rights reserved, redistributable only inside thWelly's plugins | `make setup` → `vendor/xp_wellys_about/` |
 
 **Obligations:** MIT, Apache-2.0, OFL 1.1 and the SDK license require the copyright and
 license text to be passed on with the binaries. The release ZIP satisfies that with

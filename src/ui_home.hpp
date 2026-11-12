@@ -33,7 +33,8 @@ enum class Screen : std::uint8_t
     Logbook,
     Archive,
     Reports,
-    Settings
+    Settings,
+    About
 };
 
 // What the tiles show underneath their title. Gathered by the caller so this module

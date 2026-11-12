@@ -33,6 +33,7 @@ add_executable(xp_pilot_tests
     ${CMAKE_SOURCE_DIR}/src/ui_flight_view.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_home.cpp
     ${CMAKE_SOURCE_DIR}/src/ui_summary.cpp
+    ${ABOUT_DIR}/src/about_view.cpp
     ${IMGUI_TEST_SOURCES}
     test_smoke.cpp
     test_html_report.cpp
@@ -60,6 +61,7 @@ target_include_directories(xp_pilot_tests SYSTEM PRIVATE
     ${CATCH2_DIR}
     ${CMAKE_SOURCE_DIR}/vendor
     ${IMGUI_DIR}
+    ${ABOUT_DIR}/src
 )
 
 # Path to the fixtures directory, made available to the test code.

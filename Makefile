@@ -16,8 +16,11 @@ SDK_SENTINEL    := sdk/XPLM/XPLMPlugin.h
 IMGUI_SENTINEL  := vendor/imgui/imgui.h
 JSON_SENTINEL   := vendor/json.hpp
 CATCH2_SENTINEL := vendor/catch2/catch_amalgamated.hpp
+ABOUT_SENTINEL  := vendor/xp_wellys_about/src/wellys_about.hpp
 
 CATCH2_VERSION := 3.15.1
+# Shared "About the developer" page: github.com/rwellinger/xp_wellys_about
+ABOUT_VERSION  := 1.0.0
 
 .PHONY: help all setup build test install format lint sanitize build-windows skunkcrafts release release-build cleanup-tags cleanup-runs clean distclean
 
@@ -31,7 +34,7 @@ help:
 	@echo ""
 	@echo "Common:"
 	@echo "  help            Show this message (default)"
-	@echo "  setup           Download SDK, Dear ImGui, nlohmann/json, Catch2 into sdk/ + vendor/"
+	@echo "  setup           Download SDK, Dear ImGui, nlohmann/json, Catch2, xp_wellys_about into sdk/ + vendor/"
 	@echo "  build           Configure + compile → build/xp_pilot.xpl"
 	@echo "  test            Build and run the Catch2 unit tests"
 	@echo "  install         Code-sign and copy the plugin into X-Plane (mac_x64)"
@@ -56,7 +59,7 @@ help:
 all: format build lint test
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+setup: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	@echo "Setup complete. Run 'make build' to compile."
 
 $(SDK_SENTINEL):
@@ -111,8 +114,20 @@ $(CATCH2_SENTINEL):
 	cp "$$TMP/Catch2-$(CATCH2_VERSION)/extras/catch_amalgamated.cpp" vendor/catch2/
 	@echo "Catch2 installed."
 
+$(ABOUT_SENTINEL):
+	@echo "Downloading xp_wellys_about v$(ABOUT_VERSION)..."
+	@set -euo pipefail; \
+	TMP=$$(mktemp -d); \
+	trap "rm -rf $$TMP" EXIT; \
+	curl -fsSL "https://github.com/rwellinger/xp_wellys_about/archive/refs/tags/v$(ABOUT_VERSION).tar.gz" \
+	     -o "$$TMP/about.tar.gz"; \
+	tar -xzf "$$TMP/about.tar.gz" -C "$$TMP/"; \
+	mkdir -p vendor/xp_wellys_about; \
+	cp -R "$$TMP/xp_wellys_about-$(ABOUT_VERSION)/src" "$$TMP/xp_wellys_about-$(ABOUT_VERSION)/LICENSE" vendor/xp_wellys_about/
+	@echo "xp_wellys_about installed."
+
 # ── Build ─────────────────────────────────────────────────────────────────────
-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	@echo "=== Building xp_pilot ==="
 	cmake -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev
 	cmake --build build --parallel
@@ -174,7 +189,7 @@ format:
 	    exit 1; }
 	clang-format -i src/*.cpp src/*.hpp
 
-lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	@command -v clang-tidy >/dev/null 2>&1 || { \
 	    echo "clang-tidy not found. Install with: brew install llvm"; \
 	    echo "Then add to PATH: export PATH=\"\$$(brew --prefix llvm)/bin:\$$PATH\""; \
@@ -188,7 +203,7 @@ lint: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 # — ASan inside the X-Plane process is fragile on macOS ARM64 (dyld + code
 # signing). For leak / heap analysis of the running plugin, attach
 # Instruments.app to the X-Plane process.
-sanitize: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+sanitize: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	@echo "=== Configuring sanitizer build (ASan + UBSan) ==="
 	cmake -B build-sanitize -DCMAKE_BUILD_TYPE=Debug -DXP_PILOT_SANITIZE=ON -DCMAKE_OSX_ARCHITECTURES=arm64 -Wno-dev
 	@echo "=== Building xp_pilot_tests with ASan + UBSan ==="
@@ -202,7 +217,7 @@ sanitize: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
 	@echo "Sanitizer run clean."
 
 # ── Build (Windows CI) ────────────────────────────────────────────────────────
-build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+build-windows: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	cmake -B build -A x64
 	cmake --build build --config Release
 
@@ -247,7 +262,7 @@ release:
 	@git push origin "v$(VERSION)"
 	@echo "Released v$(VERSION) and pushed tag to origin."
 
-release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL)
+release-build: $(SDK_SENTINEL) $(IMGUI_SENTINEL) $(JSON_SENTINEL) $(CATCH2_SENTINEL) $(ABOUT_SENTINEL)
 	@echo "=== Building xp_pilot (release) ==="
 	cmake -B build -DCMAKE_BUILD_TYPE=Release -DRELEASE=ON -Wno-dev
 	cmake --build build --parallel

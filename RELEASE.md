@@ -2,6 +2,11 @@
 
 Native plugin for **macOS (arm64 + x86_64 universal binary)**, **Linux (x86_64)** and **Windows**. Records flights, generates HTML logbook reports, rates landings, and keeps the altimeter in sync with actual QNH.
 
+### What's New in v1.11.0
+
+  - **About tile** — a sixth tile on the home screen introduces the developer behind xp_pilot, links to my other X-Plane plugins at [thwelly.ch/xplane-plugins](https://thwelly.ch/xplane-plugins/) and to [Buy Me a Coffee](https://buymeacoffee.com/thwelly), and shows the plugin's license and the third-party components it includes.
+  - No file format change; flight logs stay at `version: 9`.
+
 ### What's New in v1.10.0
 
   - **Flight summaries** ([#25](https://github.com/rwellinger/xp_pilot/issues/25)) — a new **Reports** tile on the home screen adds up your flying over a month, a year or all time, for every aircraft or for one type only. Until now the logbook only ever showed one flight at a time.

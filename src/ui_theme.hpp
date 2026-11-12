@@ -27,6 +27,7 @@
 // Icons from the embedded Font Awesome 6 Free Solid subset. Adding one here also
 // means adding its codepoint to ICON_CODEPOINTS in tools/generate_fonts.sh and
 // regenerating src/fonts/fa_solid.hpp.
+#define ICON_FA_USER "\xef\x80\x87"         // f007
 #define ICON_FA_CHECK "\xef\x80\x8c"        // f00c
 #define ICON_FA_XMARK "\xef\x80\x8d"        // f00d
 #define ICON_FA_GEAR "\xef\x80\x93"         // f013

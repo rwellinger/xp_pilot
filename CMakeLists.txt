@@ -35,6 +35,14 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp
 )
 
+# ── xp_wellys_about (downloaded by 'make setup' into vendor/xp_wellys_about) ──
+# The "About the developer" page shared by all of thWelly's plugins.
+set(ABOUT_DIR ${CMAKE_SOURCE_DIR}/vendor/xp_wellys_about)
+set(ABOUT_SOURCES
+    ${ABOUT_DIR}/src/about_view.cpp
+    ${ABOUT_DIR}/src/about_photo.cpp
+)
+
 # ── Plugin target ──────────────────────────────────────────────────────────────
 add_library(xp_pilot MODULE
     src/main.cpp
@@ -68,7 +76,9 @@ add_library(xp_pilot MODULE
     src/ui_overlay.cpp
     src/ui_theme.cpp
     src/ui_widgets.cpp
+    src/ui_about.cpp
     ${IMGUI_SOURCES}
+    ${ABOUT_SOURCES}
 )
 
 # External deps as SYSTEM so compiler warnings and clang-tidy skip them.
@@ -80,6 +90,7 @@ target_include_directories(xp_pilot SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${ABOUT_DIR}/src
 )
 
 file(READ "${CMAKE_SOURCE_DIR}/VERSION.txt" XP_PILOT_VERSION)
